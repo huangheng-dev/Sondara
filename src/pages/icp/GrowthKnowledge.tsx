@@ -24,7 +24,6 @@ import {
   PackageSearch,
   Plus,
   RefreshCw,
-  Search,
   ShieldCheck,
   Target,
   Trash2,

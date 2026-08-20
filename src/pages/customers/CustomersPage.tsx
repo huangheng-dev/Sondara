@@ -24,7 +24,6 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
-  Search,
   Sprout,
   Star,
   UserCheck,

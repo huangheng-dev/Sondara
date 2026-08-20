@@ -1,7 +1,7 @@
 import type { Key, ReactNode } from 'react'
 import { Table, type TableColumnsType } from 'antd'
 
-export type DataTableColumn = {
+type DataTableColumn = {
   key: string
   title: ReactNode
   width?: number | string

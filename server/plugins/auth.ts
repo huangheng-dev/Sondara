@@ -19,11 +19,3 @@ export const requireAdmin = async (request: FastifyRequest, reply: FastifyReply)
     return reply.code(403).send({ error: 'FORBIDDEN', message: '仅工作区所有者或管理员可执行此操作。' })
   }
 }
-
-export const requireOwner = async (request: FastifyRequest, reply: FastifyReply) => {
-  await requireAuth(request, reply)
-  if (reply.sent) return
-  if (request.auth.role !== 'owner') {
-    return reply.code(403).send({ error: 'FORBIDDEN', message: '仅工作区所有者可执行此操作。' })
-  }
-}

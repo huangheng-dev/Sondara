@@ -3,7 +3,7 @@ import { db } from '../db/client.js'
 import { aiServiceKeys, aiServices, workspaceAiPolicies } from '../db/schema.js'
 import { decryptSecret } from '../lib/secret-vault.js'
 
-export type AiMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+type AiMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
 export type AiCompletionRequest = {
   workspaceId: string

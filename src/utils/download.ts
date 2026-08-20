@@ -14,7 +14,3 @@ export function downloadCsv(filename: string, rows: (string | number)[][]) {
   const escape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`
   downloadText(filename, `\uFEFF${rows.map(row => row.map(escape).join(',')).join('\n')}`, 'text/csv;charset=utf-8')
 }
-
-export function downloadJson(filename: string, data: unknown) {
-  downloadText(filename, JSON.stringify(data, null, 2), 'application/json;charset=utf-8')
-}

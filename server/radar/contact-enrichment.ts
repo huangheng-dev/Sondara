@@ -5,7 +5,7 @@ import { candidateContacts, candidateEvidence, radarCandidates } from '../db/sch
 import { createId } from '../lib/ids.js'
 import { fetchPublicPage } from './connectors/website-seed.js'
 
-export type PublicContact = {
+type PublicContact = {
   name: string
   role: string
   email: string | null
@@ -93,7 +93,7 @@ const contactsFromPage = async (html: string, pageUrl: URL): Promise<PublicConta
   return contacts
 }
 
-export const discoverPublicContacts = async (sourceUrls: string[]) => {
+const discoverPublicContacts = async (sourceUrls: string[]) => {
   const pages: { url: URL; html: string }[] = []
   const errors: string[] = []
   for (const rawUrl of [...new Set(sourceUrls)].slice(0, 3)) {

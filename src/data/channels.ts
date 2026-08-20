@@ -1,14 +1,5 @@
-export const discoveryChannels = [
-  '智能多渠道', '地图找客', '企业官网', '搜索引擎', '行业名录', '展会协会',
-  '招投标项目', '招聘扩产', '新闻融资', '种子名单', '贸易海关', '社交网络',
-] as const
-
 export const outreachChannels = [
   '邮件序列', 'LinkedIn 任务', 'WhatsApp', '短信', '电话跟进', '微信', '多渠道组合',
-] as const
-
-export const attributionModels = [
-  '首次触达归因', '末次触达归因', '线性归因', '位置归因', '时间衰减归因',
 ] as const
 
 export const integrationServices = [

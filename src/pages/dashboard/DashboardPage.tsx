@@ -54,7 +54,6 @@ export function DashboardPage() {
   const highPriority=pendingTasks.filter(task=>task.priority==='高')
   const activeDeals=deals.filter(deal=>deal.stage!=='赢单')
   const wonDeals=deals.filter(deal=>deal.stage==='赢单')
-  const wonRevenue=wonDeals.reduce((sum,deal)=>sum+(deal.valueAmount??0),0)
   const riskDeals=deals.filter(deal=>Math.floor((Date.now()-deal.stageEnteredAt)/86_400_000)>=14)
   const highIntentCustomers=customers.filter(customer=>customer.stage==='重点跟进'||customer.stage==='有商机')
   const incompleteCustomers=customers.filter(customer=>customer.stage==='待补全'||customer.validContacts===0)

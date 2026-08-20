@@ -36,7 +36,7 @@ export type DealRecord = {
   source?: string
 }
 
-export type AccountPreferences = {
+type AccountPreferences = {
   displayName: string
   email: string
   language: string

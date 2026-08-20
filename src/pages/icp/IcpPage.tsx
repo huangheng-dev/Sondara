@@ -107,9 +107,6 @@ export function IcpPage() {
   const analysis = parseAnalysis(profile?.analysisSummary)
   const analysisRunning =
     analyzeMutation.isPending || profile?.analysisStatus === 'running'
-  const recommendedNames = new Set(
-    (analysis?.recommendedMarkets ?? []).map(item => item.name),
-  )
   const markets: Market[] = analysis?.recommendedMarkets?.length
     ? analysis.recommendedMarkets.map((item, index) => {
         const known = fallbackMarkets.find(market => market.name === item.name)

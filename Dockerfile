@@ -23,7 +23,7 @@ ENV NODE_ENV=production \
     SONDARA_API_HOST=0.0.0.0 \
     SONDARA_API_PORT=4176 \
     SONDARA_DATABASE_URL=postgresql://sondara:sondara@postgres:5432/sondara \
-    SONDARA_WEB_ORIGIN=http://localhost:4175
+    SONDARA_WEB_ORIGIN=http://localhost:4176
 
 # Install tini and a pg_dump client matching the PostgreSQL 17 service.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tini \

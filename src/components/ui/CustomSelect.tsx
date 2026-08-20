@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Select } from 'antd'
 
-export type SelectOption = string | { value: string; label: string; disabled?: boolean; icon?: ReactNode }
+type SelectOption = string | { value: string; label: string; disabled?: boolean; icon?: ReactNode }
 
 type CustomSelectProps = {
   options: SelectOption[]

@@ -8,7 +8,7 @@ import * as schema from "./schema.js";
 // numeric parser keeps API responses consistent with the TypeScript schema.
 types.setTypeParser(20, value => Number(value));
 
-export const pool = new Pool({
+const pool = new Pool({
   connectionString: config.databaseUrl,
   max: Number(process.env.SONDARA_DATABASE_POOL_MAX ?? 10),
   idleTimeoutMillis: 30_000,

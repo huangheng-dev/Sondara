@@ -69,7 +69,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   times: '×', divide: '÷', deg: '°', micro: 'µ',
 }
 
-export const decodeEntities = (value: string) => value
+const decodeEntities = (value: string) => value
   .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => {
     try { return String.fromCodePoint(parseInt(hex, 16)) } catch { return '' }
   })
@@ -113,7 +113,7 @@ export const normalizeCompanyName = (value: string) => decodeEntities(value)
   .trim()
   .slice(0, 160)
 
-export const isLikelyCompanyName = (value: string) => {
+const isLikelyCompanyName = (value: string) => {
   const name = normalizeCompanyName(value)
   if (name.length < 4 || name.length > 60) return false
   if (NAV_NOISE.test(name) || ARTICLE_LIKE.test(name)) return false

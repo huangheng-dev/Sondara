@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, Building2, CheckCircle2, CircleAlert,
-  Database, Download, MailCheck, MessageCircleReply, RefreshCw, Search, Send, Sparkles,
+  Database, Download, MessageCircleReply, RefreshCw, Send, Sparkles,
   Target, Trophy, UsersRound, X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'

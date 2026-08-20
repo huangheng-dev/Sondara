@@ -8,7 +8,7 @@ import { assertSafeOutboundUrl } from '../lib/url-safety.js'
 export type SearchResult = { title: string; url: string; description: string; source: string }
 type SearchConnection = typeof integrationConnections.$inferSelect
 
-export class SearchUnavailableError extends Error {
+class SearchUnavailableError extends Error {
   code: 'NO_CONFIGURATION' | 'ALL_PROVIDERS_FAILED'
   constructor(code: 'NO_CONFIGURATION' | 'ALL_PROVIDERS_FAILED', message: string) {
     super(message)

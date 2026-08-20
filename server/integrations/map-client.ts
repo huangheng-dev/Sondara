@@ -21,7 +21,7 @@ export type LocalPlaceResult = {
 
 type MapConnection = typeof integrationConnections.$inferSelect
 
-export class MapUnavailableError extends Error {
+class MapUnavailableError extends Error {
   code: 'NO_CONFIGURATION' | 'ALL_PROVIDERS_FAILED'
   constructor(code: 'NO_CONFIGURATION' | 'ALL_PROVIDERS_FAILED', message: string) {
     super(message)

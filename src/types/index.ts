@@ -1,7 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 
 export type NavItem = { label: string; path: string; icon: LucideIcon }
-export type Metric = { label: string; value: string; change: string; tone?: 'green' | 'orange' | 'blue' }
 export type Candidate = {
   id: string
   company: string

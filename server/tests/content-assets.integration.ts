@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { buildApp } from '../app.js'
 import { db } from '../db/client.js'
-import { contentAssets, contentGenerationRuns, contentQualityChecks, contentVersions, users } from '../db/schema.js'
+import { contentGenerationRuns, contentQualityChecks, contentVersions, users } from '../db/schema.js'
 
 const run = async () => {
   const app = await buildApp()

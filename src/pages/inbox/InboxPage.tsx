@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, LoaderCircle, Mail, MessageCircle, MoreHorizontal, RadioTower, Search, Send, Sparkles, UserRound, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, LoaderCircle, Mail, MessageCircle, MoreHorizontal, RadioTower, Send, Sparkles, UserRound, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'

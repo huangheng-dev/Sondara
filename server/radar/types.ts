@@ -29,7 +29,7 @@ export type DiscoveredCandidate = {
   relationships: { label: string; value: string }[]
 }
 
-export type ConnectorProgress = (message: string, progress: number) => void
+type ConnectorProgress = (message: string, progress: number) => void
 
 export interface DiscoveryConnector {
   id: string

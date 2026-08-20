@@ -43,7 +43,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
-import { ApiError, authApi, customerApi, icpApi, radarApi, taskApi, type CustomerApiRecord, type RadarCandidateApiRecord, type RadarTaskStatus } from '@/lib/api'
+import { authApi, customerApi, icpApi, radarApi, taskApi, type CustomerApiRecord, type RadarTaskStatus } from '@/lib/api'
 import { parseCsv } from '@/utils/csv'
 
 type Filter = '全部' | '高匹配' | '强信号'

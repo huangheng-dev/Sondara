@@ -2,7 +2,7 @@ import { hasSearchConfiguration, searchWorkspace, type SearchResult } from '../.
 import { WebsiteSeedConnector } from './website-seed.js'
 import { ConnectorError, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
 import { isExcludedHost } from './host-blocklist.js'
-import { isLikelyOverseasProspect, isOverseasMarket } from './prospect-quality.js'
+import { isLikelyOverseasProspect } from './prospect-quality.js'
 
 const NON_COMPANY_TITLE = /^(?:首页|主页|登录|注册|搜索结果|新闻|资讯|视频|图片|地图|问答|下载|文档|帮助|关于|联系|产品列表|分类|标签|404|页面不存在|login|sign in|register|search results|news|videos|images|maps|download|docs|help|contact|about|products|categories|tags)$/i
 

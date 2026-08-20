@@ -704,7 +704,6 @@ export function SettingsPage() {
   const params = useParams();
   const navigate = useNavigate();
   const tab = sections[params.section as keyof typeof sections] ?? "个人资料";
-  const [enabled, setEnabled] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<"key" | "account" | null>(
     null,
   );

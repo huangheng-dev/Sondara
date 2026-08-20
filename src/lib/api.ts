@@ -16,7 +16,7 @@ export type AuthSession = {
   workspace: { id: string; name: string; role: string };
 };
 
-export type AuthTwoFactorRequired = {
+type AuthTwoFactorRequired = {
   twoFactorRequired: true;
   maskedEmail: string;
 };
@@ -580,7 +580,7 @@ export type KnowledgeItemApiInput = {
 };
 
 export type CampaignStatus = "草稿" | "运行中" | "已暂停" | "已完成" | "已归档";
-export type CampaignStepApiRecord = {
+type CampaignStepApiRecord = {
   id: string;
   campaignId: string;
   position: number;
@@ -1669,7 +1669,7 @@ export type AttributionChannel = {
   currency: string;
 };
 
-export type AttributionFunnelStage = {
+type AttributionFunnelStage = {
   key: string;
   label: string;
   value: number;

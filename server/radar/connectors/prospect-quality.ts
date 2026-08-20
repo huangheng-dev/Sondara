@@ -1,4 +1,4 @@
-export const OVERSEAS_MARKET = /(?:海外|全球|国际|global|worldwide|overseas|north america|europe|usa|u\.s\.|united states|southeast asia|middle east|英语|english|en-us|en\b)/i
+const OVERSEAS_MARKET = /(?:海外|全球|国际|global|worldwide|overseas|north america|europe|usa|u\.s\.|united states|southeast asia|middle east|英语|english|en-us|en\b)/i
 
 export const isOverseasMarket = (task: { targetRegion?: string; researchLanguage?: string }) =>
   OVERSEAS_MARKET.test(`${task.targetRegion ?? ''} ${task.researchLanguage ?? ''}`)
@@ -11,7 +11,6 @@ export const isLikelyOverseasProspect = (input: { company?: string; title?: stri
 
   const domainSignal = /pharma|biotech|bioengineering|bioprocess|bioprocessing|biopharma|sterile|sterilization|sterilisation|aseptic|hygienic|sanitary|high[- ]?purity|cip\b|\bsip\b|pure steam|clean steam|process plant|process equipment|process system|process solution|process automation|process engineering|plant engineering|cleaning in place|steam in place|life sciences|pharmaceutical manufacturing|fill-finish|fill finish|bioreactor|fermentation|formulation|purified water|water system|utility systems|flow control|fluid solution|skid|pharmaanlagenbau|prozessanlage|skidbau|reinstdampf|biotechnik|lebensmittel|dairy|brewery|beverage|semiconductor|wet[- ]?process/.test(text)
   const routeSignal = /distributor|distributors|representative|reseller|sales partner|channel partner|system integrator|integrator|contractor|engineering partner|turnkey|equipment supplier/.test(text)
-  const nonCustomerSignal = /market access|commercialization|pharmaceutical distributor|pharma distributor|medicine distributor|wholesaler|consulting|regulatory affairs|clinical(?: trials)?|healthcare service|marketing agency|business accelerator|sales accelerator/.test(text)
   const competitorSignal = /(?:china|chinese)\s+(?:manufacturer|supplier|factory)|manufacturer in china|made in china|factory in china/.test(text)
   const productCompetitor = /\b(?:sanitary|hygienic|high[- ]?purity)?\s*(?:valves?|pumps?|fittings?|tubing|couplings?)\s+manufacturer|manufacturer\s+(?:and\s+supplier\s+of\s+)?(?:reliable\s+)?(?:valves?|pumps?|fittings?|tubing|couplings?)\b/i.test(identityText)
   const productMakerSignal = /(?:safety valve|sampling valve|diaphragm valve|ball valve|butterfly valve|control valve|sanitary valves?|hygienic valves?|pumps? and valves?|valve technology|valve company|valve group|the[\s-]+safety[\s-]+valve|阀门制造商|阀门供应商|泵阀|阀门公司)/i.test(identityText)

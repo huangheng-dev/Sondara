@@ -504,5 +504,3 @@ export const createImapReceiver = (intervalMs = 60_000) => {
     },
   };
 };
-
-export type ImapReceiver = ReturnType<typeof createImapReceiver>;

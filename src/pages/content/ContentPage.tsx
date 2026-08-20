@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   ArrowDown,
-  ArrowRight,
   ArrowUp,
   ArrowUpDown,
   Bold,
@@ -29,7 +28,6 @@ import {
   PenLine,
   Presentation,
   RefreshCw,
-  Search,
   Send,
   Sparkles,
   Target,

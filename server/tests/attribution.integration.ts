@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { buildApp } from '../app.js'
 import { db } from '../db/client.js'
 import {

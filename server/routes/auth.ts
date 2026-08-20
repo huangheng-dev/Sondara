@@ -20,7 +20,7 @@ import {
   setChallengeCookie,
   setSessionCookie,
 } from '../lib/session.js'
-import { generateTotp, generateTotpSecret, getTotpOtpauth, verifyTotp } from '../lib/totp.js'
+import { generateTotpSecret, getTotpOtpauth, verifyTotp } from '../lib/totp.js'
 
 const credentialsSchema = z.object({
   email: z.string().trim().toLowerCase().email('请输入有效邮箱。'),

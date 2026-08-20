@@ -6,7 +6,6 @@ import {
   campaigns,
   channelWebhookEvents,
   contactSuppressions,
-  inboxContacts,
   messageDeliveryEvents,
   messageEntries,
   messageThreads,
