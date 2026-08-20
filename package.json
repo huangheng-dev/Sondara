@@ -12,7 +12,6 @@
     "dev:all": "concurrently -k -n WEB,API -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
-    "db:migrate:sqlite": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "db:seed:dev": "tsx server/db/seed-dev.ts",
     "setup": "node scripts/setup.mjs",
     "test:auth-2fa": "tsx server/tests/auth-2fa.integration.ts",
@@ -76,7 +75,6 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "24.3.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.15.5",
@@ -85,7 +83,6 @@
     "@types/react-dom": "19.1.9",
     "@types/smtp-server": "^3.5.13",
     "@vitejs/plugin-react": "5.2.0",
-    "better-sqlite3": "^13.0.3",
     "concurrently": "^10.0.5",
     "drizzle-kit": "^0.31.10",
     "smtp-server": "^3.19.3",

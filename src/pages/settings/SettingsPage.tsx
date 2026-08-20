@@ -1499,7 +1499,7 @@ export function SettingsPage() {
                 <span>
                   <small>数据存储</small>
                   <strong>部署服务器持久化保存</strong>
-                  <p>业务数据保存在服务端 SQLite 数据库中，并按工作区隔离。</p>
+                  <p>业务数据保存在服务端 PostgreSQL 数据库中，并按工作区隔离。</p>
                 </span>
                 <Badge tone="green">已持久化</Badge>
               </header>
@@ -1557,7 +1557,7 @@ export function SettingsPage() {
                   </i>
                   <span>
                     <strong>完整数据库备份</strong>
-                    <small>SQLite 数据库文件快照，可用于灾难恢复</small>
+                    <small>PostgreSQL custom-format 备份，可用于灾难恢复</small>
                   </span>
                 </Button>
               </div>
