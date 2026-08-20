@@ -1,0 +1,441 @@
+.sondara-ant-app {
+  min-height: 100vh;
+}
+
+.sondara-ant-app button:not(.ant-btn) {
+  color: inherit;
+  background-color: transparent;
+}
+
+.sondara-ant-app .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: none;
+}
+
+.sondara-ant-app .ant-btn > svg,
+.sondara-ant-app .ant-btn > span > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.sondara-ant-app .ant-btn-primary {
+  box-shadow: 0 3px 8px rgba(11, 92, 255, 0.18);
+}
+
+.sondara-ant-app .ant-tag-success {
+  color: #067647;
+  background: #ecfdf3;
+}
+
+.sondara-ant-app .ant-tag-warning {
+  color: #93370d;
+  background: #fffaeb;
+}
+
+.sondara-ant-app .ant-tag-processing {
+  color: #175cd3;
+  background: #eff8ff;
+}
+
+.sondara-ant-app .ant-tag-error {
+  color: #b42318;
+  background: #fef3f2;
+}
+
+.sondara-ant-app .ant-tag-default {
+  color: #344054;
+  background: #f2f4f7;
+}
+
+.sondara-ant-app .ant-select,
+.sondara-ant-app .ant-picker {
+  width: 100%;
+}
+
+.sondara-ant-app .app-search-input.ant-input-affix-wrapper,
+.sondara-ant-app .customer-search.ant-input-affix-wrapper,
+.sondara-ant-app .module-search.ant-input-affix-wrapper,
+.sondara-ant-app .topbar-search-input.ant-input-affix-wrapper {
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid #d9e0e9;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sondara-ant-app .app-search-input .ant-input,
+.sondara-ant-app .customer-search .ant-input,
+.sondara-ant-app .module-search .ant-input,
+.sondara-ant-app .topbar-search-input .ant-input {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.sondara-ant-app .ant-card.panel > .ant-card-body.panel-body {
+  display: contents;
+}
+
+.sondara-ant-app .ant-card.panel > .ant-card-head.panel-header {
+  width: 100%;
+  min-height: 42px;
+  margin-bottom: 12px;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.sondara-ant-app .ant-card.panel > .ant-card-head.panel-header .ant-card-head-wrapper {
+  width: 100%;
+}
+
+.sondara-ant-app .ant-card.panel > .ant-card-head.panel-header .ant-card-head-title {
+  padding: 0;
+}
+
+.sondara-ant-app .ant-card.panel > .ant-card-head.panel-header .ant-card-extra {
+  padding: 0;
+}
+
+.content-settings .ant-card.panel > .ant-card-body > .ant-btn {
+  width: 100%;
+}
+
+.sondara-ant-app .ant-select-selection-item,
+.sondara-ant-app .ant-select-selection-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ant-select-item-option-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ant-select-item-option-content > svg,
+.ant-select-item-option-content > span > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.app-modal-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-modal-title > span {
+  min-width: 0;
+}
+
+.app-modal-title strong {
+  display: block;
+  color: #1d2939;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.app-modal-title small {
+  display: block;
+  margin-top: 4px;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.app-modal-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sondara-ant-app .ant-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sondara-ant-app .ant-modal-footer:empty {
+  display: none;
+}
+
+.app-pagination-ant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-top: 1px solid #eaecf0;
+}
+
+.app-pagination-ant .pagination-summary {
+  color: #667085;
+  font-size: 12px;
+}
+
+.app-empty-ant {
+  padding: 28px 16px;
+}
+
+.app-empty-ant .ant-empty-description {
+  color: #344054;
+}
+
+/* Ant Table renders a hidden measuring row that duplicates interactive header
+   controls. Fixed-layout Sondara tables already provide column widths, so the
+   duplicate row can be removed from both layout and the accessibility tree. */
+.sondara-ant-app .app-data-table .ant-table-measure-row {
+  display: none !important;
+  height: 0 !important;
+}
+
+.sondara-ant-app .app-data-table .ant-empty-description {
+  color: #667085;
+}
+
+.app-empty-description {
+  margin: 5px 0 0;
+  color: #667085;
+  font-size: 12px;
+}
+
+.app-page-loader {
+  display: grid;
+  min-height: 60vh;
+  place-items: center;
+}
+
+.sondara-ant-app .auth-input-control.ant-input-affix-wrapper,
+.sondara-ant-app .auth-input-control.ant-input {
+  min-height: 44px;
+  border-radius: 9px;
+}
+
+.sondara-ant-app .auth-input-control .ant-input-prefix svg {
+  width: 17px;
+  height: 17px;
+  color: #667085;
+}
+
+/* Ant Design owns the application frame. These rules only align it with the
+   existing Sondara visual tokens and neutralize the retired CSS-grid shell. */
+.sondara-ant-app .app-shell.ant-layout {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.sondara-ant-app .desktop-sidebar.ant-layout-sider {
+  position: sticky;
+  inset: auto;
+  top: 0;
+  height: 100vh;
+  flex: none;
+  padding: 14px 10px 12px;
+}
+
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.app-navigation-menu.ant-menu {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-inline-end: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+
+.app-navigation-menu.ant-menu::-webkit-scrollbar {
+  display: none;
+}
+
+.sondara-ant-app .ant-table-cell {
+  overflow: hidden;
+}
+
+.sondara-ant-app .ant-table-cell .standard-cell-stack,
+.sondara-ant-app .ant-table-cell .customer-company,
+.sondara-ant-app .ant-table-cell .customer-signal,
+.sondara-ant-app .ant-table-cell .standard-next {
+  min-width: 0;
+}
+
+.sondara-ant-app .ant-switch {
+  background: rgba(0, 0, 0, .25);
+}
+
+.sondara-ant-app .ant-switch.ant-switch-checked {
+  background: #1677ff;
+}
+
+.app-navigation-menu .ant-menu-item-group-title {
+  padding: 9px 12px 4px;
+  color: #607792;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.app-navigation-menu .ant-menu-item,
+.app-navigation-menu .ant-menu-submenu-title {
+  min-height: 40px;
+  margin-inline: 0;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.app-navigation-menu .ant-menu-item-selected {
+  background: #1769ff;
+}
+
+.menu-label-with-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sondara-ant-app .main-area.ant-layout {
+  grid-column: auto;
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  background: #f5f7fb;
+}
+
+.sondara-ant-app .topbar.ant-layout-header {
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: 100%;
+  height: 64px;
+  padding: 0 28px;
+  line-height: normal;
+}
+
+.topbar-search-autocomplete {
+  width: min(420px, 42vw);
+}
+
+.topbar-search-autocomplete .ant-input-affix-wrapper {
+  min-height: 38px;
+  border-radius: 9px;
+}
+
+.global-search-option,
+.account-dropdown-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.global-search-option small,
+.account-dropdown-label small {
+  color: #667085;
+  font-size: 11px;
+}
+
+.sondara-ant-app .user-block.ant-btn {
+  display: flex;
+  align-items: center;
+  width: auto;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+
+.sondara-ant-app .app-content.ant-layout-content {
+  min-width: 0;
+}
+
+.mobile-navigation-drawer .ant-drawer-body {
+  padding: 14px 10px 12px;
+  background: linear-gradient(180deg, #08182b 0%, #04111f 100%);
+}
+
+.detail-drawer-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detail-drawer-title small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+@media (max-width: 720px) {
+  .app-pagination-ant {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 800px) {
+  .sondara-ant-app .desktop-sidebar.ant-layout-sider {
+    display: none;
+  }
+
+  .sondara-ant-app .mobile-menu.ant-btn {
+    display: inline-flex;
+  }
+
+  .sondara-ant-app .desktop-expand-sidebar {
+    display: none;
+  }
+
+  .sondara-ant-app .topbar.ant-layout-header {
+    padding: 0 12px;
+  }
+
+  .topbar-search-autocomplete {
+    width: min(100%, 360px);
+  }
+
+  .sondara-ant-app .user-block .user-copy,
+  .sondara-ant-app .topbar-divider {
+    display: none;
+  }
+}
+
+@media (max-width: 1500px) and (min-width: 801px) {
+  .sondara-ant-app .customers-page .customer-toolbar.module-toolbar:has(>.customer-selection-tools)>.customer-filter-controls,
+  .sondara-ant-app .customer-filter-controls {
+    display: grid !important;
+    width: 100% !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .sondara-ant-app .customers-page .customer-toolbar.module-toolbar:has(>.customer-selection-tools)>.customer-filter-controls > .customer-search,
+  .sondara-ant-app .customer-filter-controls > .customer-search {
+    grid-column: auto;
+  }
+
+  .sondara-ant-app .customers-page .customer-toolbar.module-toolbar:has(>.customer-selection-tools)>.customer-filter-controls > .customer-search,
+  .sondara-ant-app .customers-page .customer-toolbar.module-toolbar:has(>.customer-selection-tools)>.customer-filter-controls > .custom-select,
+  .sondara-ant-app .customers-page .customer-toolbar.module-toolbar:has(>.customer-selection-tools)>.customer-filter-controls > button,
+  .sondara-ant-app .customer-filter-controls > .customer-search,
+  .sondara-ant-app .customer-filter-controls > .custom-select,
+  .sondara-ant-app .customer-filter-controls > button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+  }
+}

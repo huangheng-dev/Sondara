@@ -1,0 +1,142 @@
+import { hasSearchConfiguration, searchWorkspace, type SearchResult } from '../../integrations/search-client.js'
+import { WebsiteSeedConnector } from './website-seed.js'
+import { ConnectorError, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { isExcludedHost } from './host-blocklist.js'
+import { isLikelyOverseasProspect, isOverseasMarket } from './prospect-quality.js'
+
+const NON_COMPANY_TITLE = /^(?:首页|主页|登录|注册|搜索结果|新闻|资讯|视频|图片|地图|问答|下载|文档|帮助|关于|联系|产品列表|分类|标签|404|页面不存在|login|sign in|register|search results|news|videos|images|maps|download|docs|help|contact|about|products|categories|tags)$/i
+
+const NON_COMPANY_HOST = /(?:linkedin\.com|facebook\.com|x\.com|twitter\.com|youtube\.com|youtu\.be|instagram\.com|wikipedia\.org|wikidata\.org|gov|reddit\.com)$/i
+
+const resultScore = (item: { title: string; url: string; description: string }) => {
+  const text = [item.title, item.description, item.url].join(' ').toLowerCase()
+  let score = 0
+  if (/pharma|biotech|bioengineering|bioprocess|sterile|aseptic|hygienic|sanitary|high[- ]?purity|cip\b|\bsip\b|pure steam|clean steam|process plant|process equipment|process system|process solution|process automation|pharmaanlagenbau|prozessanlage|skidbau|reinstdampf|biotechnik|lebensmittel|dairy|brewery|beverage|semiconductor|wet[- ]?process/.test(text)) score += 12
+  if (/system integrator|integrator|distributor|representative|reseller|sales partner|channel partner|engineering|contractor|turnkey|skid|automation|solution/.test(text)) score += 7
+  if (/\.de\b|german|germany|deutschland|europe|european/.test(text)) score += 3
+  if (/association|federation|chamber|verband|verein|mitglied|membership|directory|news|magazine|exhibition|university|institute|marketplace|made in china|china manufacturer|site:\.cn/.test(text)) score -= 20
+  if (/valve|pump|fitting|tubing/.test(text) && /manufacturer|supplier|factory/.test(text) && !/(distributor|representative|system|solution|engineering|process|pharma|biotech|hygienic)/.test(text)) score -= 10
+  return score
+}
+
+const looksLikeCompanySite = (item: { title: string; url: string; description: string }, icp: string) => {
+  try {
+    const url = new URL(item.url)
+    if (isExcludedHost(url.hostname)) return false
+    if (NON_COMPANY_HOST.test(url.hostname)) return false
+    if (/(?:^|\.)cn$/i.test(url.hostname)) return false
+    if (/\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|tar|gz)$/i.test(url.pathname)) return false
+    if (/\/(?:login|signup|register|cart|search|tag|category|blog\/tag)\/?$/i.test(url.pathname)) return false
+    const title = item.title.trim()
+    if (title.length < 3) return false
+    if (NON_COMPANY_TITLE.test(title)) return false
+    return isLikelyOverseasProspect({ company: title, title, description: item.description, reason: item.description, url: item.url, icp })
+  } catch {
+    return false
+  }
+}
+
+const officialRoots = (items: { url: string }[]) => {
+  const seen = new Set<string>()
+  const roots: string[] = []
+  for (const item of items) {
+    try {
+      const url = new URL(item.url)
+      if (isExcludedHost(url.hostname)) continue
+      if (/\.(pdf|docx?|xlsx?|pptx?|zip)$/i.test(url.pathname)) continue
+      const root = `${url.protocol}//${url.host}/`
+      if (!seen.has(root)) { seen.add(root); roots.push(root) }
+    } catch { /* ignore malformed URL */ }
+  }
+  return roots
+}
+
+export class SearchDiscoveryConnector implements DiscoveryConnector {
+  id = 'search-discovery'
+  label = '搜索发现'
+
+  supports(task: RadarTaskContext) {
+    return /智能多渠道|搜索引擎|招聘扩产|新闻融资|贸易海关|社交网络/.test(task.mode) && hasSearchConfiguration(task.workspaceId)
+  }
+
+  async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
+    onProgress('正在搜索目标企业官网', 8)
+    const exclusions = '-site:.cn -中国 -有限公司 -"made in China" -"China manufacturer" -verband -association -federation -membership -mitglieder -members -directory -magazine -exhibition -university -institute -market-access -consulting -clinical -regulatory -wholesaler -accelerator'
+    const signalSearch = task.mode === '招聘扩产'
+      ? '(hiring OR careers OR recruitment OR "new production line" OR expansion OR "new facility")'
+      : task.mode === '新闻融资'
+        ? '(funding OR investment OR acquisition OR expansion OR "new facility" OR partnership)'
+        : task.mode === '贸易海关'
+          ? '(importer OR exporter OR import OR export OR procurement OR "supply chain" OR distributor)'
+          : task.mode === '社交网络'
+            ? '(LinkedIn OR "company profile" OR "sales director" OR "business development")'
+            : ''
+    const signalQueries = signalSearch ? [[task.icp, task.targetRegion, signalSearch, 'official website', exclusions].filter(Boolean).join(' ')] : []
+    const queries = [...signalQueries,
+      [
+        task.icp,
+        task.targetRegion,
+        '("process plant" OR "process systems" OR "process automation" OR "system integrator" OR "hygienic process" OR "CIP SIP" OR "pure steam" OR aseptic OR skid)',
+        '(engineering OR systems OR solutions OR distributor OR representative OR partner OR integrator OR contractor)',
+        'official website', exclusions,
+      ].filter(Boolean).join(' '),
+      [
+        task.targetRegion,
+        '("Pharmaanlagenbau" OR "Prozessanlage" OR "Anlagentechnik" OR "Skidbau" OR "Reinstdampf" OR "Biotechnik" OR "Prozesstechnik")',
+        '(CIP OR SIP OR Pharma OR Biotech OR sterile OR hygienic OR aseptic)',
+        'official website', exclusions,
+      ].filter(Boolean).join(' '),
+      [
+        task.icp,
+        task.targetRegion,
+        '(distributor OR representative OR "sales partner" OR "channel partner" OR contractor OR "turnkey" OR integrator)',
+        'official website', exclusions,
+      ].filter(Boolean).join(' '),
+    ]
+    const itemMap = new Map<string, SearchResult>()
+    let queryIndex = 0
+    for (const query of queries) {
+      queryIndex += 1
+      try {
+        const search = await searchWorkspace(task.workspaceId, query, Math.min(20, Math.max(task.candidateLimit * 5, 10)))
+        for (const item of search.items) itemMap.set(item.url, item)
+        onProgress(`第 ${queryIndex}/${queries.length} 组搜索完成，累计 ${itemMap.size} 条结果`, 10 + queryIndex * 4)
+      } catch (cause) {
+        throw new ConnectorError(cause instanceof Error ? cause.message : '搜索数据源调用失败', true)
+      }
+    }
+    const search: { items: SearchResult[] } = { items: [...itemMap.values()] }
+    const companyItems = search.items
+      .filter(item => looksLikeCompanySite(item, task.icp))
+      .sort((a, b) => resultScore(b) - resultScore(a))
+    onProgress(`搜索到 ${search.items.length} 条结果，筛选出 ${companyItems.length} 个相关企业官网`, 24)
+    const urls = officialRoots(companyItems).slice(0, Math.min(20, Math.max(task.candidateLimit * 3, 12)))
+    if (!urls.length) return []
+    const website = new WebsiteSeedConnector()
+    const candidates = await website.discover({ ...task, candidateLimit: Math.min(urls.length, Math.max(task.candidateLimit * 3, 12)), seedUrls: urls }, (message, progress) => onProgress(message, 24 + Math.round(progress * 0.66)))
+    const resultsByHost = new Map(search.items.map(item => { try { return [new URL(item.url).hostname.replace(/^www\./, ''), item] as const } catch { return ['', item] as const } }))
+    return candidates
+      .map(candidate => {
+        const websiteUrl = candidate.relationships.find(item => item.label === '企业官网')?.value ?? ''
+        let match: typeof search.items[number] | undefined
+        try { match = resultsByHost.get(new URL(websiteUrl).hostname.replace(/^www\./, '')) } catch { /* keep homepage-only evidence */ }
+        return { candidate, match }
+      })
+      .filter(({ candidate, match }) => isLikelyOverseasProspect({
+        company: candidate.company,
+        title: match?.title,
+        description: match?.description,
+        reason: candidate.reason,
+        source: match?.source,
+        url: match?.url,
+        icp: task.icp,
+      }))
+      .map(({ candidate, match }) => ({
+        ...candidate,
+        source: `${task.mode === '招聘扩产' ? '招聘扩产信号' : task.mode === '新闻融资' ? '新闻融资信号' : task.mode === '贸易海关' ? '贸易供应链信号' : task.mode === '社交网络' ? '社交公开信号' : '搜索发现'} · ${candidate.source}`,
+        signal: task.mode === '招聘扩产' ? '招聘或扩产信号待核验' : task.mode === '新闻融资' ? '新闻或资本动态待核验' : task.mode === '贸易海关' ? '贸易与供应链关系待核验' : task.mode === '社交网络' ? '公开社交与关键岗位信号待核验' : candidate.signal,
+        reason: match?.description ? `搜索摘要：${match.description.slice(0, 240)}；${candidate.reason}` : candidate.reason,
+        evidence: match ? [...candidate.evidence, { title: match.title, source: match.source, time: new Date().toISOString(), strength: '弱' as const, sourceUrl: match.url }] : candidate.evidence,
+      }))
+  }
+}

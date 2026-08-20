@@ -1,0 +1,172 @@
+import type { FastifyPluginAsync } from "fastify";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { db } from "../db/client.js";
+import { auditLogs, sessions, users, workspaceMembers } from "../db/schema.js";
+import { createId } from "../lib/ids.js";
+import { hashPassword } from "../lib/password.js";
+import { requireAdmin } from "../plugins/auth.js";
+
+const roles = ["owner", "admin", "member", "viewer"] as const;
+const roleLabels: Record<(typeof roles)[number], string> = {
+  owner: "所有者",
+  admin: "管理员",
+  member: "成员",
+  viewer: "只读成员",
+};
+const rolePermissions: Record<(typeof roles)[number], string[]> = {
+  owner: ["系统配置", "用户与权限", "全部业务数据", "导入与导出"],
+  admin: ["用户管理", "业务配置", "全部业务数据", "导入与导出"],
+  member: ["客户与商机", "内容与活动", "客户消息", "转化分析"],
+  viewer: ["查看客户", "查看活动", "查看分析", "不可编辑"],
+};
+
+const audit = (
+  workspaceId: string,
+  actorUserId: string,
+  action: string,
+  entityId: string,
+  ipAddress: string,
+  metadata: Record<string, unknown> = {},
+) => db.insert(auditLogs).values({
+  id: createId("aud"), workspaceId, actorUserId, action,
+  entityType: "workspace_member", entityId,
+  metadata: JSON.stringify(metadata), ipAddress, createdAt: Date.now(),
+}).run();
+
+const memberView = (workspaceId: string) => db.select({
+  id: users.id,
+  displayName: users.displayName,
+  email: users.email,
+  status: users.status,
+  role: workspaceMembers.role,
+  joinedAt: workspaceMembers.createdAt,
+  createdAt: users.createdAt,
+}).from(workspaceMembers)
+  .innerJoin(users, eq(users.id, workspaceMembers.userId))
+  .where(eq(workspaceMembers.workspaceId, workspaceId))
+  .all()
+  .map(item => {
+    const lastSeenAt = db.select({ value: sql<number>`max(${sessions.lastSeenAt})` })
+      .from(sessions).where(eq(sessions.userId, item.id)).get()?.value ?? null;
+    const role = roles.includes(item.role as (typeof roles)[number]) ? item.role as (typeof roles)[number] : "member";
+    return {
+      ...item,
+      role,
+      roleLabel: roleLabels[role],
+      status: item.status === "active" ? "active" : "disabled",
+      lastSeenAt,
+      source: item.joinedAt === item.createdAt ? "首次部署或自主注册" : "管理员创建",
+    };
+  });
+
+export const adminRoutes: FastifyPluginAsync = async app => {
+  app.addHook("preHandler", requireAdmin);
+
+  app.get("/members", async request => ({ items: memberView(request.auth.workspaceId) }));
+
+  app.post("/members", async (request, reply) => {
+    const parsed = z.object({
+      displayName: z.string().trim().min(2).max(50),
+      email: z.string().trim().toLowerCase().email(),
+      password: z.string().min(8).max(128),
+      role: z.enum(["admin", "member", "viewer"]).default("member"),
+    }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "INVALID_INPUT", message: parsed.error.issues[0]?.message });
+    if (parsed.data.role === "admin" && request.auth.role !== "owner") {
+      return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以创建管理员。" });
+    }
+    if (db.select({ id: users.id }).from(users).where(eq(users.email, parsed.data.email)).get()) {
+      return reply.code(409).send({ error: "EMAIL_EXISTS", message: "该邮箱已有账户，请使用尚未注册的邮箱创建成员。" });
+    }
+    const now = Date.now();
+    const userId = createId("usr");
+    const passwordHash = await hashPassword(parsed.data.password);
+    db.transaction(tx => {
+      tx.insert(users).values({
+        id: userId, email: parsed.data.email, passwordHash,
+        displayName: parsed.data.displayName, status: "active",
+        createdAt: now, updatedAt: now,
+      }).run();
+      tx.insert(workspaceMembers).values({
+        workspaceId: request.auth.workspaceId, userId,
+        role: parsed.data.role, createdAt: now,
+      }).run();
+    });
+    audit(request.auth.workspaceId, request.auth.userId, "member.created", userId, request.ip, { role: parsed.data.role });
+    return reply.code(201).send(memberView(request.auth.workspaceId).find(item => item.id === userId));
+  });
+
+  app.patch("/members/:id", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const parsed = z.object({
+      role: z.enum(["admin", "member", "viewer"]).optional(),
+      status: z.enum(["active", "disabled"]).optional(),
+    }).safeParse(request.body);
+    if (!parsed.success || !Object.keys(parsed.data).length) return reply.code(400).send({ error: "INVALID_INPUT", message: "没有可更新的成员字段。" });
+    const target = db.select({ role: workspaceMembers.role, status: users.status })
+      .from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId))
+      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).get();
+    if (!target) return reply.code(404).send({ error: "NOT_FOUND", message: "成员不存在。" });
+    if (target.role === "owner") return reply.code(409).send({ error: "OWNER_PROTECTED", message: "不能通过成员管理修改所有者。" });
+    if ((target.role === "admin" || parsed.data.role === "admin") && request.auth.role !== "owner") {
+      return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以管理管理员角色。" });
+    }
+    if (parsed.data.role) db.update(workspaceMembers).set({ role: parsed.data.role })
+      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).run();
+    if (parsed.data.status) {
+      db.update(users).set({ status: parsed.data.status, updatedAt: Date.now() }).where(eq(users.id, id)).run();
+      if (parsed.data.status === "disabled") db.delete(sessions).where(eq(sessions.userId, id)).run();
+    }
+    audit(request.auth.workspaceId, request.auth.userId, "member.updated", id, request.ip, parsed.data);
+    return memberView(request.auth.workspaceId).find(item => item.id === id);
+  });
+
+  app.delete("/members/:id", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const target = db.select({ role: workspaceMembers.role }).from(workspaceMembers)
+      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).get();
+    if (!target) return reply.code(404).send({ error: "NOT_FOUND", message: "成员不存在。" });
+    if (target.role === "owner") return reply.code(409).send({ error: "OWNER_PROTECTED", message: "不能移除工作区所有者。" });
+    if (target.role === "admin" && request.auth.role !== "owner") return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以移除管理员。" });
+    db.transaction(tx => {
+      tx.delete(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).run();
+      tx.delete(sessions).where(eq(sessions.userId, id)).run();
+      const memberships = tx.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.userId, id)).get()?.count ?? 0;
+      if (memberships === 0) tx.delete(users).where(eq(users.id, id)).run();
+    });
+    audit(request.auth.workspaceId, request.auth.userId, "member.removed", id, request.ip);
+    return reply.code(204).send();
+  });
+
+  app.get("/roles", async request => {
+    const members = memberView(request.auth.workspaceId);
+    return { items: roles.map(role => ({
+      role, name: roleLabels[role], members: members.filter(item => item.role === role).length,
+      permissions: rolePermissions[role],
+      note: role === "owner" ? "拥有全部权限，可管理部署、数据和所有管理员。"
+        : role === "admin" ? "管理用户与业务配置，但不能转移所有权。"
+          : role === "member" ? "完成客户开发和营销工作，不能管理工作区成员。"
+            : "查看业务数据和分析结果，不可新增、修改或导出。",
+    })) };
+  });
+
+  app.get("/audit-logs", async request => {
+    const items = db.select().from(auditLogs)
+      .where(eq(auditLogs.workspaceId, request.auth.workspaceId))
+      .orderBy(desc(auditLogs.createdAt)).limit(500).all();
+    const names = new Map(db.select({ id: users.id, name: users.displayName }).from(users).all().map(item => [item.id, item.name]));
+    return { items: items.map(item => ({
+      id: item.id,
+      actorUserId: item.actorUserId,
+      actor: item.actorUserId ? names.get(item.actorUserId) ?? "已删除用户" : "系统",
+      action: item.action,
+      entityType: item.entityType,
+      entityId: item.entityId,
+      metadata: (() => { try { return JSON.parse(item.metadata) as Record<string, unknown>; } catch { return {}; } })(),
+      ipAddress: item.ipAddress ?? "—",
+      createdAt: item.createdAt,
+      result: "success" as const,
+    })) };
+  });
+};

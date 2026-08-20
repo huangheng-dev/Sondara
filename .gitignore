@@ -1,0 +1,56 @@
+node_modules/
+dist/
+server-dist/
+coverage/
+
+# Runtime and private business data. Keep the whole directory private: it may
+# contain customers, messages, encrypted secrets, backups and the master key.
+data/
+backups/
+uploads/
+exports/
+private/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.bak
+
+# Local configuration and credentials. Only the redacted template is public.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+cookies*.txt
+*storage-state*.json
+*-auth.json
+
+# Local tooling, generated reports and screenshots can contain customer data.
+.audit/
+.audits/
+audit/
+output/
+.playwright-cli/
+.playwright-amplify/
+playwright-report/
+test-results/
+.tmp/
+.workbuddy/
+.workbuddy-ai/
+
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Internal planning documents may contain deployment history or business context.
+PROJECT_ANALYSIS.md
+design-qa.md
+docs/PROJECT_EXECUTION.md

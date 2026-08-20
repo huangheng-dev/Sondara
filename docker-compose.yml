@@ -1,0 +1,29 @@
+services:
+  sondara:
+    build: .
+    image: sondara:latest
+    container_name: sondara
+    restart: unless-stopped
+    ports:
+      - "4176:4176"
+    volumes:
+      - sondara-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - SONDARA_API_HOST=0.0.0.0
+      - SONDARA_API_PORT=4176
+      - SONDARA_DATABASE_URL=/app/data/sondara.db
+      - SONDARA_WEB_ORIGIN=${SONDARA_WEB_ORIGIN:-http://localhost:4176}
+      - SONDARA_SECURE_COOKIES=${SONDARA_SECURE_COOKIES:-false}
+      - SONDARA_TRUST_PROXY=true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4176/api/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  sondara-data:
