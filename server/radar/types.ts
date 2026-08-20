@@ -34,7 +34,7 @@ export type ConnectorProgress = (message: string, progress: number) => void
 export interface DiscoveryConnector {
   id: string
   label: string
-  supports(task: RadarTaskContext): boolean
+  supports(task: RadarTaskContext): boolean | Promise<boolean>
   discover(task: RadarTaskContext, onProgress: ConnectorProgress): Promise<DiscoveredCandidate[]>
 }
 

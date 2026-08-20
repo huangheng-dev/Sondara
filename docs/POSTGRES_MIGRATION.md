@@ -1,21 +1,38 @@
-# PostgreSQL 路线
+# SQLite → PostgreSQL 升级
 
-Sondara 0.1 默认使用 SQLite：一个 `data/sondara.db` 文件即可完成本地或单节点私有部署。PostgreSQL 规划为面向云端多实例、高并发和集中运维场景的可选生产后端。
+Sondara 现在只使用 PostgreSQL 作为运行数据库。SQLite 仅保留为旧版本数据的离线迁移来源，不再作为可选运行模式。
 
-## 适用场景
+## 迁移前
 
-- 本地开发、个人使用、单机私有部署：继续使用 SQLite。
-- 多实例部署、高并发写入、集中备份监控或云数据库托管：使用 PostgreSQL。
+1. 停止旧版 Sondara，确保 SQLite 不再有写入。
+2. 创建一个空 PostgreSQL 数据库，并确认连接账号具有建表和写入权限。
+3. 在安全环境中设置 `SONDARA_ENCRYPTION_KEY`；迁移后的加密密钥数据仍依赖原主密钥解密。
 
-## 实施路线
+## 执行
 
-1. 建立数据库驱动边界，通过 `SONDARA_DATABASE_DRIVER=sqlite|postgres` 选择活动驱动。
-2. 为 PostgreSQL 维护独立 migrations，并将 JSON 字段映射为 `jsonb`、时间字段映射为 `timestamptz`。
-3. 为健康检查、备份导出、迁移和连接管理提供数据库适配器。
-4. 建立 PostgreSQL 集成测试矩阵，覆盖认证、客户雷达、外发队列、归因聚合和备份导出。
-5. 提供 SQLite → PostgreSQL 离线迁移工具，校验表行数、关键聚合和工作区隔离。
-6. 更新 Docker Compose、云数据库连接、备份恢复和升级文档。
+```bash
+npm ci
+npm run db:migrate:sqlite -- \
+  --sqlite=./data/sondara.db \
+  --postgres=postgresql://user:password@host:5432/sondara
+```
 
-## 切换约定
+迁移器会：
 
-每个部署使用一个活动数据库驱动。正式切换前先完成全量备份和迁移校验，再通过配置切换到 PostgreSQL。
+- 先应用 PostgreSQL migrations；
+- 按外键依赖顺序复制两端共有的表和列；
+- 将 SQLite 的 `0/1` 转换为 PostgreSQL boolean；
+- 在同一事务中执行复制与逐表行数校验；
+- 成功提交后删除源 `.db`、`-wal`、`-shm`，失败时不删除任何源文件。
+
+如需暂时保留旧文件用于人工归档，增加 `--keep-source`。目标库已有数据时工具默认拒绝执行；只有明确需要按主键合并时才使用 `--merge`。
+
+## 切换与验证
+
+```bash
+npm run setup -- --database-url=postgresql://user:password@host:5432/sondara
+npm run db:migrate
+npm start
+```
+
+随后检查 `/api/ready`、登录、客户数量、活动/消息记录和工作区隔离。生产切换前仍建议另做 PostgreSQL `pg_dump --format=custom` 备份。

@@ -55,7 +55,7 @@ const run = async () => {
     const verified = await app.inject({ method: 'POST', url: '/api/auth/2fa/verify', headers: { cookie: challengeCookie }, payload: { code: generateTotp(setup.json().secret) } })
     assert.equal(verified.statusCode, 201, verified.body)
     assert.equal(verified.json().user.email, email)
-    assert.equal(db.select().from(authChallenges).where(eq(authChallenges.userId, userId)).all().length, 0)
+    assert.equal((await db.select().from(authChallenges).where(eq(authChallenges.userId, userId))).length, 0)
 
     const recoveryLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'TwoFactor@2026', remember: true } })
     const recoveryCookie = cookieHeader(recoveryLogin.headers['set-cookie'], 'sondara_2fa')
@@ -73,7 +73,7 @@ const run = async () => {
 
     console.log('Auth 2FA integration passed: setup, TOTP, recovery, challenge login and disable verified.')
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run()
+    if (userId) await db.delete(users).where(eq(users.id, userId))
     await app.close()
   }
 }

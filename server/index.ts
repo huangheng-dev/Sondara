@@ -1,7 +1,7 @@
 import "./instrument.js";
 import { buildApp } from "./app.js";
 import { config } from "./config.js";
-import { sqlite } from "./db/client.js";
+import { databaseRuntime } from "./db/client.js";
 import { createRadarWorker } from "./radar/worker.js";
 import { createOutboxWorker } from "./outbox/worker.js";
 import { createImapReceiver } from "./inbox/imap-receiver.js";
@@ -22,21 +22,21 @@ const shutdown = async (signal: string) => {
   radarWorker.stop();
   outboxWorker.stop();
   imapReceiver.stop();
-  const forceTimer = setTimeout(() => {
+  const forceTimer = setTimeout(async () => {
     app.log.error("Forced shutdown after 10s timeout");
-    sqlite.close();
+    await databaseRuntime.close();
     process.exit(1);
   }, 10_000);
   forceTimer.unref();
   try {
     await shutdownObservability();
     await app.close();
-    sqlite.close();
+    await databaseRuntime.close();
     app.log.info("Shutdown complete");
     process.exit(0);
   } catch (error) {
     app.log.error({ err: error }, "Error during shutdown");
-    sqlite.close();
+    await databaseRuntime.close();
     process.exit(1);
   }
 };
@@ -67,6 +67,7 @@ app.log.info(
     port: config.port,
     env: config.isProduction ? "production" : "development",
     version: config.version,
+    databaseDriver: config.databaseDriver,
   },
   `Sondara API v${config.version} running`,
 );

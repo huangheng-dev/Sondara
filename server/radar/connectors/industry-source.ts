@@ -103,16 +103,16 @@ export class IndustrySourceConnector implements DiscoveryConnector {
   id = 'industry-source'
   label = '行业与公开机会来源'
 
-  supports(task: RadarTaskContext) {
+  async supports(task: RadarTaskContext) {
     const explicit = /行业名录|展会协会|招投标项目/.test(task.mode)
-    return (task.mode === '智能多渠道' && hasSearchConfiguration(task.workspaceId)) || (explicit && (hasSearchConfiguration(task.workspaceId) || task.seedUrls.length > 0))
+    return (task.mode === '智能多渠道' && (await hasSearchConfiguration(task.workspaceId))) || (explicit && ((await hasSearchConfiguration(task.workspaceId)) || task.seedUrls.length > 0))
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
     const modes = modeList(task)
     const pages = new Map<string, { mode: IndustryMode; result?: SearchResult }>()
     const errors: string[] = []
-    const searchEnabled = hasSearchConfiguration(task.workspaceId)
+    const searchEnabled = (await hasSearchConfiguration(task.workspaceId))
     if (searchEnabled) {
       for (const [index, mode] of modes.entries()) {
         onProgress(`正在发现${mode}公开来源`, 10 + Math.round(index / modes.length * 22))

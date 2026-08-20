@@ -111,18 +111,18 @@ export const discoverPlacesWithConnection = async (
   return { items: items.filter(item => item.name).slice(0, resultLimit), latencyMs: Date.now() - started }
 }
 
-export const hasMapConfiguration = (workspaceId: string) => Boolean(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(
-  eq(integrationConnections.workspaceId, workspaceId),
-  eq(integrationConnections.category, 'map'),
-  eq(integrationConnections.enabled, true),
-)).get())
+export const hasMapConfiguration = async (workspaceId: string) => Boolean((await db.$first(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(
+      eq(integrationConnections.workspaceId, workspaceId),
+      eq(integrationConnections.category, 'map'),
+      eq(integrationConnections.enabled, true),
+    )))))
 
 export const discoverPlacesWorkspace = async (workspaceId: string, query: string, region: string, limit: number) => {
-  const connections = db.select().from(integrationConnections).where(and(
-    eq(integrationConnections.workspaceId, workspaceId),
-    eq(integrationConnections.category, 'map'),
-    eq(integrationConnections.enabled, true),
-  )).orderBy(asc(integrationConnections.priority), asc(integrationConnections.createdAt)).all()
+  const connections = (await db.select().from(integrationConnections).where(and(
+      eq(integrationConnections.workspaceId, workspaceId),
+      eq(integrationConnections.category, 'map'),
+      eq(integrationConnections.enabled, true),
+    )).orderBy(asc(integrationConnections.priority), asc(integrationConnections.createdAt)))
   if (!connections.length) throw new MapUnavailableError('NO_CONFIGURATION', '当前工作区没有已启用的地图数据源。')
   const failures: string[] = []
   for (const connection of connections) {
@@ -134,13 +134,13 @@ export const discoverPlacesWorkspace = async (workspaceId: string, query: string
       } catch { /* use default */ }
       const result = await discoverPlacesWithConnection(connection, query, region, Math.min(limit, configuredLimit))
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id)).run()
+      await db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id))
       return { ...result, connectionId: connection.id, connectionName: connection.name, provider: connection.provider }
     } catch (cause) {
       const message = redact(cause instanceof Error ? cause.message : '地图服务调用失败')
       failures.push(`${connection.name}: ${message}`)
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id)).run()
+      await db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id))
     }
   }
   throw new MapUnavailableError('ALL_PROVIDERS_FAILED', failures.join('；') || '所有地图数据源均不可用。')

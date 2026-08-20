@@ -50,12 +50,12 @@ const run = async () => {
   })
   try {
     port = await listen(mockServer)
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Industry integration', status: 'active', createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: 'Industry integration', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-      tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'search', name: 'Local industry search', provider: 'searxng', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', configJson: JSON.stringify({ resultLimit: 10 }), createdAt: now, updatedAt: now }).run()
-    })
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Industry integration', status: 'active', createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: 'Industry integration', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+            await tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'search', name: 'Local industry search', provider: 'searxng', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', configJson: JSON.stringify({ resultLimit: 10 }), createdAt: now, updatedAt: now })
+          })
     assert.equal((await fetch(`http://127.0.0.1:${port}/search?q=probe&format=json`)).status, 200)
 
     const structured = extractIndustryEntities('<script type="application/ld+json">{"@type":"Organization","name":"测试制造有限公司","url":"https://example.com"}</script>', new URL(`http://127.0.0.1:${port}/directory`), '行业名录')
@@ -80,7 +80,7 @@ const run = async () => {
     assert.match(tender[0]?.signal ?? '', /采购|中标/)
     console.log('Industry source integration passed: directory, association and tender evidence discovery verified.')
   } finally {
-    db.delete(users).where(eq(users.id, userId)).run()
+    await db.delete(users).where(eq(users.id, userId))
     await close(mockServer).catch(() => undefined)
   }
 }

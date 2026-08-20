@@ -34,14 +34,14 @@ const run = async () => {
   })
   try {
     port = await listen(mockServer)
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Contact integration', status: 'active', createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: 'Contact integration', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-      tx.insert(radarTasks).values({ id: taskId, workspaceId, name: 'Contact test', icp: '工业设备', status: 'completed', progress: 100, currentStage: '研究完成', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(radarCandidates).values({ id: candidateId, workspaceId, radarTaskId: taskId, company: 'Contact Industries', industry: '工业设备', score: 78, confidence: 60, committeeJson: '[]', relationshipsJson: '[]', discoveredAt: now, updatedAt: now }).run()
-      tx.insert(candidateEvidence).values({ id: createId('evd'), workspaceId, candidateId, title: '企业官网', source: '模拟官网', observedLabel: '刚刚', strength: '中', sourceUrl: `http://127.0.0.1:${port}/`, createdAt: now }).run()
-    })
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Contact integration', status: 'active', createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: 'Contact integration', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+            await tx.insert(radarTasks).values({ id: taskId, workspaceId, name: 'Contact test', icp: '工业设备', status: 'completed', progress: 100, currentStage: '研究完成', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(radarCandidates).values({ id: candidateId, workspaceId, radarTaskId: taskId, company: 'Contact Industries', industry: '工业设备', score: 78, confidence: 60, committeeJson: '[]', relationshipsJson: '[]', discoveredAt: now, updatedAt: now })
+            await tx.insert(candidateEvidence).values({ id: createId('evd'), workspaceId, candidateId, title: '企业官网', source: '模拟官网', observedLabel: '刚刚', strength: '中', sourceUrl: `http://127.0.0.1:${port}/`, createdAt: now })
+          })
 
     const first = await enrichCandidateContacts(workspaceId, candidateId)
     assert.ok(first)
@@ -50,9 +50,9 @@ const run = async () => {
     assert.ok(first.contacts.some(item => item.email === 'procurement@contact.test' && item.role === '采购与供应链'))
     assert.ok(first.contacts.some(item => item.phone === '+86 21 5555 6677'))
     assert.ok(first.contacts.some(item => item.socialUrl?.includes('linkedin.com/company/contact-industries')))
-    const stored = db.select().from(candidateContacts).where(eq(candidateContacts.candidateId, candidateId)).all()
+    const stored = (await db.select().from(candidateContacts).where(eq(candidateContacts.candidateId, candidateId)))
     assert.equal(stored.length, 3)
-    const candidate = db.select().from(radarCandidates).where(eq(radarCandidates.id, candidateId)).get()
+    const candidate = (await db.$first(db.select().from(radarCandidates).where(eq(radarCandidates.id, candidateId))))
     assert.ok(candidate)
     assert.match(candidate.committeeJson, /采购与供应链/)
     assert.ok(candidate.confidence > 60)
@@ -60,10 +60,10 @@ const run = async () => {
     const second = await enrichCandidateContacts(workspaceId, candidateId)
     assert.ok(second)
     assert.equal(second.discovered, 0)
-    assert.equal(db.select().from(candidateContacts).where(eq(candidateContacts.candidateId, candidateId)).all().length, 3)
+    assert.equal((await db.select().from(candidateContacts).where(eq(candidateContacts.candidateId, candidateId))).length, 3)
     console.log('Contact enrichment integration passed: public-page discovery, extraction, persistence and idempotency verified.')
   } finally {
-    db.delete(users).where(eq(users.id, userId)).run()
+    await db.delete(users).where(eq(users.id, userId))
     await close(mockServer).catch(() => undefined)
   }
 }

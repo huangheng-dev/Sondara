@@ -37,19 +37,19 @@ const run = async () => {
     const port = await listen(mockServer)
     mockPort = port
     const encrypted = encryptSecret('integration-search-token')
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Search integration', status: 'active', createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: 'Search integration', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-      tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'search', name: 'Local SearXNG mock', provider: 'searxng', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: 'OKEN', configJson: JSON.stringify({ resultLimit: 5 }), createdAt: now, updatedAt: now }).run()
-    })
-    const stored = db.select().from(integrationConnections).where(eq(integrationConnections.id, connectionId)).get()
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Search integration', status: 'active', createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: 'Search integration', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+            await tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'search', name: 'Local SearXNG mock', provider: 'searxng', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: 'OKEN', configJson: JSON.stringify({ resultLimit: 5 }), createdAt: now, updatedAt: now })
+          })
+    const stored = (await db.$first(db.select().from(integrationConnections).where(eq(integrationConnections.id, connectionId))))
     assert.ok(stored?.secretCiphertext)
     assert.ok(!stored.secretCiphertext.includes('integration-search-token'))
 
     const connector = new SearchDiscoveryConnector()
     const task = { id: 'integration-task', workspaceId, name: 'Search integration', icp: 'industrial equipment', mode: '搜索引擎', depth: '标准研究', candidateLimit: 3, targetRegion: '全球', researchLanguage: '英语', seedUrls: [] }
-    assert.equal(connector.supports(task), true)
+    assert.equal(await connector.supports(task), true)
     const progress: string[] = []
     const candidates = await connector.discover(task, message => progress.push(message))
     assert.equal(candidates.length, 1)
@@ -58,7 +58,7 @@ const run = async () => {
     assert.ok(progress.some(item => /搜索/.test(item)))
     console.log('Search connector integration passed: encrypted configuration, search discovery, website verification and SSRF default verified.')
   } finally {
-    db.delete(users).where(eq(users.id, userId)).run()
+    await db.delete(users).where(eq(users.id, userId))
     await close(mockServer).catch(() => undefined)
   }
 }

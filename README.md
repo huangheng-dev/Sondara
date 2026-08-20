@@ -18,7 +18,8 @@ Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在�
 - 内容资产生成、编辑、质量检查和版本管理
 - 增长活动编排和执行追踪
 - 客户收件箱与人工确认外发
-- SMTP 邮件队列、送达/退信/退订回调和抑制名单
+- SMTP、SendGrid、Mailgun 与合规 Webhook 外发队列，多邮箱 IMAP 收件
+- 送达/退信/退订回调、抑制名单和人工确认发送门禁
 - 个人销售管道与商机推进
 - 转化分析、渠道归因、成本/ROI 和优化任务生成
 - 数据导出与数据库备份
@@ -30,16 +31,17 @@ Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在�
 - React 19 + TypeScript + Vite 7
 - React Router 7、TanStack Query/Table、Zustand
 - Ant Design 6、Lucide React
-- Fastify 5 + better-sqlite3 + Drizzle ORM
+- Fastify 5 + PostgreSQL 17 + Drizzle ORM
 - 多 AI 服务密钥池轮转、AES-256-GCM 密钥保险箱
 - Docker 多阶段构建支持
 
 ## 本地启动
 
-需要 Node.js 20 或更高版本（推荐 22 LTS）。
+需要 Node.js 20 或更高版本（推荐 22 LTS）和 PostgreSQL 15+。先创建数据库，再运行：
 
 ```bash
 npm install
+npm run setup
 npm run db:migrate
 npm run db:seed:dev
 npm run dev:all
@@ -73,16 +75,16 @@ NODE_ENV=production npm start
 ### Docker
 
 ```bash
-cp .env.example .env
-# 编辑 .env，设置 SONDARA_ENCRYPTION_KEY、SONDARA_WEB_ORIGIN 等
 docker compose up -d --build
 ```
+
+Docker Desktop 中会归组为 `sondara` 项目，包含 `sondara-app-1` 与 `sondara-postgres-1`；PostgreSQL 数据保存在独立持久卷。公开部署前请复制 `.env.example` 为 `.env`，更换数据库密码、加密主密钥和站点域名。
 
 完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含 Docker、手动部署、systemd、Nginx 反代、备份恢复和升级流程。
 
 ## 测试
 
-全部 14 组本地集成验收（全 mock，不外连）：
+全部 14 组本地集成验收（第三方服务均使用 mock，数据库使用 PostgreSQL）：
 
 ```bash
 npm run test:auth-2fa        # TOTP 双重验证、恢复码、登录验证
@@ -95,13 +97,21 @@ npm run test:industry-source  # 行业名录/展会/招投标
 npm run test:content-assets   # 内容资产 CRUD
 npm run test:campaigns        # 营销活动
 npm run test:inbox            # 消息线程
-npm run test:outbox           # SMTP 队列与回调
+npm run test:outbox           # SMTP、多邮箱 IMAP 密钥、Webhook 渠道与回调
 npm run test:partial-updates  # 局部更新保护
 npm run test:icp              # 业务资料与定位知识
 npm run test:attribution      # 转化归因
 ```
 
-环境变量参考 [`.env.example`](./.env.example)。本地数据库默认保存在 `data/sondara.db`，整个 `data/` 目录均被 Git 忽略。
+环境变量参考 [`.env.example`](./.env.example)。测试必须指向隔离的 PostgreSQL 数据库；E2E 会自动创建并销毁临时数据库。
+
+旧版 SQLite 数据可一次性迁移：
+
+```bash
+npm run db:migrate:sqlite -- --sqlite=./data/sondara.db --postgres=postgresql://user:password@host:5432/sondara
+```
+
+工具会在事务内迁移并逐表校验；成功后删除 SQLite、`-wal` 与 `-shm` 文件，失败则全部保留。需要人工归档时增加 `--keep-source`。
 
 准备公开仓库前必须运行：
 
@@ -132,10 +142,10 @@ src/
 ├─ hooks/        # 自定义 hooks
 └─ lib/          # API 客户端和工具函数
 server/
-├─ db/           # 数据表、迁移和 SQLite 连接
+├─ db/           # PostgreSQL 数据表、连接和迁移
 ├─ ai/           # 统一 AI 调用、密钥轮转和降级
 ├─ radar/        # 雷达任务、连接器、AI 富化和后台 worker
-├─ outbox/       # 外发队列、SMTP 适配器和后台执行器
+├─ outbox/       # 外发队列、邮件/Webhook 适配器和后台执行器
 ├─ integrations/ # 搜索、地图客户端
 ├─ routes/       # API 路由
 ├─ plugins/      # Fastify 插件（认证守卫等）
@@ -144,15 +154,15 @@ server/
 
 ## 路线图
 
-- **0.1.x：稳定发布** — 修复真实部署问题，完善文档、备份恢复、CI 和可访问性回归。
-- **0.2.x：生产加固** — 在保持 SQLite 零配置体验的前提下，提供可选 PostgreSQL 驱动、迁移工具和云部署文档。
-- **0.3.x：连接器生态** — 增强入站邮件、投递事件和合规人工触达渠道适配器。
+- **0.1.x：稳定发布** — PostgreSQL 原生部署、SQLite 升级迁移、备份恢复、CI、E2E 和可访问性回归。
+- **0.2.x：连接器生态** — 基于公开 API 或用户自建 Webhook 继续增加合规渠道适配器。
+- **0.3.x：团队与自动化** — 细化审批流、运营规则、可观测性面板和规模化运维能力。
 
 Sentry/OpenTelemetry、E2E、2FA 二维码等基础增强已进入当前代码库；后续围绕真实部署反馈继续打磨。
 
 ## 渠道事件回调
 
-每个 SMTP 连接都可在"数据源集成 → 发送治理"中生成或轮换独立回调密钥。服务商适配器向以下地址发送 JSON：
+每个外发连接都可在“数据源集成 → 发送治理”中生成或轮换独立回调密钥。服务商适配器向以下地址发送 JSON：
 
 ```text
 POST /api/outbox-webhooks/:connectionId

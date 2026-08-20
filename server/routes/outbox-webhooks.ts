@@ -35,16 +35,15 @@ export const outboxWebhookRoutes: FastifyPluginAsync = async (app) => {
         error: "INVALID_EVENT",
         message: parsed.error.issues[0]?.message,
       });
-    const connection = db
-      .select()
-      .from(outboundChannelConnections)
-      .where(
-        and(
-          eq(outboundChannelConnections.id, connectionId),
-          eq(outboundChannelConnections.enabled, true),
-        ),
-      )
-      .get();
+    const connection = (await db.$first(db
+          .select()
+          .from(outboundChannelConnections)
+          .where(
+            and(
+              eq(outboundChannelConnections.id, connectionId),
+              eq(outboundChannelConnections.enabled, true),
+            ),
+          )));
     if (
       !connection?.webhookSecretCiphertext ||
       !connection.webhookSecretIv ||
@@ -70,7 +69,7 @@ export const outboxWebhookRoutes: FastifyPluginAsync = async (app) => {
         error: "INVALID_SIGNATURE",
         message: "渠道事件签名无效或已过期。",
       });
-    const result = processChannelEvent(connection, parsed.data);
+    const result = (await processChannelEvent(connection, parsed.data));
     return reply.code(result.status === "unlinked" ? 202 : 200).send(result);
   });
 };

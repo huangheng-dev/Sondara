@@ -60,8 +60,8 @@ export function InboxPage() {
     else if (activeId && threads.length && !threads.some(thread => thread.id === activeId)) setActiveId(threads[0]!.id)
   }, [activeId, threads])
   useEffect(() => {
-    const target = loadMoreRef.curren
-    const root = threadListRef.curren
+    const target = loadMoreRef.current
+    const root = threadListRef.current
     if (!target || !root || !threadsQuery.hasNextPage || threadsQuery.isFetchingNextPage) return
     const observer = new IntersectionObserver(entries => { if (entries[0]?.isIntersecting) void threadsQuery.fetchNextPage() }, { root, rootMargin: '120px 0px' })
     observer.observe(target)

@@ -1,6 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { sql } from 'drizzle-orm'
-import { db, sqlite } from '../db/client.js'
+import { databaseRuntime } from '../db/client.js'
 import { config } from '../config.js'
 
 const startTime = Date.now()
@@ -17,15 +16,17 @@ export const healthRoutes: FastifyPluginAsync = async app => {
   // Readiness — DB reachable, workers status
   app.get('/ready', async (_request, reply) => {
     try {
-      db.get(sql`select 1`)
-      const walResult = sqlite.pragma('journal_mode', { simple: true }) as string
+      await databaseRuntime.ping()
       return {
         status: 'ready',
         service: 'sondara-api',
         version: config.version,
         time: new Date().toISOString(),
         uptime: Math.round((Date.now() - startTime) / 1000),
-        database: { connected: true, journalMode: walResult },
+        database: {
+          connected: true,
+          driver: databaseRuntime.driver,
+        },
         workers: {
           radar: config.radarWorkerEnabled ? 'enabled' : 'disabled',
           outbox: config.outboxWorkerEnabled ? 'enabled' : 'disabled',
@@ -45,7 +46,7 @@ export const healthRoutes: FastifyPluginAsync = async app => {
   // Legacy /health — same as readiness
   app.get('/health', async (_request, reply) => {
     try {
-      db.get(sql`select 1`)
+      await databaseRuntime.ping()
       return {
         status: 'ok',
         service: 'sondara-api',

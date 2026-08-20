@@ -30,7 +30,8 @@ export function AppLayout() {
   const canManageWorkspace = ['owner', 'admin'].includes(authSession.data?.workspace.role ?? '')
   const inboxPreview = useQuery({ queryKey: ['inbox-threads', 'shell-preview'], queryFn: () => inboxApi.listThreads({ limit: 50 }), retry: 1 })
   const inboxUnread = inboxPreview.data?.unreadTotal ?? 0
-  const avatarText = accountPreferences.displayName.trim().slice(0, 1) || '我'
+  const displayName = accountPreferences?.displayName?.trim() || authSession.data?.user.displayName?.trim() || '我的账户'
+  const avatarText = displayName.slice(0, 1)
 
   useEffect(() => setUnreadCount(inboxUnread), [inboxUnread])
   useEffect(() => {
@@ -125,7 +126,7 @@ export function AppLayout() {
         <div className="topbar-spacer"/>
         <Popover content={notificationContent} trigger="click" placement="bottomRight" open={notificationsOpen} onOpenChange={setNotificationsOpen}><Button className={`topbar-icon ${notificationsOpen ? 'active' : ''}`} aria-label={unreadCount ? `通知，${unreadCount} 条未读` : '通知'}><AntBadge count={unreadCount} size="small"><Bell size={19}/></AntBadge></Button></Popover>
         <span className="topbar-divider"/>
-        <Dropdown trigger={['click']} placement="bottomRight" open={accountOpen} onOpenChange={setAccountOpen} menu={{ items: accountItems, onClick: onAccountAction }}><Button className={`user-block ${accountOpen ? 'active' : ''}`} aria-label={`打开账户菜单，${accountPreferences.displayName}`}><Avatar size={34}>{avatarText}</Avatar><div className="user-copy"><strong title={accountPreferences.displayName}>{accountPreferences.displayName}</strong><span>{authSession.data?.workspace.role === 'owner' ? '所有者' : authSession.data?.workspace.role === 'admin' ? '管理员' : authSession.data?.workspace.role === 'viewer' ? '只读成员' : '成员'}</span></div></Button></Dropdown>
+        <Dropdown trigger={['click']} placement="bottomRight" open={accountOpen} onOpenChange={setAccountOpen} menu={{ items: accountItems, onClick: onAccountAction }}><Button className={`user-block ${accountOpen ? 'active' : ''}`} aria-label={`打开账户菜单，${displayName}`}><Avatar size={34}>{avatarText}</Avatar><div className="user-copy"><strong title={displayName}>{displayName}</strong><span>{authSession.data?.workspace.role === 'owner' ? '所有者' : authSession.data?.workspace.role === 'admin' ? '管理员' : authSession.data?.workspace.role === 'viewer' ? '只读成员' : '成员'}</span></div></Button></Dropdown>
       </Header>
       <Content className="app-content"><Outlet/></Content>
     </Layout>

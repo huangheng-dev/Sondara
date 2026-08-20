@@ -117,29 +117,29 @@ export const discoverPublicContacts = async (sourceUrls: string[]) => {
 }
 
 export const enrichCandidateContacts = async (workspaceId: string, candidateId: string) => {
-  const candidate = db.select().from(radarCandidates).where(and(eq(radarCandidates.id, candidateId), eq(radarCandidates.workspaceId, workspaceId))).get()
+  const candidate = (await db.$first(db.select().from(radarCandidates).where(and(eq(radarCandidates.id, candidateId), eq(radarCandidates.workspaceId, workspaceId)))))
   if (!candidate) return null
-  const evidence = db.select().from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, workspaceId), eq(candidateEvidence.candidateId, candidateId))).all()
+  const evidence = (await db.select().from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, workspaceId), eq(candidateEvidence.candidateId, candidateId))))
   const relationships = (() => { try { return JSON.parse(candidate.relationshipsJson) as { label: string; value: string }[] } catch { return [] } })()
   const sourceUrls = [
     ...relationships.filter(item => /企业官网|企业公开页面|官方网站/.test(item.label)).map(item => item.value),
     ...evidence.filter(item => /官网|official website/i.test(`${item.title} ${item.source}`)).map(item => item.sourceUrl),
   ].filter((value): value is string => Boolean(value && /^https?:\/\//i.test(value)))
   const result = await discoverPublicContacts(sourceUrls)
-  const existing = db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, workspaceId), eq(candidateContacts.candidateId, candidateId))).all()
+  const existing = (await db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, workspaceId), eq(candidateContacts.candidateId, candidateId))))
   const known = new Set(existing.map(item => item.email || item.phone || item.socialUrl).filter(Boolean))
   const fresh = result.contacts.filter(item => !known.has(item.email || item.phone || item.socialUrl))
   const all = [...existing.map(item => ({ name: item.name, role: item.role, email: item.email, phone: item.phone, socialUrl: item.socialUrl, sourceUrl: item.sourceUrl, verificationStatus: item.verificationStatus as PublicContact['verificationStatus'], confidence: item.confidence })), ...fresh]
   const committee = all.slice(0, 12).map(contact => ({ name: contact.name, role: contact.role, influence: contact.verificationStatus === 'verified' ? '已验证' : '公开来源', contact: contact.email || contact.phone || contact.socialUrl || '待复核' }))
   const now = Date.now()
-  db.transaction(tx => {
-    if (fresh.length) tx.insert(candidateContacts).values(fresh.map(contact => ({ id: createId('con'), workspaceId, candidateId, ...contact, createdAt: now, updatedAt: now }))).run()
-    tx.update(radarCandidates).set({
-      committeeJson: JSON.stringify(committee.length ? committee : [{ name: '待补全', role: '采购或技术负责人', influence: '待判断', contact: '未发现公开联系方式' }]),
-      confidence: Math.min(100, candidate.confidence + (fresh.length ? Math.min(8, fresh.length * 2) : 0)),
-      updatedAt: now,
-    }).where(and(eq(radarCandidates.id, candidateId), eq(radarCandidates.workspaceId, workspaceId))).run()
-    if (fresh.length) tx.insert(candidateEvidence).values({ id: createId('evd'), workspaceId, candidateId, title: `发现 ${fresh.length} 条公开联系方式`, source: '企业官网公开页面', observedLabel: new Date(now).toISOString(), strength: fresh.some(item => item.verificationStatus === 'verified') ? '强' : '中', sourceUrl: fresh[0].sourceUrl, createdAt: now }).run()
-  })
+  await db.transaction(async tx => {
+        if (fresh.length) await tx.insert(candidateContacts).values(fresh.map(contact => ({ id: createId('con'), workspaceId, candidateId, ...contact, createdAt: now, updatedAt: now })))
+        await tx.update(radarCandidates).set({
+                committeeJson: JSON.stringify(committee.length ? committee : [{ name: '待补全', role: '采购或技术负责人', influence: '待判断', contact: '未发现公开联系方式' }]),
+                confidence: Math.min(100, candidate.confidence + (fresh.length ? Math.min(8, fresh.length * 2) : 0)),
+                updatedAt: now,
+              }).where(and(eq(radarCandidates.id, candidateId), eq(radarCandidates.workspaceId, workspaceId)))
+        if (fresh.length) await tx.insert(candidateEvidence).values({ id: createId('evd'), workspaceId, candidateId, title: `发现 ${fresh.length} 条公开联系方式`, source: '企业官网公开页面', observedLabel: new Date(now).toISOString(), strength: fresh.some(item => item.verificationStatus === 'verified') ? '强' : '中', sourceUrl: fresh[0].sourceUrl, createdAt: now })
+      })
   return { contacts: all, discovered: fresh.length, pagesScanned: result.pagesScanned, errors: result.errors }
 }

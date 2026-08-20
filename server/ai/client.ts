@@ -81,26 +81,26 @@ const defaultPolicy = {
 
 const wait = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
 
-const getPolicy = (workspaceId: string) => db.select().from(workspaceAiPolicies)
-  .where(eq(workspaceAiPolicies.workspaceId, workspaceId)).get() ?? { workspaceId, ...defaultPolicy, updatedAt: 0 }
+const getPolicy = async (workspaceId: string) => await db.$first(db.select().from(workspaceAiPolicies)
+  .where(eq(workspaceAiPolicies.workspaceId, workspaceId))) ?? { workspaceId, ...defaultPolicy, updatedAt: 0 }
 
-export const hasAiConfiguration = (workspaceId: string) => {
+export const hasAiConfiguration = async (workspaceId: string) => {
   const now = Date.now()
-  return Boolean(db.select({ id: aiServiceKeys.id }).from(aiServiceKeys)
-    .innerJoin(aiServices, eq(aiServices.id, aiServiceKeys.serviceId))
-    .where(and(
-      eq(aiServices.workspaceId, workspaceId),
-      eq(aiServices.enabled, true),
-      eq(aiServiceKeys.enabled, true),
-      or(isNull(aiServiceKeys.cooldownUntil), lte(aiServiceKeys.cooldownUntil, now)),
-    )).get())
+  return Boolean(await db.$first(db.select({ id: aiServiceKeys.id }).from(aiServiceKeys)
+          .innerJoin(aiServices, eq(aiServices.id, aiServiceKeys.serviceId))
+          .where(and(
+            eq(aiServices.workspaceId, workspaceId),
+            eq(aiServices.enabled, true),
+            eq(aiServiceKeys.enabled, true),
+            or(isNull(aiServiceKeys.cooldownUntil), lte(aiServiceKeys.cooldownUntil, now)),
+          ))))
 }
 
 export const completeWithAi = async (request: AiCompletionRequest): Promise<AiCompletionResult> => {
-  const policy = getPolicy(request.workspaceId)
+  const policy = (await getPolicy(request.workspaceId))
   const serviceConditions = [eq(aiServices.workspaceId, request.workspaceId), eq(aiServices.enabled, true)]
   if (request.serviceId) serviceConditions.push(eq(aiServices.id, request.serviceId))
-  const services = db.select().from(aiServices).where(and(...serviceConditions)).orderBy(asc(aiServices.priority), asc(aiServices.createdAt)).all()
+  const services = await db.select().from(aiServices).where(and(...serviceConditions)).orderBy(asc(aiServices.priority), asc(aiServices.createdAt))
   if (!services.length) throw new AiUnavailableError('NO_CONFIGURATION', '当前工作区没有已启用的 AI 服务。')
 
   const failures: string[] = []
@@ -115,8 +115,8 @@ export const completeWithAi = async (request: AiCompletionRequest): Promise<AiCo
       or(isNull(aiServiceKeys.cooldownUntil), lte(aiServiceKeys.cooldownUntil, now)),
     ))
     const keys = policy.rotationStrategy === 'failover'
-      ? keyQuery.orderBy(asc(aiServiceKeys.failureCount), asc(aiServiceKeys.createdAt)).all()
-      : keyQuery.orderBy(asc(aiServiceKeys.lastUsedAt), asc(aiServiceKeys.failureCount), asc(aiServiceKeys.createdAt)).all()
+      ? await keyQuery.orderBy(asc(aiServiceKeys.failureCount), asc(aiServiceKeys.createdAt))
+      : await keyQuery.orderBy(asc(aiServiceKeys.lastUsedAt), asc(aiServiceKeys.failureCount), asc(aiServiceKeys.createdAt))
     usableKeys += keys.length
 
     for (const key of keys) {
@@ -125,10 +125,10 @@ export const completeWithAi = async (request: AiCompletionRequest): Promise<AiCo
         try {
           const result = await callCompatibleApi(service, decryptSecret({ ciphertext: key.secretCiphertext, iv: key.secretIv, tag: key.secretTag }), request)
           const completedAt = Date.now()
-          db.transaction(tx => {
-            tx.update(aiServiceKeys).set({ failureCount: 0, cooldownUntil: null, lastUsedAt: completedAt, updatedAt: completedAt }).where(eq(aiServiceKeys.id, key.id)).run()
-            tx.update(aiServices).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: completedAt, updatedAt: completedAt }).where(eq(aiServices.id, service.id)).run()
-          })
+          await db.transaction(async tx => {
+                        await tx.update(aiServiceKeys).set({ failureCount: 0, cooldownUntil: null, lastUsedAt: completedAt, updatedAt: completedAt }).where(eq(aiServiceKeys.id, key.id))
+                        await tx.update(aiServices).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: completedAt, updatedAt: completedAt }).where(eq(aiServices.id, service.id))
+                      })
           return { ...result, serviceId: service.id, serviceName: service.name, provider: service.provider, model: service.model }
         } catch (cause) {
           lastMessage = redact(cause instanceof Error ? cause.message : 'AI 服务调用失败')
@@ -140,10 +140,10 @@ export const completeWithAi = async (request: AiCompletionRequest): Promise<AiCo
       }
       failures.push(`${service.name}: ${lastMessage}`)
       const failedAt = Date.now()
-      db.transaction(tx => {
-        tx.update(aiServiceKeys).set({ failureCount: key.failureCount + 1, cooldownUntil: failedAt + policy.cooldownMs, lastUsedAt: failedAt, updatedAt: failedAt }).where(eq(aiServiceKeys.id, key.id)).run()
-        tx.update(aiServices).set({ status: 'error', lastLatencyMs: null, lastError: lastMessage, lastTestedAt: failedAt, updatedAt: failedAt }).where(eq(aiServices.id, service.id)).run()
-      })
+      await db.transaction(async tx => {
+                await tx.update(aiServiceKeys).set({ failureCount: key.failureCount + 1, cooldownUntil: failedAt + policy.cooldownMs, lastUsedAt: failedAt, updatedAt: failedAt }).where(eq(aiServiceKeys.id, key.id))
+                await tx.update(aiServices).set({ status: 'error', lastLatencyMs: null, lastError: lastMessage, lastTestedAt: failedAt, updatedAt: failedAt }).where(eq(aiServices.id, service.id))
+              })
     }
   }
 

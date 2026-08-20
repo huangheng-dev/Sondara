@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { eq } from "drizzle-orm";
 import { createReadStream, mkdirSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { db, sqlite } from "../db/client.js";
+import { db } from "../db/client.js";
+import { config } from "../config.js";
 import { requireAuth } from "../plugins/auth.js";
 import { audit } from "../lib/audit.js";
 import * as schema from "../db/schema.js";
@@ -27,68 +29,67 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
 
     // Tables to export (workspace-scoped only; exclude encrypted secrets, sessions, users)
     const workspaceTables = [
-      "customers", "tasks", "deals", "content_assets", "content_versions",
-      "content_quality_checks", "content_generation_runs", "campaigns",
-      "campaign_steps", "campaign_audience_members", "campaign_content_links",
-      "campaign_execution_events", "inbox_contacts", "message_threads",
-      "message_entries", "message_thread_reads", "radar_tasks", "radar_candidates",
-      "candidate_evidence", "candidate_contacts", "radar_queue_items",
-      "radar_job_events", "business_profiles", "knowledge_items",
-      "channel_costs", "contact_suppressions",
+      ["customers", schema.customers], ["tasks", schema.tasks], ["deals", schema.deals],
+      ["content_assets", schema.contentAssets], ["content_versions", schema.contentVersions],
+      ["content_quality_checks", schema.contentQualityChecks], ["content_generation_runs", schema.contentGenerationRuns],
+      ["campaigns", schema.campaigns], ["campaign_steps", schema.campaignSteps],
+      ["campaign_audience_members", schema.campaignAudienceMembers], ["campaign_content_links", schema.campaignContentLinks],
+      ["campaign_execution_events", schema.campaignExecutionEvents], ["inbox_contacts", schema.inboxContacts],
+      ["message_threads", schema.messageThreads], ["message_entries", schema.messageEntries],
+      ["message_thread_reads", schema.messageThreadReads], ["radar_tasks", schema.radarTasks],
+      ["radar_candidates", schema.radarCandidates], ["candidate_evidence", schema.candidateEvidence],
+      ["candidate_contacts", schema.candidateContacts], ["radar_queue_items", schema.radarQueueItems],
+      ["radar_job_events", schema.radarJobEvents], ["business_profiles", schema.businessProfiles],
+      ["knowledge_items", schema.knowledgeItems], ["channel_costs", schema.channelCosts],
+      ["contact_suppressions", schema.contactSuppressions],
     ] as const;
 
-    for (const name of workspaceTables) {
-      const table = (schema as Record<string, unknown>)[name] as {
-        workspaceId: { name: string };
-      };
-      exportData[name] = db
-        .select()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .from(table as any)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .where(eq(table.workspaceId as any, ws))
-        .all();
+    for (const [name, table] of workspaceTables) {
+      exportData[name] = (await db
+              .select()
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .from(table as any)
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .where(eq(table.workspaceId, ws)));
     }
 
     // Outbound channel connections (masked — no secrets)
-    exportData["outbound_channel_connections"] = db
-      .select({
-        id: schema.outboundChannelConnections.id,
-        provider: schema.outboundChannelConnections.provider,
-        host: schema.outboundChannelConnections.host,
-        port: schema.outboundChannelConnections.port,
-        username: schema.outboundChannelConnections.username,
-        fromEmail: schema.outboundChannelConnections.fromEmail,
-        fromName: schema.outboundChannelConnections.fromName,
-        priority: schema.outboundChannelConnections.priority,
-        enabled: schema.outboundChannelConnections.enabled,
-        createdAt: schema.outboundChannelConnections.createdAt,
-        updatedAt: schema.outboundChannelConnections.updatedAt,
-      })
-      .from(schema.outboundChannelConnections)
-      .where(eq(schema.outboundChannelConnections.workspaceId, ws))
-      .all();
+    exportData["outbound_channel_connections"] = (await db
+          .select({
+            id: schema.outboundChannelConnections.id,
+            provider: schema.outboundChannelConnections.provider,
+            host: schema.outboundChannelConnections.host,
+            port: schema.outboundChannelConnections.port,
+            username: schema.outboundChannelConnections.username,
+            fromEmail: schema.outboundChannelConnections.fromEmail,
+            fromName: schema.outboundChannelConnections.fromName,
+            priority: schema.outboundChannelConnections.priority,
+            enabled: schema.outboundChannelConnections.enabled,
+            createdAt: schema.outboundChannelConnections.createdAt,
+            updatedAt: schema.outboundChannelConnections.updatedAt,
+          })
+          .from(schema.outboundChannelConnections)
+          .where(eq(schema.outboundChannelConnections.workspaceId, ws)));
 
     // AI services (masked — no key material)
-    exportData["ai_services"] = db
-      .select({
-        id: schema.aiServices.id,
-        name: schema.aiServices.name,
-        provider: schema.aiServices.provider,
-        endpoint: schema.aiServices.endpoint,
-        model: schema.aiServices.model,
-        priority: schema.aiServices.priority,
-        enabled: schema.aiServices.enabled,
-        status: schema.aiServices.status,
-        lastLatencyMs: schema.aiServices.lastLatencyMs,
-        lastTestedAt: schema.aiServices.lastTestedAt,
-        createdAt: schema.aiServices.createdAt,
-      })
-      .from(schema.aiServices)
-      .where(eq(schema.aiServices.workspaceId, ws))
-      .all();
+    exportData["ai_services"] = (await db
+          .select({
+            id: schema.aiServices.id,
+            name: schema.aiServices.name,
+            provider: schema.aiServices.provider,
+            endpoint: schema.aiServices.endpoint,
+            model: schema.aiServices.model,
+            priority: schema.aiServices.priority,
+            enabled: schema.aiServices.enabled,
+            status: schema.aiServices.status,
+            lastLatencyMs: schema.aiServices.lastLatencyMs,
+            lastTestedAt: schema.aiServices.lastTestedAt,
+            createdAt: schema.aiServices.createdAt,
+          })
+          .from(schema.aiServices)
+          .where(eq(schema.aiServices.workspaceId, ws)));
 
-    audit(ws, request.auth.userId, "data.export", "workspace", ws, { tables: workspaceTables.length });
+    await audit(ws, request.auth.userId, "data.export", "workspace", ws, { tables: workspaceTables.length });
 
     reply
       .header("Content-Type", "application/json; charset=utf-8")
@@ -96,7 +97,7 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
       .send(exportData);
   });
 
-  // Create a full SQLite backup (VACUUM INTO) and stream it
+  // Create a full driver-native backup and stream it.
   app.post("/backup", {
     preHandler: async (request, reply) => {
       if (request.auth.role !== "owner") {
@@ -108,19 +109,23 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
     const backupDir = join(tmpdir(), "sondara-backups");
     mkdirSync(backupDir, { recursive: true });
 
-    const fileName = `sondara-backup-${randomUUID()}.db`;
+    const extension = "dump";
+    const fileName = `sondara-backup-${randomUUID()}.${extension}`;
     const filePath = join(backupDir, fileName);
 
     try {
-      // VACUUM INTO creates a consistent snapshot even while WAL is active
-      sqlite.exec(`VACUUM INTO '${filePath.replace(/'/g, "''")}'`);
+      const dump = spawnSync("pg_dump", [
+        "--format=custom", "--no-owner", "--no-acl", `--file=${filePath}`, config.databaseUrl,
+      ], { encoding: "utf8", timeout: 120_000, windowsHide: true });
+      if (dump.error) throw new Error(`无法启动 pg_dump：${dump.error.message}`);
+      if (dump.status !== 0) throw new Error(dump.stderr || `pg_dump 退出码 ${dump.status}`);
 
-      audit(ws, request.auth.userId, "data.backup", "workspace", ws, { fileName });
+      await audit(ws, request.auth.userId, "data.backup", "workspace", ws, { fileName });
 
       const stream = createReadStream(filePath);
       reply
         .header("Content-Type", "application/octet-stream")
-        .header("Content-Disposition", `attachment; filename="sondara-backup-${new Date().toISOString().slice(0, 10)}.db"`)
+        .header("Content-Disposition", `attachment; filename="sondara-backup-${new Date().toISOString().slice(0, 10)}.${extension}"`)
         .send(stream);
 
       // Clean up after stream finishes

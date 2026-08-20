@@ -81,25 +81,24 @@ const stepInput = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
-const writeAudit = (
+const writeAudit = async (
   workspaceId: string,
   actorUserId: string,
   action: string,
   entityId: string,
   metadata: unknown = {},
 ) => {
-  db.insert(auditLogs)
-    .values({
-      id: createId("aud"),
-      workspaceId,
-      actorUserId,
-      action,
-      entityType: "campaign",
-      entityId,
-      metadata: JSON.stringify(metadata),
-      createdAt: Date.now(),
-    })
-    .run();
+  await db.insert(auditLogs)
+        .values({
+          id: createId("aud"),
+          workspaceId,
+          actorUserId,
+          action,
+          entityType: "campaign",
+          entityId,
+          metadata: JSON.stringify(metadata),
+          createdAt: Date.now(),
+        });
 };
 
 const parseJson = <T>(value: string, fallback: T): T => {
@@ -110,53 +109,50 @@ const parseJson = <T>(value: string, fallback: T): T => {
   }
 };
 
-const serializeCampaign = (campaign: typeof campaigns.$inferSelect) => {
-  const steps = db
-    .select()
-    .from(campaignSteps)
-    .where(
-      and(
-        eq(campaignSteps.campaignId, campaign.id),
-        eq(campaignSteps.workspaceId, campaign.workspaceId),
-      ),
-    )
-    .orderBy(asc(campaignSteps.position))
-    .all()
-    .map((step) => ({ ...step, config: parseJson(step.configJson, {}) }));
-  const links = db
-    .select({
-      id: campaignContentLinks.id,
-      contentAssetId: campaignContentLinks.contentAssetId,
-      position: campaignContentLinks.position,
-      purpose: campaignContentLinks.purpose,
-      title: contentAssets.title,
-      contentType: contentAssets.contentType,
-      status: contentAssets.status,
-    })
-    .from(campaignContentLinks)
-    .innerJoin(
-      contentAssets,
-      eq(contentAssets.id, campaignContentLinks.contentAssetId),
-    )
-    .where(
-      and(
-        eq(campaignContentLinks.campaignId, campaign.id),
-        eq(campaignContentLinks.workspaceId, campaign.workspaceId),
-      ),
-    )
-    .orderBy(asc(campaignContentLinks.position))
-    .all();
-  const audienceCount =
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(campaignAudienceMembers)
+const serializeCampaign = async (campaign: typeof campaigns.$inferSelect) => {
+  const steps = (await db
+      .select()
+      .from(campaignSteps)
       .where(
         and(
-          eq(campaignAudienceMembers.campaignId, campaign.id),
-          eq(campaignAudienceMembers.workspaceId, campaign.workspaceId),
+          eq(campaignSteps.campaignId, campaign.id),
+          eq(campaignSteps.workspaceId, campaign.workspaceId),
         ),
       )
-      .get()?.count ?? 0;
+      .orderBy(asc(campaignSteps.position)))
+    .map((step) => ({ ...step, config: parseJson(step.configJson, {}) }));
+  const links = (await db
+      .select({
+        id: campaignContentLinks.id,
+        contentAssetId: campaignContentLinks.contentAssetId,
+        position: campaignContentLinks.position,
+        purpose: campaignContentLinks.purpose,
+        title: contentAssets.title,
+        contentType: contentAssets.contentType,
+        status: contentAssets.status,
+      })
+      .from(campaignContentLinks)
+      .innerJoin(
+        contentAssets,
+        eq(contentAssets.id, campaignContentLinks.contentAssetId),
+      )
+      .where(
+        and(
+          eq(campaignContentLinks.campaignId, campaign.id),
+          eq(campaignContentLinks.workspaceId, campaign.workspaceId),
+        ),
+      )
+      .orderBy(asc(campaignContentLinks.position)));
+  const audienceCount =
+    (await db.$first(db
+            .select({ count: sql<number>`count(*)` })
+            .from(campaignAudienceMembers)
+            .where(
+              and(
+                eq(campaignAudienceMembers.campaignId, campaign.id),
+                eq(campaignAudienceMembers.workspaceId, campaign.workspaceId),
+              ),
+            )))?.count ?? 0;
   const nextStep = steps.find(
     (step) => step.status === "scheduled" || step.status === "draft",
   );
@@ -181,61 +177,56 @@ const serializeCampaign = (campaign: typeof campaigns.$inferSelect) => {
   };
 };
 
-const requireCampaign = (workspaceId: string, id: string) =>
-  db
-    .select()
-    .from(campaigns)
-    .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))
-    .get();
+const requireCampaign = async (workspaceId: string, id: string) =>
+  (await db.$first(db
+        .select()
+        .from(campaigns)
+        .where(and(eq(campaigns.id, id), eq(campaigns.workspaceId, workspaceId)))));
 
-const linkContent = (
+const linkContent = async (
   workspaceId: string,
   campaignId: string,
   contentAssetId: string,
   purpose = "触达内容",
 ) => {
-  const asset = db
-    .select()
-    .from(contentAssets)
-    .where(
-      and(
-        eq(contentAssets.id, contentAssetId),
-        eq(contentAssets.workspaceId, workspaceId),
-      ),
-    )
-    .get();
+  const asset = (await db.$first(db
+      .select()
+      .from(contentAssets)
+      .where(
+        and(
+          eq(contentAssets.id, contentAssetId),
+          eq(contentAssets.workspaceId, workspaceId),
+        ),
+      )));
   if (!asset)
     throw Object.assign(new Error("所选内容资产不存在。"), { statusCode: 404 });
-  const existing = db
-    .select()
-    .from(campaignContentLinks)
-    .where(
-      and(
-        eq(campaignContentLinks.campaignId, campaignId),
-        eq(campaignContentLinks.contentAssetId, contentAssetId),
-      ),
-    )
-    .get();
+  const existing = (await db.$first(db
+      .select()
+      .from(campaignContentLinks)
+      .where(
+        and(
+          eq(campaignContentLinks.campaignId, campaignId),
+          eq(campaignContentLinks.contentAssetId, contentAssetId),
+        ),
+      )));
   if (!existing) {
     const position =
-      (db
-        .select({
-          max: sql<number>`coalesce(max(${campaignContentLinks.position}), 0)`,
-        })
-        .from(campaignContentLinks)
-        .where(eq(campaignContentLinks.campaignId, campaignId))
-        .get()?.max ?? 0) + 1;
-    db.insert(campaignContentLinks)
-      .values({
-        id: createId("ccl"),
-        workspaceId,
-        campaignId,
-        contentAssetId,
-        position,
-        purpose,
-        createdAt: Date.now(),
-      })
-      .run();
+      ((await db.$first(db
+                .select({
+                  max: sql<number>`coalesce(max(${campaignContentLinks.position}), 0)`,
+                })
+                .from(campaignContentLinks)
+                .where(eq(campaignContentLinks.campaignId, campaignId))))?.max ?? 0) + 1;
+    await db.insert(campaignContentLinks)
+            .values({
+              id: createId("ccl"),
+              workspaceId,
+              campaignId,
+              contentAssetId,
+              position,
+              purpose,
+              createdAt: Date.now(),
+            });
   }
   const linked = [
     ...new Set([
@@ -243,13 +234,12 @@ const linkContent = (
       campaignId,
     ]),
   ];
-  db.update(contentAssets)
-    .set({
-      linkedCampaignIdsJson: JSON.stringify(linked),
-      updatedAt: Date.now(),
-    })
-    .where(eq(contentAssets.id, contentAssetId))
-    .run();
+  await db.update(contentAssets)
+        .set({
+          linkedCampaignIdsJson: JSON.stringify(linked),
+          updatedAt: Date.now(),
+        })
+        .where(eq(contentAssets.id, contentAssetId));
 };
 
 export const campaignRoutes: FastifyPluginAsync = async (app) => {
@@ -287,40 +277,37 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
                 ? desc(campaigns.updatedAt)
                 : desc(campaigns.progress);
     const total =
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(campaigns)
-        .where(where)
-        .get()?.count ?? 0;
-    const items = db
-      .select()
-      .from(campaigns)
-      .where(where)
-      .orderBy(orderBy)
-      .limit(query.pageSize)
-      .offset((query.page - 1) * query.pageSize)
-      .all()
-      .map(serializeCampaign);
+      (await db.$first(db
+                .select({ count: sql<number>`count(*)` })
+                .from(campaigns)
+                .where(where)))?.count ?? 0;
+    const items = await Promise.all((await db
+          .select()
+          .from(campaigns)
+          .where(where)
+          .orderBy(orderBy)
+          .limit(query.pageSize)
+          .offset((query.page - 1) * query.pageSize))
+      .map(serializeCampaign));
     return { items, page: query.page, pageSize: query.pageSize, total };
   });
 
   app.get("/schedule", async (request) => {
-    const items = db
-      .select({
-        id: campaignSteps.id,
-        campaignId: campaignSteps.campaignId,
-        campaignName: campaigns.name,
-        name: campaignSteps.name,
-        channel: campaignSteps.channel,
-        status: campaignSteps.status,
-        scheduledAt: campaignSteps.scheduledAt,
-        position: campaignSteps.position,
-      })
-      .from(campaignSteps)
-      .innerJoin(campaigns, eq(campaigns.id, campaignSteps.campaignId))
-      .where(eq(campaignSteps.workspaceId, request.auth.workspaceId))
-      .orderBy(asc(campaignSteps.scheduledAt))
-      .all();
+    const items = (await db
+          .select({
+            id: campaignSteps.id,
+            campaignId: campaignSteps.campaignId,
+            campaignName: campaigns.name,
+            name: campaignSteps.name,
+            channel: campaignSteps.channel,
+            status: campaignSteps.status,
+            scheduledAt: campaignSteps.scheduledAt,
+            position: campaignSteps.position,
+          })
+          .from(campaignSteps)
+          .innerJoin(campaigns, eq(campaigns.id, campaignSteps.campaignId))
+          .where(eq(campaignSteps.workspaceId, request.auth.workspaceId))
+          .orderBy(asc(campaignSteps.scheduledAt)));
     return { items, total: items.length };
   });
 
@@ -335,16 +322,15 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     const now = Date.now();
     const campaignId = createId("cmp");
     if (input.contentAssetId) {
-      const asset = db
-        .select({ id: contentAssets.id })
-        .from(contentAssets)
-        .where(
-          and(
-            eq(contentAssets.id, input.contentAssetId),
-            eq(contentAssets.workspaceId, request.auth.workspaceId),
-          ),
-        )
-        .get();
+      const asset = (await db.$first(db
+              .select({ id: contentAssets.id })
+              .from(contentAssets)
+              .where(
+                and(
+                  eq(contentAssets.id, input.contentAssetId),
+                  eq(contentAssets.workspaceId, request.auth.workspaceId),
+                ),
+              )));
       if (!asset)
         return reply.code(404).send({
           error: "CONTENT_NOT_FOUND",
@@ -352,16 +338,15 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         });
     }
     const audience = input.audienceCustomerIds.length
-      ? db
-          .select()
-          .from(customers)
-          .where(
-            and(
-              eq(customers.workspaceId, request.auth.workspaceId),
-              inArray(customers.id, input.audienceCustomerIds),
-            ),
-          )
-          .all()
+      ? (await db
+                  .select()
+                  .from(customers)
+                  .where(
+                    and(
+                      eq(customers.workspaceId, request.auth.workspaceId),
+                      inArray(customers.id, input.audienceCustomerIds),
+                    ),
+                  ))
       : [];
     if (audience.length !== input.audienceCustomerIds.length)
       return reply.code(400).send({
@@ -373,60 +358,55 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       audienceCustomerIds: _audienceCustomerIds,
       ...campaignValues
     } = input;
-    db.transaction((tx) => {
-      tx.insert(campaigns)
-        .values({
-          id: campaignId,
-          workspaceId: request.auth.workspaceId,
-          ownerUserId: request.auth.userId,
-          ...campaignValues,
-          startAt: input.startAt ?? null,
-          nextRunAt: input.nextRunAt ?? input.startAt ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      audience.forEach((customer) =>
-        tx
-          .insert(campaignAudienceMembers)
-          .values({
-            id: createId("cam"),
-            workspaceId: request.auth.workspaceId,
-            campaignId,
-            customerId: customer.id,
-            company: customer.company,
-            status: "pending",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run(),
-      );
-      if (input.startAt || contentAssetId)
-        tx.insert(campaignSteps)
-          .values({
-            id: createId("cst"),
-            workspaceId: request.auth.workspaceId,
-            campaignId,
-            position: 1,
-            name: "首次触达",
-            channel: input.channel,
-            contentAssetId: contentAssetId ?? null,
-            status: input.startAt ? "scheduled" : "draft",
-            scheduledAt: input.startAt ?? null,
-            configJson: JSON.stringify({ stopRule: input.stopRule }),
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-    });
+    await db.transaction(async (tx) => {
+            await tx.insert(campaigns)
+                      .values({
+                        id: campaignId,
+                        workspaceId: request.auth.workspaceId,
+                        ownerUserId: request.auth.userId,
+                        ...campaignValues,
+                        startAt: input.startAt ?? null,
+                        nextRunAt: input.nextRunAt ?? input.startAt ?? null,
+                        createdAt: now,
+                        updatedAt: now,
+                      });
+            if (audience.length) {
+              await tx.insert(campaignAudienceMembers).values(audience.map(customer => ({
+                id: createId("cam"),
+                workspaceId: request.auth.workspaceId,
+                campaignId,
+                customerId: customer.id,
+                company: customer.company,
+                status: "pending",
+                createdAt: now,
+                updatedAt: now,
+              })));
+            }
+            if (input.startAt || contentAssetId)
+              await tx.insert(campaignSteps)
+                          .values({
+                            id: createId("cst"),
+                            workspaceId: request.auth.workspaceId,
+                            campaignId,
+                            position: 1,
+                            name: "首次触达",
+                            channel: input.channel,
+                            contentAssetId: contentAssetId ?? null,
+                            status: input.startAt ? "scheduled" : "draft",
+                            scheduledAt: input.startAt ?? null,
+                            configJson: JSON.stringify({ stopRule: input.stopRule }),
+                            createdAt: now,
+                            updatedAt: now,
+                          });
+          });
     if (contentAssetId)
-      linkContent(
+      await linkContent(
         request.auth.workspaceId,
         campaignId,
         contentAssetId,
         "首次触达",
       );
-    writeAudit(
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.created",
@@ -436,36 +416,35 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     return reply
       .code(201)
       .send(
-        serializeCampaign(
-          requireCampaign(request.auth.workspaceId, campaignId)!,
+        await serializeCampaign(
+          (await requireCampaign(request.auth.workspaceId, campaignId))!,
         ),
       );
   });
 
   app.get("/:id", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const campaign = requireCampaign(request.auth.workspaceId, id);
+    const campaign = (await requireCampaign(request.auth.workspaceId, id));
     if (!campaign)
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "营销活动不存在。" });
-    const events = db
-      .select()
-      .from(campaignExecutionEvents)
-      .where(
-        and(
-          eq(campaignExecutionEvents.campaignId, id),
-          eq(campaignExecutionEvents.workspaceId, request.auth.workspaceId),
-        ),
-      )
-      .orderBy(desc(campaignExecutionEvents.createdAt))
-      .limit(100)
-      .all()
+    const events = (await db
+          .select()
+          .from(campaignExecutionEvents)
+          .where(
+            and(
+              eq(campaignExecutionEvents.campaignId, id),
+              eq(campaignExecutionEvents.workspaceId, request.auth.workspaceId),
+            ),
+          )
+          .orderBy(desc(campaignExecutionEvents.createdAt))
+          .limit(100))
       .map((event) => ({
         ...event,
         metadata: parseJson(event.metadataJson, {}),
       }));
-    return { ...serializeCampaign(campaign), events };
+    return { ...(await serializeCampaign(campaign)), events };
   });
 
   app.patch("/:id", async (request, reply) => {
@@ -475,7 +454,7 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       return reply
         .code(400)
         .send({ error: "INVALID_INPUT", message: "没有可更新的字段。" });
-    const campaign = requireCampaign(request.auth.workspaceId, id);
+    const campaign = (await requireCampaign(request.auth.workspaceId, id));
     if (!campaign)
       return reply
         .code(404)
@@ -486,43 +465,41 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       return reply
         .code(400)
         .send({ error: "INVALID_INPUT", message: "没有可更新的字段。" });
-    db.update(campaigns)
-      .set({
-        ...changes,
-        ...(changes.status === "已完成"
-          ? { completedAt: now, progress: 100 }
-          : {}),
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(campaigns.id, id),
-          eq(campaigns.workspaceId, request.auth.workspaceId),
-        ),
-      )
-      .run();
-    db.insert(campaignExecutionEvents)
-      .values({
-        id: createId("cev"),
-        workspaceId: request.auth.workspaceId,
-        campaignId: id,
-        eventType: changes.status ? "status_changed" : "campaign_updated",
-        status: "completed",
-        metadataJson: JSON.stringify({
-          fields: Object.keys(changes),
-          status: changes.status,
-        }),
-        createdAt: now,
-      })
-      .run();
-    writeAudit(
+    await db.update(campaigns)
+            .set({
+              ...changes,
+              ...(changes.status === "已完成"
+                ? { completedAt: now, progress: 100 }
+                : {}),
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(campaigns.id, id),
+                eq(campaigns.workspaceId, request.auth.workspaceId),
+              ),
+            );
+    await db.insert(campaignExecutionEvents)
+            .values({
+              id: createId("cev"),
+              workspaceId: request.auth.workspaceId,
+              campaignId: id,
+              eventType: changes.status ? "status_changed" : "campaign_updated",
+              status: "completed",
+              metadataJson: JSON.stringify({
+                fields: Object.keys(changes),
+                status: changes.status,
+              }),
+              createdAt: now,
+            });
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.updated",
       id,
       { fields: Object.keys(changes) },
     );
-    return serializeCampaign(requireCampaign(request.auth.workspaceId, id)!);
+    return await serializeCampaign((await requireCampaign(request.auth.workspaceId, id))!);
   });
 
   app.post("/:id/steps", async (request, reply) => {
@@ -533,23 +510,22 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         error: "INVALID_INPUT",
         message: parsed.error.issues[0]?.message,
       });
-    const campaign = requireCampaign(request.auth.workspaceId, id);
+    const campaign = (await requireCampaign(request.auth.workspaceId, id));
     if (!campaign)
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "营销活动不存在。" });
     if (
       parsed.data.contentAssetId &&
-      !db
-        .select({ id: contentAssets.id })
-        .from(contentAssets)
-        .where(
-          and(
-            eq(contentAssets.id, parsed.data.contentAssetId),
-            eq(contentAssets.workspaceId, request.auth.workspaceId),
-          ),
-        )
-        .get()
+      !(await db.$first(db
+                .select({ id: contentAssets.id })
+                .from(contentAssets)
+                .where(
+                  and(
+                    eq(contentAssets.id, parsed.data.contentAssetId),
+                    eq(contentAssets.workspaceId, request.auth.workspaceId),
+                  ),
+                )))
     )
       return reply
         .code(404)
@@ -557,32 +533,30 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     const now = Date.now();
     const position =
       parsed.data.position ??
-      (db
-        .select({
-          max: sql<number>`coalesce(max(${campaignSteps.position}), 0)`,
-        })
-        .from(campaignSteps)
-        .where(eq(campaignSteps.campaignId, id))
-        .get()?.max ?? 0) + 1;
+      ((await db.$first(db
+                .select({
+                  max: sql<number>`coalesce(max(${campaignSteps.position}), 0)`,
+                })
+                .from(campaignSteps)
+                .where(eq(campaignSteps.campaignId, id))))?.max ?? 0) + 1;
     const stepId = createId("cst");
-    db.insert(campaignSteps)
-      .values({
-        id: stepId,
-        workspaceId: request.auth.workspaceId,
-        campaignId: id,
-        position,
-        name: parsed.data.name,
-        channel: parsed.data.channel,
-        contentAssetId: parsed.data.contentAssetId ?? null,
-        status: parsed.data.status,
-        scheduledAt: parsed.data.scheduledAt ?? null,
-        configJson: JSON.stringify({ note: parsed.data.note ?? "" }),
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    await db.insert(campaignSteps)
+            .values({
+              id: stepId,
+              workspaceId: request.auth.workspaceId,
+              campaignId: id,
+              position,
+              name: parsed.data.name,
+              channel: parsed.data.channel,
+              contentAssetId: parsed.data.contentAssetId ?? null,
+              status: parsed.data.status,
+              scheduledAt: parsed.data.scheduledAt ?? null,
+              configJson: JSON.stringify({ note: parsed.data.note ?? "" }),
+              createdAt: now,
+              updatedAt: now,
+            });
     if (parsed.data.contentAssetId)
-      linkContent(
+      await linkContent(
         request.auth.workspaceId,
         id,
         parsed.data.contentAssetId,
@@ -593,11 +567,10 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       (!campaign.nextRunAt || parsed.data.scheduledAt < campaign.nextRunAt)
         ? parsed.data.scheduledAt
         : campaign.nextRunAt;
-    db.update(campaigns)
-      .set({ nextRunAt, nextAction: parsed.data.name, updatedAt: now })
-      .where(eq(campaigns.id, id))
-      .run();
-    writeAudit(
+    await db.update(campaigns)
+            .set({ nextRunAt, nextAction: parsed.data.name, updatedAt: now })
+            .where(eq(campaigns.id, id));
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.step_created",
@@ -606,7 +579,7 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     );
     return reply
       .code(201)
-      .send(serializeCampaign(requireCampaign(request.auth.workspaceId, id)!));
+      .send(await serializeCampaign((await requireCampaign(request.auth.workspaceId, id))!));
   });
 
   app.post("/:id/steps/:stepId/execute", async (request, reply) => {
@@ -619,22 +592,21 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         error: "CONFIRMATION_REQUIRED",
         message: "执行活动前必须明确确认发送内容和受众。",
       });
-    const campaign = requireCampaign(request.auth.workspaceId, id);
+    const campaign = (await requireCampaign(request.auth.workspaceId, id));
     if (!campaign)
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "营销活动不存在。" });
-    const step = db
-      .select()
-      .from(campaignSteps)
-      .where(
-        and(
-          eq(campaignSteps.id, stepId),
-          eq(campaignSteps.campaignId, id),
-          eq(campaignSteps.workspaceId, request.auth.workspaceId),
-        ),
-      )
-      .get();
+    const step = (await db.$first(db
+          .select()
+          .from(campaignSteps)
+          .where(
+            and(
+              eq(campaignSteps.id, stepId),
+              eq(campaignSteps.campaignId, id),
+              eq(campaignSteps.workspaceId, request.auth.workspaceId),
+            ),
+          )));
     if (!step)
       return reply
         .code(404)
@@ -646,92 +618,89 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       });
     const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
     if (!emailChannel) {
-      const audience = db.select().from(campaignAudienceMembers).where(and(
-        eq(campaignAudienceMembers.campaignId, id),
-        eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
-        eq(campaignAudienceMembers.status, "pending"),
-      )).all().filter(member => Boolean(member.customerId));
+      const audience = (await db.select().from(campaignAudienceMembers).where(and(
+              eq(campaignAudienceMembers.campaignId, id),
+              eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
+              eq(campaignAudienceMembers.status, "pending"),
+            ))).filter(member => Boolean(member.customerId));
       if (!audience.length) return reply.code(409).send({ error: "NO_ELIGIBLE_RECIPIENTS", message: "目标名单中没有可创建人工触达任务的客户。" });
       const now = Date.now();
       const createdTaskIds: string[] = [];
-      db.transaction(tx => {
-        audience.forEach(member => {
-          const customer = tx.select().from(customers).where(and(eq(customers.id, member.customerId!), eq(customers.workspaceId, request.auth.workspaceId))).get();
-          if (!customer) return;
-          const taskId = createId("tsk");
-          createdTaskIds.push(taskId);
-          tx.insert(tasks).values({
-            id: taskId,
-            workspaceId: request.auth.workspaceId,
-            customerId: customer.id,
-            title: `${step.channel} · ${step.name}`,
-            priority: "中",
-            dueAt: step.scheduledAt ?? now,
-            dueLabel: step.scheduledAt ? new Date(step.scheduledAt).toISOString().slice(0, 10) : "今天",
-            company: customer.company,
-            nextAction: `按活动「${campaign.name}」完成${step.channel}触达并记录结果`,
-            impact: customer.estimatedValue > 0 ? `${customer.estimatedValue} CNY` : "待评估",
-            source: `营销活动 · ${id} · ${stepId}`,
-            status: "open",
-            ownerUserId: request.auth.userId,
-            createdAt: now,
-            updatedAt: now,
-          }).run();
-          tx.update(campaignAudienceMembers).set({ status: "manual_task", lastEventAt: now, updatedAt: now }).where(eq(campaignAudienceMembers.id, member.id)).run();
-        });
-        tx.update(campaignSteps).set({ status: "running", updatedAt: now }).where(eq(campaignSteps.id, stepId)).run();
-        tx.update(campaigns).set({ status: "运行中", nextAction: `完成 ${createdTaskIds.length} 项${step.channel}人工触达任务`, updatedAt: now }).where(eq(campaigns.id, id)).run();
-        tx.insert(campaignExecutionEvents).values({
-          id: createId("cev"), workspaceId: request.auth.workspaceId, campaignId: id, campaignStepId: stepId,
-          eventType: "manual_tasks_created", status: "completed", recipientCount: createdTaskIds.length,
-          metadataJson: JSON.stringify({ channel: step.channel, taskIds: createdTaskIds, confirmedByUserId: request.auth.userId }), createdAt: now,
-        }).run();
-      });
-      writeAudit(request.auth.workspaceId, request.auth.userId, "campaign.step_executed", id, { stepId, channel: step.channel, manualTasks: createdTaskIds.length });
+      await db.transaction(async tx => {
+                await Promise.all(audience.map(async member => {
+                  const customer = (await db.$first(tx.select().from(customers).where(and(eq(customers.id, member.customerId!), eq(customers.workspaceId, request.auth.workspaceId)))));
+                  if (!customer) return;
+                  const taskId = createId("tsk");
+                  createdTaskIds.push(taskId);
+                  await tx.insert(tasks).values({
+                                id: taskId,
+                                workspaceId: request.auth.workspaceId,
+                                customerId: customer.id,
+                                title: `${step.channel} · ${step.name}`,
+                                priority: "中",
+                                dueAt: step.scheduledAt ?? now,
+                                dueLabel: step.scheduledAt ? new Date(step.scheduledAt).toISOString().slice(0, 10) : "今天",
+                                company: customer.company,
+                                nextAction: `按活动「${campaign.name}」完成${step.channel}触达并记录结果`,
+                                impact: customer.estimatedValue > 0 ? `${customer.estimatedValue} CNY` : "待评估",
+                                source: `营销活动 · ${id} · ${stepId}`,
+                                status: "open",
+                                ownerUserId: request.auth.userId,
+                                createdAt: now,
+                                updatedAt: now,
+                              });
+                  await tx.update(campaignAudienceMembers).set({ status: "manual_task", lastEventAt: now, updatedAt: now }).where(eq(campaignAudienceMembers.id, member.id));
+                }));
+                await tx.update(campaignSteps).set({ status: "running", updatedAt: now }).where(eq(campaignSteps.id, stepId));
+                await tx.update(campaigns).set({ status: "运行中", nextAction: `完成 ${createdTaskIds.length} 项${step.channel}人工触达任务`, updatedAt: now }).where(eq(campaigns.id, id));
+                await tx.insert(campaignExecutionEvents).values({
+                            id: createId("cev"), workspaceId: request.auth.workspaceId, campaignId: id, campaignStepId: stepId,
+                            eventType: "manual_tasks_created", status: "completed", recipientCount: createdTaskIds.length,
+                            metadataJson: JSON.stringify({ channel: step.channel, taskIds: createdTaskIds, confirmedByUserId: request.auth.userId }), createdAt: now,
+                          });
+              });
+      await writeAudit(request.auth.workspaceId, request.auth.userId, "campaign.step_executed", id, { stepId, channel: step.channel, manualTasks: createdTaskIds.length });
       return reply.code(202).send({ campaignId: id, stepId, recipientCount: createdTaskIds.length, queued: 0, awaitingConfiguration: 0, suppressed: 0, manualTasks: createdTaskIds.length, jobIds: [], taskIds: createdTaskIds });
     }
     const asset = step.contentAssetId
-      ? db
-          .select()
-          .from(contentAssets)
-          .where(
-            and(
-              eq(contentAssets.id, step.contentAssetId),
-              eq(contentAssets.workspaceId, request.auth.workspaceId),
-            ),
-          )
-          .get()
+      ? (await db.$first(db
+                  .select()
+                  .from(contentAssets)
+                  .where(
+                    and(
+                      eq(contentAssets.id, step.contentAssetId),
+                      eq(contentAssets.workspaceId, request.auth.workspaceId),
+                    ),
+                  )))
       : null;
     if (!asset || !asset.body.trim())
       return reply.code(409).send({
         error: "CONTENT_REQUIRED",
         message: "请先为该步骤关联可发送的内容资产。",
       });
-    const audience = db
-      .select()
-      .from(campaignAudienceMembers)
-      .where(
-        and(
-          eq(campaignAudienceMembers.campaignId, id),
-          eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
-          eq(campaignAudienceMembers.status, "pending"),
-        ),
-      )
-      .all();
-    const recipients = audience.flatMap((member) => {
+    const audience = (await db
+          .select()
+          .from(campaignAudienceMembers)
+          .where(
+            and(
+              eq(campaignAudienceMembers.campaignId, id),
+              eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
+              eq(campaignAudienceMembers.status, "pending"),
+            ),
+          ));
+    const recipients = (await Promise.all(audience.map(async (member) => {
       if (!member.customerId) return [];
-      const contact = db
-        .select()
-        .from(inboxContacts)
-        .where(
-          and(
-            eq(inboxContacts.workspaceId, request.auth.workspaceId),
-            eq(inboxContacts.customerId, member.customerId),
-          ),
-        )
-        .get();
+      const contact = (await db.$first(db
+              .select()
+              .from(inboxContacts)
+              .where(
+                and(
+                  eq(inboxContacts.workspaceId, request.auth.workspaceId),
+                  eq(inboxContacts.customerId, member.customerId),
+                ),
+              )));
       return contact?.email ? [{ member, contact }] : [];
-    });
+    }))).flat();
     if (!recipients.length)
       return reply.code(409).send({
         error: "NO_ELIGIBLE_RECIPIENTS",
@@ -739,23 +708,21 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       });
     const now = Date.now();
     const sender =
-      db
-        .select({ displayName: users.displayName })
-        .from(users)
-        .where(eq(users.id, request.auth.userId))
-        .get()?.displayName ?? "我";
-    const prepared = recipients.map(({ member, contact }) => {
-      const existingThread = db
-        .select()
-        .from(messageThreads)
-        .where(
-          and(
-            eq(messageThreads.workspaceId, request.auth.workspaceId),
-            eq(messageThreads.campaignId, id),
-            eq(messageThreads.contactId, contact.id),
-          ),
-        )
-        .get();
+      (await db.$first(db
+                .select({ displayName: users.displayName })
+                .from(users)
+                .where(eq(users.id, request.auth.userId))))?.displayName ?? "我";
+    const prepared = await Promise.all(recipients.map(async ({ member, contact }) => {
+      const existingThread = (await db.$first(db
+              .select()
+              .from(messageThreads)
+              .where(
+                and(
+                  eq(messageThreads.workspaceId, request.auth.workspaceId),
+                  eq(messageThreads.campaignId, id),
+                  eq(messageThreads.contactId, contact.id),
+                ),
+              )));
       return {
         member,
         contact,
@@ -763,112 +730,105 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         createThread: !existingThread,
         messageId: createId("msg"),
       };
-    });
-    db.transaction((tx) => {
-      prepared.forEach((item) => {
-        if (item.createThread)
-          tx.insert(messageThreads)
-            .values({
-              id: item.threadId,
-              workspaceId: request.auth.workspaceId,
-              contactId: item.contact.id,
-              customerId: item.member.customerId,
-              campaignId: id,
-              subject: `${campaign.name} · ${step.name}`,
-              channel: step.channel,
-              intent: "待判断",
-              status: "open",
-              assigneeUserId: request.auth.userId,
-              lastMessagePreview: asset.body,
-              lastMessageAt: now,
-              lastInboundAt: null,
-              unreadCount: 0,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .run();
-        else
-          tx.update(messageThreads)
-            .set({
-              lastMessagePreview: asset.body,
-              lastMessageAt: now,
-              updatedAt: now,
-            })
-            .where(eq(messageThreads.id, item.threadId))
-            .run();
-        tx.insert(messageEntries)
-          .values({
-            id: item.messageId,
-            workspaceId: request.auth.workspaceId,
-            threadId: item.threadId,
-            direction: "outbound",
-            messageType: "text",
-            body: asset.body,
-            status: "confirmed",
-            channel: step.channel,
-            senderLabel: sender,
-            confirmedByUserId: request.auth.userId,
-            confirmedAt: now,
-            metadataJson: JSON.stringify({
-              deliveryMode: "outbox",
-              userConfirmed: true,
-              campaignId: id,
-              campaignStepId: stepId,
-              contentAssetId: asset.id,
-            }),
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-        tx.update(campaignAudienceMembers)
-          .set({ status: "queued", lastEventAt: now, updatedAt: now })
-          .where(eq(campaignAudienceMembers.id, item.member.id))
-          .run();
-      });
-      tx.update(campaignSteps)
-        .set({ status: "running", updatedAt: now })
-        .where(eq(campaignSteps.id, stepId))
-        .run();
-      tx.update(campaigns)
-        .set({
-          status: "运行中",
-          nextAction: "监控发送队列与客户回复",
-          updatedAt: now,
-        })
-        .where(eq(campaigns.id, id))
-        .run();
-      tx.insert(campaignExecutionEvents)
-        .values({
-          id: createId("cev"),
-          workspaceId: request.auth.workspaceId,
-          campaignId: id,
-          campaignStepId: stepId,
-          eventType: "messages_queued",
-          status: "completed",
-          recipientCount: prepared.length,
-          metadataJson: JSON.stringify({
-            contentAssetId: asset.id,
-            confirmedByUserId: request.auth.userId,
-          }),
-          createdAt: now,
-        })
-        .run();
-    });
-    const jobs = prepared.map((item) =>
-      enqueueConfirmedMessage({
+    }));
+    await db.transaction(async (tx) => {
+            for (const item of prepared) {
+              if (item.createThread)
+                await tx.insert(messageThreads)
+                              .values({
+                                id: item.threadId,
+                                workspaceId: request.auth.workspaceId,
+                                contactId: item.contact.id,
+                                customerId: item.member.customerId,
+                                campaignId: id,
+                                subject: `${campaign.name} · ${step.name}`,
+                                channel: step.channel,
+                                intent: "待判断",
+                                status: "open",
+                                assigneeUserId: request.auth.userId,
+                                lastMessagePreview: asset.body,
+                                lastMessageAt: now,
+                                lastInboundAt: null,
+                                unreadCount: 0,
+                                createdAt: now,
+                                updatedAt: now,
+                              });
+              else
+                await tx.update(messageThreads)
+                              .set({
+                                lastMessagePreview: asset.body,
+                                lastMessageAt: now,
+                                updatedAt: now,
+                              })
+                              .where(eq(messageThreads.id, item.threadId));
+              await tx.insert(messageEntries)
+                          .values({
+                            id: item.messageId,
+                            workspaceId: request.auth.workspaceId,
+                            threadId: item.threadId,
+                            direction: "outbound",
+                            messageType: "text",
+                            body: asset.body,
+                            status: "confirmed",
+                            channel: step.channel,
+                            senderLabel: sender,
+                            confirmedByUserId: request.auth.userId,
+                            confirmedAt: now,
+                            metadataJson: JSON.stringify({
+                              deliveryMode: "outbox",
+                              userConfirmed: true,
+                              campaignId: id,
+                              campaignStepId: stepId,
+                              contentAssetId: asset.id,
+                            }),
+                            createdAt: now,
+                            updatedAt: now,
+                          });
+              await tx.update(campaignAudienceMembers)
+                          .set({ status: "queued", lastEventAt: now, updatedAt: now })
+                          .where(eq(campaignAudienceMembers.id, item.member.id));
+            }
+            await tx.update(campaignSteps)
+                      .set({ status: "running", updatedAt: now })
+                      .where(eq(campaignSteps.id, stepId));
+            await tx.update(campaigns)
+                      .set({
+                        status: "运行中",
+                        nextAction: "监控发送队列与客户回复",
+                        updatedAt: now,
+                      })
+                      .where(eq(campaigns.id, id));
+            await tx.insert(campaignExecutionEvents)
+                      .values({
+                        id: createId("cev"),
+                        workspaceId: request.auth.workspaceId,
+                        campaignId: id,
+                        campaignStepId: stepId,
+                        eventType: "messages_queued",
+                        status: "completed",
+                        recipientCount: prepared.length,
+                        metadataJson: JSON.stringify({
+                          contentAssetId: asset.id,
+                          confirmedByUserId: request.auth.userId,
+                        }),
+                        createdAt: now,
+                      });
+          });
+    const jobs = await Promise.all(prepared.map(async (item) =>
+      await enqueueConfirmedMessage({
         workspaceId: request.auth.workspaceId,
         messageId: item.messageId,
         threadId: item.threadId,
         channel: step.channel,
         scheduledAt: step.scheduledAt ?? now,
       }),
-    );
+    ));
     const queued = jobs.filter((job) => job.status === "queued").length;
     const suppressed = jobs.filter((job) => job.status === "cancelled").length;
     const awaitingConfiguration = jobs.filter(
       (job) => job.status === "awaiting_configuration",
     ).length;
-    writeAudit(
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.step_executed",
@@ -904,24 +864,24 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       return reply
         .code(400)
         .send({ error: "INVALID_INPUT", message: "请选择内容资产。" });
-    if (!requireCampaign(request.auth.workspaceId, id))
+    if (!(await requireCampaign(request.auth.workspaceId, id)))
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "营销活动不存在。" });
-    linkContent(
+    await linkContent(
       request.auth.workspaceId,
       id,
       parsed.data.contentAssetId,
       parsed.data.purpose,
     );
-    writeAudit(
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.content_linked",
       id,
       parsed.data,
     );
-    return serializeCampaign(requireCampaign(request.auth.workspaceId, id)!);
+    return await serializeCampaign((await requireCampaign(request.auth.workspaceId, id))!);
   });
 
   app.post("/:id/audience", async (request, reply) => {
@@ -935,58 +895,55 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       return reply
         .code(400)
         .send({ error: "INVALID_INPUT", message: "请选择至少一个客户。" });
-    if (!requireCampaign(request.auth.workspaceId, id))
+    if (!(await requireCampaign(request.auth.workspaceId, id)))
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "营销活动不存在。" });
-    const members = db
-      .select()
-      .from(customers)
-      .where(
-        and(
-          eq(customers.workspaceId, request.auth.workspaceId),
-          inArray(customers.id, parsed.data.customerIds),
-        ),
-      )
-      .all();
+    const members = (await db
+          .select()
+          .from(customers)
+          .where(
+            and(
+              eq(customers.workspaceId, request.auth.workspaceId),
+              inArray(customers.id, parsed.data.customerIds),
+            ),
+          ));
     if (members.length !== parsed.data.customerIds.length)
       return reply.code(400).send({
         error: "INVALID_AUDIENCE",
         message: "目标名单包含不存在的客户。",
       });
     const now = Date.now();
-    members.forEach((customer) => {
-      const exists = db
-        .select({ id: campaignAudienceMembers.id })
-        .from(campaignAudienceMembers)
-        .where(
-          and(
-            eq(campaignAudienceMembers.campaignId, id),
-            eq(campaignAudienceMembers.company, customer.company),
-          ),
-        )
-        .get();
+    await Promise.all(members.map(async (customer) => {
+      const exists = (await db.$first(db
+              .select({ id: campaignAudienceMembers.id })
+              .from(campaignAudienceMembers)
+              .where(
+                and(
+                  eq(campaignAudienceMembers.campaignId, id),
+                  eq(campaignAudienceMembers.company, customer.company),
+                ),
+              )));
       if (!exists)
-        db.insert(campaignAudienceMembers)
-          .values({
-            id: createId("cam"),
-            workspaceId: request.auth.workspaceId,
-            campaignId: id,
-            customerId: customer.id,
-            company: customer.company,
-            status: "pending",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-    });
-    writeAudit(
+        await db.insert(campaignAudienceMembers)
+                    .values({
+                      id: createId("cam"),
+                      workspaceId: request.auth.workspaceId,
+                      campaignId: id,
+                      customerId: customer.id,
+                      company: customer.company,
+                      status: "pending",
+                      createdAt: now,
+                      updatedAt: now,
+                    });
+    }));
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "campaign.audience_added",
       id,
       { count: members.length },
     );
-    return serializeCampaign(requireCampaign(request.auth.workspaceId, id)!);
+    return await serializeCampaign((await requireCampaign(request.auth.workspaceId, id))!);
   });
 };

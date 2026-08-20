@@ -30,17 +30,17 @@ const createInput = z.object({
 const patchInput = z.object({ name: z.string().trim().min(1).max(120).optional(), endpoint: z.string().trim().url().optional(), secret: z.string().trim().max(500).optional(), priority: z.number().int().min(1).max(100).optional(), enabled: z.boolean().optional(), resultLimit: z.number().int().min(1).max(20).optional() })
 
 const safeJson = <T>(value: string, fallback: T): T => { try { return JSON.parse(value) as T } catch { return fallback } }
-const view = (workspaceId: string) => db.select().from(integrationConnections).where(eq(integrationConnections.workspaceId, workspaceId)).orderBy(asc(integrationConnections.category), asc(integrationConnections.priority)).all().map(item => ({
+const view = async (workspaceId: string) => (await db.select().from(integrationConnections).where(eq(integrationConnections.workspaceId, workspaceId)).orderBy(asc(integrationConnections.category), asc(integrationConnections.priority))).map(item => ({
   id: item.id, workspaceId: item.workspaceId, category: item.category, name: item.name, provider: item.provider, endpoint: item.endpoint,
   priority: item.priority, enabled: item.enabled, status: item.status, secretEnding: item.secretEnding, hasSecret: Boolean(item.secretCiphertext),
   config: safeJson(item.configJson, {}), lastLatencyMs: item.lastLatencyMs, lastError: item.lastError, lastTestedAt: item.lastTestedAt,
   createdAt: item.createdAt, updatedAt: item.updatedAt,
 }))
-const audit = (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'integration_connection', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() }).run()
+const audit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => (await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'integration_connection', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() }))
 
 export const integrationRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
-  app.get('/connections', async request => ({ items: view(request.auth.workspaceId) }))
+  app.get('/connections', async request => ({ items: (await view(request.auth.workspaceId)) }))
 
   app.post('/connections', { preHandler: requireAdmin }, async (request, reply) => {
     const parsed = createInput.safeParse(request.body)
@@ -55,7 +55,7 @@ export const integrationRoutes: FastifyPluginAsync = async app => {
     catch (cause) { return reply.code(400).send({ error: 'UNSAFE_ENDPOINT', message: cause instanceof Error ? cause.message : '数据源地址不可用。' }) }
     const now = Date.now()
     const encrypted = parsed.data.secret ? encryptSecret(parsed.data.secret) : null
-    const priority = parsed.data.priority ?? ((db.select({ max: sql<number>`coalesce(max(${integrationConnections.priority}), 0)` }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, request.auth.workspaceId), eq(integrationConnections.category, parsed.data.category))).get()?.max ?? 0) + 1)
+    const priority = parsed.data.priority ?? (((await db.$first(db.select({ max: sql<number>`coalesce(max(${integrationConnections.priority}), 0)` }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, request.auth.workspaceId), eq(integrationConnections.category, parsed.data.category)))))?.max ?? 0) + 1)
     const record = {
       id: createId('int'), workspaceId: request.auth.workspaceId, category: parsed.data.category, name: parsed.data.name || fallback.name,
       provider: parsed.data.provider, endpoint, priority, enabled: true, status: 'untested',
@@ -63,16 +63,16 @@ export const integrationRoutes: FastifyPluginAsync = async app => {
       secretEnding: parsed.data.secret ? parsed.data.secret.slice(-4).toUpperCase() : null,
       configJson: JSON.stringify({ resultLimit: parsed.data.resultLimit }), lastLatencyMs: null, lastError: null, lastTestedAt: null, createdAt: now, updatedAt: now,
     }
-    try { db.insert(integrationConnections).values(record).run() } catch { return reply.code(409).send({ error: 'CONNECTION_EXISTS', message: '已存在同名数据源连接。' }) }
-    audit(request.auth.workspaceId, request.auth.userId, 'integration.created', record.id, { category: record.category, provider: record.provider })
-    return reply.code(201).send(view(request.auth.workspaceId).find(item => item.id === record.id))
+    try { await db.insert(integrationConnections).values(record) } catch { return reply.code(409).send({ error: 'CONNECTION_EXISTS', message: '已存在同名数据源连接。' }) }
+    await audit(request.auth.workspaceId, request.auth.userId, 'integration.created', record.id, { category: record.category, provider: record.provider })
+    return reply.code(201).send((await view(request.auth.workspaceId)).find(item => item.id === record.id))
   })
 
   app.patch('/connections/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const id = (request.params as { id: string }).id
     const parsed = patchInput.safeParse(request.body)
     if (!parsed.success || !Object.keys(parsed.data).length) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
-    const existing = db.select().from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '数据源连接不存在。' })
     const endpoint = parsed.data.endpoint ?? existing.endpoint
     try { await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: existing.category === 'map' ? '地图服务地址' : '搜索服务地址' }) }
@@ -81,44 +81,44 @@ export const integrationRoutes: FastifyPluginAsync = async app => {
     const encrypted = secret ? encryptSecret(secret) : null
     const currentConfig = safeJson<Record<string, unknown>>(existing.configJson, {})
     const requiresRetest = parsed.data.endpoint !== undefined || parsed.data.secret !== undefined || resultLimit !== undefined
-    db.update(integrationConnections).set({ ...fields, endpoint,
-      ...(encrypted ? { secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: secret!.slice(-4).toUpperCase() } : {}),
-      configJson: JSON.stringify(resultLimit === undefined ? currentConfig : { ...currentConfig, resultLimit }),
-      status: requiresRetest ? 'untested' : existing.status,
-      lastError: requiresRetest ? null : existing.lastError,
-      updatedAt: Date.now(),
-    }).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId))).run()
-    audit(request.auth.workspaceId, request.auth.userId, 'integration.updated', id, { fields: Object.keys(parsed.data).filter(key => key !== 'secret') })
-    return view(request.auth.workspaceId).find(item => item.id === id)
+    await db.update(integrationConnections).set({ ...fields, endpoint,
+            ...(encrypted ? { secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: secret!.slice(-4).toUpperCase() } : {}),
+            configJson: JSON.stringify(resultLimit === undefined ? currentConfig : { ...currentConfig, resultLimit }),
+            status: requiresRetest ? 'untested' : existing.status,
+            lastError: requiresRetest ? null : existing.lastError,
+            updatedAt: Date.now(),
+          }).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId)))
+    await audit(request.auth.workspaceId, request.auth.userId, 'integration.updated', id, { fields: Object.keys(parsed.data).filter(key => key !== 'secret') })
+    return (await view(request.auth.workspaceId)).find(item => item.id === id)
   })
 
   app.post('/connections/:id/test', { preHandler: requireAdmin }, async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const connection = db.select().from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId))).get()
+    const connection = (await db.$first(db.select().from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId)))))
     if (!connection) return reply.code(404).send({ error: 'NOT_FOUND', message: '数据源连接不存在。' })
     try {
       const result = connection.category === 'map'
         ? await discoverPlacesWithConnection(connection, 'industrial equipment manufacturer', 'Shanghai', 3)
         : await searchWithConnection(connection, 'industrial equipment manufacturer official website', 3)
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, id)).run()
-      audit(request.auth.workspaceId, request.auth.userId, 'integration.tested', id, { success: true, resultCount: result.items.length })
+      await db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, id))
+      await audit(request.auth.workspaceId, request.auth.userId, 'integration.tested', id, { success: true, resultCount: result.items.length })
       return { ok: true, latencyMs: result.latencyMs, resultCount: result.items.length }
     } catch (cause) {
       const message = cause instanceof UnsafeUrlError ? cause.message : cause instanceof Error ? cause.message : '数据源测试失败。'
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, id)).run()
-      audit(request.auth.workspaceId, request.auth.userId, 'integration.tested', id, { success: false })
+      await db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, id))
+      await audit(request.auth.workspaceId, request.auth.userId, 'integration.tested', id, { success: false })
       return reply.code(502).send({ error: 'INTEGRATION_UNAVAILABLE', message })
     }
   })
 
   app.delete('/connections/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const existing = db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '数据源连接不存在。' })
-    db.delete(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId))).run()
-    audit(request.auth.workspaceId, request.auth.userId, 'integration.deleted', id)
+    await db.delete(integrationConnections).where(and(eq(integrationConnections.id, id), eq(integrationConnections.workspaceId, request.auth.workspaceId)))
+    await audit(request.auth.workspaceId, request.auth.userId, 'integration.deleted', id)
     return reply.code(204).send()
   })
 }

@@ -118,10 +118,10 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
   return { items: normalized, latencyMs: Date.now() - started }
 }
 
-export const hasSearchConfiguration = (workspaceId: string) => Boolean(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))).get())
+export const hasSearchConfiguration = async (workspaceId: string) => Boolean((await db.$first(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))))))
 
 export const searchWorkspace = async (workspaceId: string, query: string, limit: number) => {
-  const connections = db.select().from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))).orderBy(asc(integrationConnections.priority), asc(integrationConnections.createdAt)).all()
+  const connections = (await db.select().from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))).orderBy(asc(integrationConnections.priority), asc(integrationConnections.createdAt)))
   if (!connections.length) throw new SearchUnavailableError('NO_CONFIGURATION', '当前工作区没有已启用的搜索数据源。')
   const failures: string[] = []
   for (const connection of connections) {
@@ -130,13 +130,13 @@ export const searchWorkspace = async (workspaceId: string, query: string, limit:
       try { const parsed = JSON.parse(connection.configJson) as { resultLimit?: number }; if (parsed.resultLimit) configuredLimit = parsed.resultLimit } catch { /* use default */ }
       const result = await searchWithConnection(connection, query, Math.min(limit, configuredLimit))
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id)).run()
+      await db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id))
       return { ...result, connectionId: connection.id, connectionName: connection.name, provider: connection.provider }
     } catch (cause) {
       const message = redact(cause instanceof Error ? cause.message : '搜索服务调用失败')
       failures.push(`${connection.name}: ${message}`)
       const now = Date.now()
-      db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id)).run()
+      await db.update(integrationConnections).set({ status: 'error', lastLatencyMs: null, lastError: message, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id))
     }
   }
   throw new SearchUnavailableError('ALL_PROVIDERS_FAILED', failures.join('；') || '所有搜索数据源均不可用。')

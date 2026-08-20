@@ -35,7 +35,7 @@ const stageMeta = [
   {key:'replies',label:'获得回复',icon:MessageCircleReply},
   {key:'deals',label:'创建商机',icon:Target},
   {key:'won',label:'成交客户',icon:Trophy},
-] as cons
+] as const
 
 const conversionRate=(won:number,discovered:number)=>discovered?Number((won/discovered*100).toFixed(1)):0
 const exportRows=(items:AttributionChannel[],fileName='sondara-conversion-analysis.csv')=>downloadCsv(fileName,[['渠道','发现客户','有效客户','已触达','获得回复','创建商机','成交客户','总转化率','收入','成本','ROI','主要瓶颈'],...items.map(row=>[row.name,row.discovered,row.qualified,row.contacted,row.replies,row.deals,row.won,`${row.conversionRate}%`,row.revenue,row.cost,row.roi??'',row.bottleneck])])

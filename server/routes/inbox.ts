@@ -82,7 +82,7 @@ const parseJson = <T>(value: string, fallback: T): T => {
     return fallback;
   }
 };
-const writeAudit = (
+const writeAudit = async (
   workspaceId: string,
   actorUserId: string,
   action: string,
@@ -90,45 +90,42 @@ const writeAudit = (
   entityId: string,
   metadata: unknown = {},
 ) => {
-  db.insert(auditLogs)
-    .values({
-      id: createId("aud"),
-      workspaceId,
-      actorUserId,
-      action,
-      entityType,
-      entityId,
-      metadata: JSON.stringify(metadata),
-      createdAt: Date.now(),
-    })
-    .run();
+  await db.insert(auditLogs)
+        .values({
+          id: createId("aud"),
+          workspaceId,
+          actorUserId,
+          action,
+          entityType,
+          entityId,
+          metadata: JSON.stringify(metadata),
+          createdAt: Date.now(),
+        });
 };
-const requireThread = (workspaceId: string, id: string) =>
-  db
-    .select()
-    .from(messageThreads)
-    .where(
-      and(
-        eq(messageThreads.id, id),
-        eq(messageThreads.workspaceId, workspaceId),
-      ),
-    )
-    .get();
+const requireThread = async (workspaceId: string, id: string) =>
+  (await db.$first(db
+        .select()
+        .from(messageThreads)
+        .where(
+          and(
+            eq(messageThreads.id, id),
+            eq(messageThreads.workspaceId, workspaceId),
+          ),
+        )));
 const serializeMessage = (entry: typeof messageEntries.$inferSelect) => ({
   ...entry,
   metadata: parseJson<Record<string, unknown>>(entry.metadataJson, {}),
 });
-const serializeThread = (thread: typeof messageThreads.$inferSelect) => {
-  const contact = db
-    .select()
-    .from(inboxContacts)
-    .where(
-      and(
-        eq(inboxContacts.id, thread.contactId),
-        eq(inboxContacts.workspaceId, thread.workspaceId),
-      ),
-    )
-    .get();
+const serializeThread = async (thread: typeof messageThreads.$inferSelect) => {
+  const contact = (await db.$first(db
+      .select()
+      .from(inboxContacts)
+      .where(
+        and(
+          eq(inboxContacts.id, thread.contactId),
+          eq(inboxContacts.workspaceId, thread.workspaceId),
+        ),
+      )));
   return { ...thread, contact };
 };
 
@@ -175,15 +172,14 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
         )!,
       );
     const total =
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(messageThreads)
-        .innerJoin(
-          inboxContacts,
-          eq(inboxContacts.id, messageThreads.contactId),
-        )
-        .where(and(...baseConditions))
-        .get()?.count ?? 0;
+      (await db.$first(db
+                .select({ count: sql<number>`count(*)` })
+                .from(messageThreads)
+                .innerJoin(
+                  inboxContacts,
+                  eq(inboxContacts.id, messageThreads.contactId),
+                )
+                .where(and(...baseConditions))))?.count ?? 0;
     const listConditions = [...baseConditions];
     if (cursor)
       listConditions.push(
@@ -195,32 +191,29 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
           ),
         )!,
       );
-    const rows = db
-      .select({ thread: messageThreads })
-      .from(messageThreads)
-      .innerJoin(inboxContacts, eq(inboxContacts.id, messageThreads.contactId))
-      .where(and(...listConditions))
-      .orderBy(desc(messageThreads.lastMessageAt), desc(messageThreads.id))
-      .limit(query.limit + 1)
-      .all();
+    const rows = (await db
+          .select({ thread: messageThreads })
+          .from(messageThreads)
+          .innerJoin(inboxContacts, eq(inboxContacts.id, messageThreads.contactId))
+          .where(and(...listConditions))
+          .orderBy(desc(messageThreads.lastMessageAt), desc(messageThreads.id))
+          .limit(query.limit + 1));
     const hasMore = rows.length > query.limit;
-    const visible = rows
+    const visible = await Promise.all(rows
       .slice(0, query.limit)
-      .map((row) => serializeThread(row.thread));
+      .map(async (row) => await serializeThread(row.thread)));
     const last = visible.at(-1);
     const unreadTotal =
-      db
-        .select({
-          count: sql<number>`coalesce(sum(${messageThreads.unreadCount}), 0)`,
-        })
-        .from(messageThreads)
-        .where(eq(messageThreads.workspaceId, request.auth.workspaceId))
-        .get()?.count ?? 0;
-    const channels = db
-      .selectDistinct({ channel: messageThreads.channel })
-      .from(messageThreads)
-      .where(eq(messageThreads.workspaceId, request.auth.workspaceId))
-      .all()
+      (await db.$first(db
+                .select({
+                  count: sql<number>`coalesce(sum(${messageThreads.unreadCount}), 0)`,
+                })
+                .from(messageThreads)
+                .where(eq(messageThreads.workspaceId, request.auth.workspaceId))))?.count ?? 0;
+    const channels = (await db
+          .selectDistinct({ channel: messageThreads.channel })
+          .from(messageThreads)
+          .where(eq(messageThreads.workspaceId, request.auth.workspaceId)))
       .map((item) => item.channel);
     return {
       items: visible,
@@ -243,127 +236,119 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
     const input = parsed.data;
     if (
       input.customerId &&
-      !db
-        .select({ id: customers.id })
-        .from(customers)
-        .where(
-          and(
-            eq(customers.id, input.customerId),
-            eq(customers.workspaceId, request.auth.workspaceId),
-          ),
-        )
-        .get()
+      !(await db.$first(db
+                .select({ id: customers.id })
+                .from(customers)
+                .where(
+                  and(
+                    eq(customers.id, input.customerId),
+                    eq(customers.workspaceId, request.auth.workspaceId),
+                  ),
+                )))
     )
       return reply
         .code(404)
         .send({ error: "CUSTOMER_NOT_FOUND", message: "关联客户不存在。" });
     if (
       input.campaignId &&
-      !db
-        .select({ id: campaigns.id })
-        .from(campaigns)
-        .where(
-          and(
-            eq(campaigns.id, input.campaignId),
-            eq(campaigns.workspaceId, request.auth.workspaceId),
-          ),
-        )
-        .get()
+      !(await db.$first(db
+                .select({ id: campaigns.id })
+                .from(campaigns)
+                .where(
+                  and(
+                    eq(campaigns.id, input.campaignId),
+                    eq(campaigns.workspaceId, request.auth.workspaceId),
+                  ),
+                )))
     )
       return reply
         .code(404)
         .send({ error: "CAMPAIGN_NOT_FOUND", message: "关联营销活动不存在。" });
     const now = Date.now();
-    let contact = db
-      .select()
-      .from(inboxContacts)
-      .where(
-        and(
-          eq(inboxContacts.workspaceId, request.auth.workspaceId),
-          eq(inboxContacts.company, input.contact.company),
-          eq(inboxContacts.name, input.contact.name),
-        ),
-      )
-      .get();
+    let contact = (await db.$first(db
+          .select()
+          .from(inboxContacts)
+          .where(
+            and(
+              eq(inboxContacts.workspaceId, request.auth.workspaceId),
+              eq(inboxContacts.company, input.contact.company),
+              eq(inboxContacts.name, input.contact.name),
+            ),
+          )));
     const contactId = contact?.id ?? createId("ict");
     const threadId = createId("mth");
     const entryId = input.initialMessage ? createId("msg") : null;
-    db.transaction((tx) => {
-      if (!contact)
-        tx.insert(inboxContacts)
-          .values({
-            id: contactId,
-            workspaceId: request.auth.workspaceId,
-            customerId: input.customerId ?? null,
-            ...input.contact,
-            email: input.contact.email ?? null,
-            phone: input.contact.phone ?? null,
-            externalRef: input.contact.externalRef ?? null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-      tx.insert(messageThreads)
-        .values({
-          id: threadId,
-          workspaceId: request.auth.workspaceId,
-          contactId,
-          customerId: input.customerId ?? contact?.customerId ?? null,
-          campaignId: input.campaignId ?? null,
-          subject: input.subject,
-          channel: input.channel,
-          intent: input.intent,
-          status: "open",
-          assigneeUserId: request.auth.userId,
-          lastMessagePreview: input.initialMessage ?? "",
-          lastMessageAt: now,
-          lastInboundAt: input.initialMessage ? now : null,
-          unreadCount: input.initialMessage ? 1 : 0,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      if (entryId)
-        tx.insert(messageEntries)
-          .values({
-            id: entryId,
-            workspaceId: request.auth.workspaceId,
-            threadId,
-            direction: "inbound",
-            messageType: "text",
-            body: input.initialMessage!,
-            status: "received",
-            channel: input.channel,
-            senderLabel: input.contact.name,
-            metadataJson: JSON.stringify({ source: input.contact.source }),
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run();
-      if (input.campaignId)
-        tx.insert(campaignExecutionEvents)
-          .values({
-            id: createId("cev"),
-            workspaceId: request.auth.workspaceId,
-            campaignId: input.campaignId,
-            eventType: "message_thread_created",
-            status: "completed",
-            recipientCount: 1,
-            metadataJson: JSON.stringify({
-              threadId,
-              contactId,
-              direction: input.initialMessage ? "inbound" : "unknown",
-            }),
-            createdAt: now,
-          })
-          .run();
-    });
-    contact = db
-      .select()
-      .from(inboxContacts)
-      .where(eq(inboxContacts.id, contactId))
-      .get();
-    writeAudit(
+    await db.transaction(async (tx) => {
+            if (!contact)
+              await tx.insert(inboxContacts)
+                          .values({
+                            id: contactId,
+                            workspaceId: request.auth.workspaceId,
+                            customerId: input.customerId ?? null,
+                            ...input.contact,
+                            email: input.contact.email ?? null,
+                            phone: input.contact.phone ?? null,
+                            externalRef: input.contact.externalRef ?? null,
+                            createdAt: now,
+                            updatedAt: now,
+                          });
+            await tx.insert(messageThreads)
+                      .values({
+                        id: threadId,
+                        workspaceId: request.auth.workspaceId,
+                        contactId,
+                        customerId: input.customerId ?? contact?.customerId ?? null,
+                        campaignId: input.campaignId ?? null,
+                        subject: input.subject,
+                        channel: input.channel,
+                        intent: input.intent,
+                        status: "open",
+                        assigneeUserId: request.auth.userId,
+                        lastMessagePreview: input.initialMessage ?? "",
+                        lastMessageAt: now,
+                        lastInboundAt: input.initialMessage ? now : null,
+                        unreadCount: input.initialMessage ? 1 : 0,
+                        createdAt: now,
+                        updatedAt: now,
+                      });
+            if (entryId)
+              await tx.insert(messageEntries)
+                          .values({
+                            id: entryId,
+                            workspaceId: request.auth.workspaceId,
+                            threadId,
+                            direction: "inbound",
+                            messageType: "text",
+                            body: input.initialMessage!,
+                            status: "received",
+                            channel: input.channel,
+                            senderLabel: input.contact.name,
+                            metadataJson: JSON.stringify({ source: input.contact.source }),
+                            createdAt: now,
+                            updatedAt: now,
+                          });
+            if (input.campaignId)
+              await tx.insert(campaignExecutionEvents)
+                          .values({
+                            id: createId("cev"),
+                            workspaceId: request.auth.workspaceId,
+                            campaignId: input.campaignId,
+                            eventType: "message_thread_created",
+                            status: "completed",
+                            recipientCount: 1,
+                            metadataJson: JSON.stringify({
+                              threadId,
+                              contactId,
+                              direction: input.initialMessage ? "inbound" : "unknown",
+                            }),
+                            createdAt: now,
+                          });
+          });
+    contact = (await db.$first(db
+          .select()
+          .from(inboxContacts)
+          .where(eq(inboxContacts.id, contactId))));
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "message.thread_created",
@@ -372,14 +357,14 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
       { contactId, campaignId: input.campaignId ?? null },
     );
     return reply.code(201).send({
-      ...serializeThread(requireThread(request.auth.workspaceId, threadId)!),
+      ...(await serializeThread((await requireThread(request.auth.workspaceId, threadId))!)),
       contact,
     });
   });
 
   app.get("/threads/:id/messages", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    if (!requireThread(request.auth.workspaceId, id))
+    if (!(await requireThread(request.auth.workspaceId, id)))
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "消息线程不存在。" });
@@ -409,13 +394,12 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
           ),
         )!,
       );
-    const rows = db
-      .select()
-      .from(messageEntries)
-      .where(and(...conditions))
-      .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))
-      .limit(parsed.data.limit + 1)
-      .all();
+    const rows = (await db
+          .select()
+          .from(messageEntries)
+          .where(and(...conditions))
+          .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))
+          .limit(parsed.data.limit + 1));
     const hasMore = rows.length > parsed.data.limit;
     const visible = rows.slice(0, parsed.data.limit);
     const oldest = visible.at(-1);
@@ -429,99 +413,92 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/threads/:id/read", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const thread = requireThread(request.auth.workspaceId, id);
+    const thread = (await requireThread(request.auth.workspaceId, id));
     if (!thread)
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "消息线程不存在。" });
-    const latest = db
-      .select({ id: messageEntries.id })
-      .from(messageEntries)
-      .where(
-        and(
-          eq(messageEntries.workspaceId, request.auth.workspaceId),
-          eq(messageEntries.threadId, id),
-        ),
-      )
-      .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))
-      .get();
+    const latest = (await db.$first(db
+          .select({ id: messageEntries.id })
+          .from(messageEntries)
+          .where(
+            and(
+              eq(messageEntries.workspaceId, request.auth.workspaceId),
+              eq(messageEntries.threadId, id),
+            ),
+          )
+          .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))));
     const now = Date.now();
-    db.transaction((tx) => {
-      tx.update(messageThreads)
-        .set({ unreadCount: 0, updatedAt: now })
-        .where(eq(messageThreads.id, id))
-        .run();
-      tx.insert(messageThreadReads)
-        .values({
-          id: createId("mrd"),
-          workspaceId: request.auth.workspaceId,
-          threadId: id,
-          userId: request.auth.userId,
-          lastReadMessageId: latest?.id ?? null,
-          lastReadAt: now,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [messageThreadReads.threadId, messageThreadReads.userId],
-          set: {
-            lastReadMessageId: latest?.id ?? null,
-            lastReadAt: now,
-            updatedAt: now,
-          },
-        })
-        .run();
-    });
+    await db.transaction(async (tx) => {
+            await tx.update(messageThreads)
+                      .set({ unreadCount: 0, updatedAt: now })
+                      .where(eq(messageThreads.id, id));
+            await tx.insert(messageThreadReads)
+                      .values({
+                        id: createId("mrd"),
+                        workspaceId: request.auth.workspaceId,
+                        threadId: id,
+                        userId: request.auth.userId,
+                        lastReadMessageId: latest?.id ?? null,
+                        lastReadAt: now,
+                        createdAt: now,
+                        updatedAt: now,
+                      })
+                      .onConflictDoUpdate({
+                        target: [messageThreadReads.threadId, messageThreadReads.userId],
+                        set: {
+                          lastReadMessageId: latest?.id ?? null,
+                          lastReadAt: now,
+                          updatedAt: now,
+                        },
+                      });
+          });
     return { id, unreadCount: 0, lastReadAt: now };
   });
 
   app.post("/threads/read-all", async (request) => {
     const now = Date.now();
-    const threads = db
-      .select()
-      .from(messageThreads)
-      .where(eq(messageThreads.workspaceId, request.auth.workspaceId))
-      .all();
-    db.transaction((tx) => {
-      threads.forEach((thread) => {
-        const latest = tx
-          .select({ id: messageEntries.id })
-          .from(messageEntries)
-          .where(
-            and(
-              eq(messageEntries.threadId, thread.id),
-              eq(messageEntries.workspaceId, request.auth.workspaceId),
-            ),
-          )
-          .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))
-          .get();
-        tx.update(messageThreads)
-          .set({ unreadCount: 0, updatedAt: now })
-          .where(eq(messageThreads.id, thread.id))
-          .run();
-        tx.insert(messageThreadReads)
-          .values({
-            id: createId("mrd"),
-            workspaceId: request.auth.workspaceId,
-            threadId: thread.id,
-            userId: request.auth.userId,
-            lastReadMessageId: latest?.id ?? null,
-            lastReadAt: now,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoUpdate({
-            target: [messageThreadReads.threadId, messageThreadReads.userId],
-            set: {
-              lastReadMessageId: latest?.id ?? null,
-              lastReadAt: now,
-              updatedAt: now,
-            },
-          })
-          .run();
-      });
-    });
-    writeAudit(
+    const threads = (await db
+          .select()
+          .from(messageThreads)
+          .where(eq(messageThreads.workspaceId, request.auth.workspaceId)));
+    await db.transaction(async (tx) => {
+            await Promise.all(threads.map(async (thread) => {
+              const latest = (await db.$first(tx
+                        .select({ id: messageEntries.id })
+                        .from(messageEntries)
+                        .where(
+                          and(
+                            eq(messageEntries.threadId, thread.id),
+                            eq(messageEntries.workspaceId, request.auth.workspaceId),
+                          ),
+                        )
+                        .orderBy(desc(messageEntries.createdAt), desc(messageEntries.id))));
+              await tx.update(messageThreads)
+                          .set({ unreadCount: 0, updatedAt: now })
+                          .where(eq(messageThreads.id, thread.id));
+              await tx.insert(messageThreadReads)
+                          .values({
+                            id: createId("mrd"),
+                            workspaceId: request.auth.workspaceId,
+                            threadId: thread.id,
+                            userId: request.auth.userId,
+                            lastReadMessageId: latest?.id ?? null,
+                            lastReadAt: now,
+                            createdAt: now,
+                            updatedAt: now,
+                          })
+                          .onConflictDoUpdate({
+                            target: [messageThreadReads.threadId, messageThreadReads.userId],
+                            set: {
+                              lastReadMessageId: latest?.id ?? null,
+                              lastReadAt: now,
+                              updatedAt: now,
+                            },
+                          });
+            }));
+          });
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "message.all_read",
@@ -534,7 +511,7 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/threads/:id/replies/confirm", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const thread = requireThread(request.auth.workspaceId, id);
+    const thread = (await requireThread(request.auth.workspaceId, id));
     if (!thread)
       return reply
         .code(404)
@@ -548,63 +525,59 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
     const now = Date.now();
     const messageId = createId("msg");
     const sender =
-      db
-        .select({ displayName: users.displayName })
-        .from(users)
-        .where(eq(users.id, request.auth.userId))
-        .get()?.displayName ?? "我";
-    db.transaction((tx) => {
-      tx.insert(messageEntries)
-        .values({
-          id: messageId,
-          workspaceId: request.auth.workspaceId,
-          threadId: id,
-          direction: "outbound",
-          messageType: "text",
-          body: parsed.data.body,
-          status: "confirmed",
-          channel: thread.channel,
-          senderLabel: sender,
-          confirmedByUserId: request.auth.userId,
-          confirmedAt: now,
-          metadataJson: JSON.stringify({
-            deliveryMode: "outbox",
-            userConfirmed: true,
-          }),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-      tx.update(messageThreads)
-        .set({
-          lastMessagePreview: parsed.data.body,
-          lastMessageAt: now,
-          updatedAt: now,
-        })
-        .where(eq(messageThreads.id, id))
-        .run();
-      if (thread.customerId)
-        tx.update(customers)
-          .set({
-            interaction: "刚刚 · 已确认回复",
-            nextAction: "等待渠道发送与客户回复",
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(customers.id, thread.customerId),
-              eq(customers.workspaceId, request.auth.workspaceId),
-            ),
-          )
-          .run();
-    });
-    const queued = enqueueConfirmedMessage({
+      (await db.$first(db
+                .select({ displayName: users.displayName })
+                .from(users)
+                .where(eq(users.id, request.auth.userId))))?.displayName ?? "我";
+    await db.transaction(async (tx) => {
+            await tx.insert(messageEntries)
+                      .values({
+                        id: messageId,
+                        workspaceId: request.auth.workspaceId,
+                        threadId: id,
+                        direction: "outbound",
+                        messageType: "text",
+                        body: parsed.data.body,
+                        status: "confirmed",
+                        channel: thread.channel,
+                        senderLabel: sender,
+                        confirmedByUserId: request.auth.userId,
+                        confirmedAt: now,
+                        metadataJson: JSON.stringify({
+                          deliveryMode: "outbox",
+                          userConfirmed: true,
+                        }),
+                        createdAt: now,
+                        updatedAt: now,
+                      });
+            await tx.update(messageThreads)
+                      .set({
+                        lastMessagePreview: parsed.data.body,
+                        lastMessageAt: now,
+                        updatedAt: now,
+                      })
+                      .where(eq(messageThreads.id, id));
+            if (thread.customerId)
+              await tx.update(customers)
+                          .set({
+                            interaction: "刚刚 · 已确认回复",
+                            nextAction: "等待渠道发送与客户回复",
+                            updatedAt: now,
+                          })
+                          .where(
+                            and(
+                              eq(customers.id, thread.customerId),
+                              eq(customers.workspaceId, request.auth.workspaceId),
+                            ),
+                          );
+          });
+    const queued = (await enqueueConfirmedMessage({
       workspaceId: request.auth.workspaceId,
       messageId,
       threadId: id,
       channel: thread.channel,
-    });
-    writeAudit(
+    }));
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "message.reply_confirmed",
@@ -620,11 +593,10 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
     );
     return reply.code(201).send({
       message: serializeMessage(
-        db
-          .select()
-          .from(messageEntries)
-          .where(eq(messageEntries.id, messageId))
-          .get()!,
+        (await db.$first(db
+                    .select()
+                    .from(messageEntries)
+                    .where(eq(messageEntries.id, messageId))))!,
       ),
       delivery: {
         mode: "outbox",
@@ -642,7 +614,7 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch("/threads/:id", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const existing = requireThread(request.auth.workspaceId, id);
+    const existing = (await requireThread(request.auth.workspaceId, id));
     if (!existing)
       return reply
         .code(404)
@@ -653,16 +625,15 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
         .code(400)
         .send({ error: "INVALID_INPUT", message: "没有可更新的字段。" });
     const changes = pickProvided(request.body, parsed.data);
-    db.update(messageThreads)
-      .set({ ...changes, updatedAt: Date.now() })
-      .where(
-        and(
-          eq(messageThreads.id, id),
-          eq(messageThreads.workspaceId, request.auth.workspaceId),
-        ),
-      )
-      .run();
-    writeAudit(
+    await db.update(messageThreads)
+            .set({ ...changes, updatedAt: Date.now() })
+            .where(
+              and(
+                eq(messageThreads.id, id),
+                eq(messageThreads.workspaceId, request.auth.workspaceId),
+              ),
+            );
+    await writeAudit(
       request.auth.workspaceId,
       request.auth.userId,
       "message.thread_updated",
@@ -670,6 +641,6 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
       id,
       { fields: Object.keys(changes) },
     );
-    return serializeThread(requireThread(request.auth.workspaceId, id)!);
+    return await serializeThread((await requireThread(request.auth.workspaceId, id))!);
   });
 };

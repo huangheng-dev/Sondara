@@ -2,263 +2,154 @@
 
 ## 系统要求
 
-- Node.js 20+ （推荐 22 LTS）
-- 磁盘空间 ≥ 500 MB（含 node_modules 和数据库）
-- 内存 ≥ 512 MB
-- Linux / macOS / Windows Server
+- Docker Compose（推荐），或 Node.js 20+ 与 PostgreSQL 15+
+- 内存建议 1 GB 以上
+- HTTPS 域名用于公开部署
 
-## 快速开始（Docker）
+## Docker 一键部署
 
-### 1. 准备环境
-
-```bash
-cp .env.example .env
-# 编辑 .env，至少设置：
-#   SONDARA_WEB_ORIGIN=https://your-domain
-#   SONDARA_SECURE_COOKIES=true（HTTPS 时）
-#   SONDARA_ENCRYPTION_KEY=<32+字节随机字符串>
-```
-
-生成加密密钥：
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-### 2. 构建并启动
+开发机可直接启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-应用在 `http://localhost:4176` 运行（API 和前端静态文件同端口）。
+Compose 项目固定命名为 `sondara`。Docker Desktop 中会看到：
 
-### 3. 初始化数据（首次）
+- `sondara-app-1`：前端静态文件、API 和后台 worker；
+- `sondara-postgres-1`：独立 PostgreSQL 17；
+- `sondara_postgres-data`：数据库持久卷；
+- `sondara_app-data`：主密钥与 worker 状态等本地运行数据。
 
-```bash
-docker compose exec sondara node -e "
-const Database = require('better-sqlite3');
-const db = new Database('/app/data/sondara.db');
-console.log('Database ready at /app/data/sondara.db');
-"
-```
+应用地址为 `http://localhost:4176`，启动时会自动应用数据库迁移。
+PostgreSQL 只绑定本机 `127.0.0.1:5433`，用于维护与旧数据迁移，不对局域网或公网开放。
 
-迁移在启动时自动执行。如需开发示例数据：
-
-```bash
-docker compose exec sondara npx tsx server/db/seed-dev.ts
-```
-
-## 手动部署（无 Docker）
-
-### 1. 安装依赖并构建
-
-```bash
-npm ci
-npm run build
-```
-
-这会生成：
-- `dist/` — 前端静态文件
-- `server-dist/` — 编译后的服务端代码
-
-### 2. 配置环境变量
+公开部署前：
 
 ```bash
 cp .env.example .env
-# 编辑 .env
 ```
+
+至少修改 `POSTGRES_PASSWORD`、`SONDARA_DATABASE_URL` 中对应密码、`SONDARA_ENCRYPTION_KEY`、`SONDARA_WEB_ORIGIN`，并设置 `SONDARA_SECURE_COOKIES=true`。生成主密钥：
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+常用操作：
+
+```bash
+docker compose ps
+docker compose logs -f app
+docker compose restart app
+docker compose down
+```
+
+`docker compose down` 不删除数据卷；只有明确执行 `docker compose down -v` 才会删除数据库数据。
+
+## 手动部署
+
+```bash
+npm ci
+npm run setup
+npm run db:migrate
+npm run build
+NODE_ENV=production npm start
+```
+
+`npm run setup` 会测试 PostgreSQL 连接并更新 `.env`；自动化环境可使用：
+
+```bash
+npm run setup -- --non-interactive --database-url=postgresql://user:password@host:5432/sondara
+```
+
+只检查连接、不修改 `.env` 时增加 `--check-only`。
 
 关键变量：
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `SONDARA_API_HOST` | 监听地址 | `0.0.0.0` |
-| `SONDARA_API_PORT` | 监听端口 | `4176` |
-| `SONDARA_DATABASE_URL` | SQLite 文件路径 | `./data/sondara.db` |
-| `SONDARA_WEB_ORIGIN` | 前端访问 URL（CORS） | `https://app.example.com` |
-| `SONDARA_SECURE_COOKIES` | HTTPS 下设为 true | `true` |
-| `SONDARA_ENCRYPTION_KEY` | 密钥保险箱主密钥 | 64 位 hex 字符串 |
-| `SONDARA_LOG_LEVEL` | 日志级别 | `info` |
-| `SONDARA_TRUST_PROXY` | 反向代理后设为 true | `true` |
+| `SONDARA_DATABASE_URL` | PostgreSQL 连接地址 | `postgresql://user:pass@db:5432/sondara` |
+| `SONDARA_DATABASE_POOL_MAX` | 进程连接池上限 | `10` |
+| `SONDARA_WEB_ORIGIN` | 允许携带 Cookie 的站点来源 | `https://app.example.com` |
+| `SONDARA_ENCRYPTION_KEY` | 密钥保险箱主密钥 | 64 位 hex |
+| `SONDARA_SECURE_COOKIES` | HTTPS 部署设为 true | `true` |
+| `SONDARA_TRUST_PROXY` | 位于可信反代后设为 true | `true` |
 
-### 3. 运行数据库迁移
+systemd 的 `ExecStart` 可使用 `/usr/bin/node /opt/sondara/server-dist/index.js`，并通过 `EnvironmentFile=/opt/sondara/.env` 注入配置。
 
-```bash
-npm run db:migrate
-```
-
-### 4. 启动
-
-```bash
-NODE_ENV=production npm start
-```
-
-生产模式下，API 在同一端口同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。
-
-### 进程管理（systemd）
-
-创建 `/etc/systemd/system/sondara.service`：
-
-```ini
-[Unit]
-Description=Sondara AI Customer Growth Workspace
-After=network.target
-
-[Service]
-Type=simple
-User=sondara
-WorkingDirectory=/opt/sondara
-EnvironmentFile=/opt/sondara/.env
-ExecStart=/usr/bin/node server-dist/index.js
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable --now sondara
-sudo systemctl status sondara
-```
-
-## 反向代理（Nginx）
+## Nginx 反向代理
 
 ```nginx
 server {
-    listen 443 ssl http2;
+    listen 443 ssl;
     server_name app.example.com;
 
     ssl_certificate /etc/letsencrypt/live/app.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
 
-    client_max_body_size 2m;
-
     location / {
         proxy_pass http://127.0.0.1:4176;
-        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
     }
 }
 ```
 
-设置 `SONDARA_TRUST_PROXY=true` 以信任代理头。
-
 ## 备份与恢复
 
-### 在线备份（推荐）
+设置页“数据与备份”提供当前工作区脱敏 JSON 导出，以及工作区所有者可下载的 PostgreSQL custom-format 全库备份。镜像已包含 `pg_dump`。
 
-在「设置 → 数据与备份」页面可：
-- **导出业务数据 (JSON)** — 下载当前工作区全部业务表数据
-- **完整数据库备份** — 下载 SQLite 数据库文件快照（使用 `VACUUM INTO`，不锁库）
-
-也可通过 API：
+也可从数据库容器备份：
 
 ```bash
-# 导出 JSON（需要会话 Cookie）
-curl -o sondara-export.json -b cookies.txt https://app.example.com/api/system/export
-
-# 完整数据库备份
-curl -o sondara-backup.db -b cookies.txt https://app.example.com/api/system/backup
+docker compose exec -T postgres pg_dump -U sondara -d sondara --format=custom --no-owner --no-acl > sondara.dump
 ```
 
-### 文件级备份
-
-SQLite 数据库文件位于 `data/sondara.db`（WAL 模式下还有 `-wal` 和 `-shm` 文件）。
-
-安全做法：
+恢复到空数据库：
 
 ```bash
-# 使用 sqlite3 .backup 命令（在线一致性备份）
-sqlite3 data/sondara.db ".backup" backups/sondara-$(date +%Y%m%d).db"
+docker compose exec -T postgres pg_restore -U sondara -d sondara --clean --if-exists --no-owner --no-acl < sondara.dump
 ```
 
-建议通过 cron 每日备份并保留最近 7–30 天。
+升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。
 
-### 恢复
+旧版 SQLite 迁移见 [POSTGRES_MIGRATION.md](./POSTGRES_MIGRATION.md)。迁移成功并校验后工具默认删除 SQLite 源文件；失败则保留。
 
-1. 停止 Sondara 服务
-2. 用备份文件替换 `data/sondara.db`，删除 `-wal` 和 `-shm` 文件
-3. 重启服务
-4. 启动时自动执行迁移（如版本更新）
-
-## 健康检查
+## 健康与可观测性
 
 | 端点 | 用途 |
 |------|------|
-| `GET /api/healthz` | Liveness — 进程存活 |
-| `GET /api/ready` | Readiness — 数据库可连接、worker 状态 |
-| `GET /api/health` | 传统健康检查（等同 readiness） |
+| `GET /api/healthz` | 进程存活 |
+| `GET /api/ready` | PostgreSQL 与服务就绪 |
+| `GET /api/health` | 兼容 readiness |
 
-## 升级流程
-
-1. 备份数据库（通过设置页或 `sqlite3 .backup`）
-2. 拉取新版本代码：`git pull`
-3. 安装依赖：`npm ci`
-4. 重新构建：`npm run build`
-5. 重启服务：`sudo systemctl restart sondara`
-6. 数据库迁移在启动时自动执行
-
-**注意**：Drizzle 迁移不支持自动回滚。如升级失败，用备份文件恢复数据库后再回滚代码。
-
-## 日志
-
-生产环境日志以 JSON 格式输出到 stdout（pino），可直接被 journalctl、Docker logs 或日志收集器采集：
+Sentry 与 OpenTelemetry SDK 已作为可选依赖随锁文件提供。未设置变量时不会连接第三方；配置以下变量并重启即可：
 
 ```bash
-# systemd
-journalctl -u sondara -f
-
-# Docker
-docker compose logs -f sondara
+SONDARA_SENTRY_DSN=https://public@sentry.example/1
+SONDARA_SENTRY_TRACES_SAMPLE_RATE=0.1
+SONDARA_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+SONDARA_OTEL_SERVICE_NAME=sondara
 ```
-
-日志级别通过 `SONDARA_LOG_LEVEL` 控制（fatal/error/warn/info/debug/trace）。
 
 ## 安全清单
 
-- [ ] 设置强随机的 `SONDARA_ENCRYPTION_KEY`
-- [ ] HTTPS 反向代理 + `SONDARA_SECURE_COOKIES=true`
-- [ ] `SONDARA_WEB_ORIGIN` 设置为实际域名（不使用 `*`）
-- [ ] `SONDARA_TRUST_PROXY=true`（反向代理后）
-- [ ] 定期备份 `data/` 目录
-- [ ] 不暴露 `SONDARA_ALLOW_PRIVATE_CONNECTORS=true`（仅本地可信网络）
-- [ ] 定期更新依赖：`npm audit` 和 `npm update`
+- 使用独立强数据库密码和稳定随机的 `SONDARA_ENCRYPTION_KEY`；
+- 使用 HTTPS、Secure Cookie 和精确的 `SONDARA_WEB_ORIGIN`；
+- 不提交 `.env`、数据库 dump、客户导出、日志和截图；
+- 仅在可信内网确有需要时启用 `SONDARA_ALLOW_PRIVATE_CONNECTORS`；
+- 定期执行 `npm audit`、`npm run qa:public-repo` 和恢复演练；
+- PostgreSQL 端口不要直接暴露到公网。
 
 ## 故障排查
 
 | 问题 | 检查项 |
 |------|--------|
-| 无法登录 | Cookie 安全设置、CORS origin、系统时间是否准确 |
-| AI 功能不工作 | 设置页检查 AI 服务连通性；查看日志 `journalctl -u sondara` |
-| 邮件发送失败 | SMTP 配置、`outbox_jobs` 表状态、投递事件日志 |
-| 数据库锁定 | WAL 模式正常；检查是否有长事务或备份操作 |
-| 容器健康检查失败 | `docker compose logs sondara`；`curl localhost:4176/api/healthz` |
-
-## 可选：Sentry 与 OpenTelemetry
-
-默认镜像和本地安装不强制包含错误追踪/链路追踪依赖，避免把不用的 SDK 装进生产环境。需要时在部署环境安装可选包：
-
-```bash
-npm install @sentry/node
-npm install @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/semantic-conventions
-```
-
-配置环境变量：
-
-```bash
-SONDARA_SENTRY_DSN="https://public@sentry.example/1"
-SONDARA_SENTRY_TRACES_SAMPLE_RATE="0.1"
-SONDARA_OTEL_EXPORTER_OTLP_ENDPOINT="http://otel-collector:4318/v1/traces"
-SONDARA_OTEL_SERVICE_NAME="sondara"
-```
-
-- Sentry DSN 存在时，500 错误、未捕获异常和未处理 Promise 会上报；请求追踪按采样率上报。
-- OTLP HTTP endpoint 存在时，OpenTelemetry Node SDK 会自动注入 HTTP/Fastify/出站请求等 instrumentation，并导出 trace。
-- 未设置变量时保持零开销、零第三方连接；可选依赖缺失会打印 warning，不会阻止启动。
-- 生产部署建议将环境变量和密钥放入 systemd `EnvironmentFile`、Docker secret 或编排平台的 secret 管理，不写入镜像。
+| 应用未就绪 | `docker compose logs app`、`docker compose logs postgres`、连接 URL |
+| 无法登录 | Cookie secure、CORS origin、代理头和系统时间 |
+| 邮件收发失败 | SMTP/API、每邮箱 IMAP、连接测试和外发任务事件 |
+| 连接数过多 | `SONDARA_DATABASE_POOL_MAX` 与 PostgreSQL `max_connections` |
+| 备份失败 | `pg_dump` 版本、数据库权限和临时目录空间 |

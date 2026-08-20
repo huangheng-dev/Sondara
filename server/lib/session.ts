@@ -10,7 +10,7 @@ export const sessionCookieName = 'sondara_session'
 export const challengeCookieName = 'sondara_2fa'
 export const hashSessionToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
-export const createSession = (
+export const createSession = async (
   userId: string,
   days = config.sessionDays,
   metadata: { userAgent?: string | null; ipAddress?: string | null } = {},
@@ -19,16 +19,16 @@ export const createSession = (
   const now = Date.now()
   const expiresAt = now + days * 86_400_000
   const id = createId('ses')
-  db.insert(sessions).values({
-    id,
-    userId,
-    tokenHash: hashSessionToken(token),
-    userAgent: metadata.userAgent?.slice(0, 500) || null,
-    ipAddress: metadata.ipAddress?.slice(0, 100) || null,
-    lastSeenAt: now,
-    expiresAt,
-    createdAt: now,
-  }).run()
+  await db.insert(sessions).values({
+        id,
+        userId,
+        tokenHash: hashSessionToken(token),
+        userAgent: metadata.userAgent?.slice(0, 500) || null,
+        ipAddress: metadata.ipAddress?.slice(0, 100) || null,
+        lastSeenAt: now,
+        expiresAt,
+        createdAt: now,
+      })
   return { id, token, expiresAt }
 }
 
@@ -60,27 +60,27 @@ export const clearChallengeCookie = (reply: FastifyReply) => {
   reply.clearCookie(challengeCookieName, { path: '/' })
 }
 
-export const findSessionContext = (token: string) => {
-  const context = db.select({
-    sessionId: sessions.id,
-    userId: users.id,
-    email: users.email,
-    displayName: users.displayName,
-    workspaceId: workspaces.id,
-    workspaceName: workspaces.name,
-    role: workspaceMembers.role,
-  }).from(sessions)
-    .innerJoin(users, eq(users.id, sessions.userId))
-    .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
-    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-    .where(and(eq(sessions.tokenHash, hashSessionToken(token)), gt(sessions.expiresAt, Date.now()), eq(users.status, 'active')))
-    .limit(1).get()
+export const findSessionContext = async (token: string) => {
+  const context = (await db.$first(db.select({
+      sessionId: sessions.id,
+      userId: users.id,
+      email: users.email,
+      displayName: users.displayName,
+      workspaceId: workspaces.id,
+      workspaceName: workspaces.name,
+      role: workspaceMembers.role,
+    }).from(sessions)
+      .innerJoin(users, eq(users.id, sessions.userId))
+      .innerJoin(workspaceMembers, eq(workspaceMembers.userId, users.id))
+      .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+      .where(and(eq(sessions.tokenHash, hashSessionToken(token)), gt(sessions.expiresAt, Date.now()), eq(users.status, 'active')))
+      .limit(1)))
   if (context) {
     const now = Date.now()
-    db.update(sessions).set({ lastSeenAt: now }).where(and(
-      eq(sessions.id, context.sessionId),
-      or(isNull(sessions.lastSeenAt), lt(sessions.lastSeenAt, now - 60_000)),
-    )).run()
+    await db.update(sessions).set({ lastSeenAt: now }).where(and(
+            eq(sessions.id, context.sessionId),
+            or(isNull(sessions.lastSeenAt), lt(sessions.lastSeenAt, now - 60_000)),
+          ))
   }
   return context
 }

@@ -20,29 +20,29 @@ const day = 86_400_000
 const passwordHash = await hashPassword(password)
 const daysFromNow = (offset: number) => now + offset * day
 
-let user = db.select().from(users).where(eq(users.email, email)).get()
+let user = (await db.$first(db.select().from(users).where(eq(users.email, email))))
 if (user) {
-  db.update(users).set({ passwordHash, displayName, status: 'active', updatedAt: now }).where(eq(users.id, user.id)).run()
-  user = db.select().from(users).where(eq(users.id, user.id)).get()
+  await db.update(users).set({ passwordHash, displayName, status: 'active', updatedAt: now }).where(eq(users.id, user.id))
+  user = (await db.$first(db.select().from(users).where(eq(users.id, user.id))))
 } else {
   const id = createId('usr')
-  db.insert(users).values({ id, email, passwordHash, displayName, status: 'active', createdAt: now, updatedAt: now }).run()
-  user = db.select().from(users).where(eq(users.id, id)).get()
+  await db.insert(users).values({ id, email, passwordHash, displayName, status: 'active', createdAt: now, updatedAt: now })
+  user = (await db.$first(db.select().from(users).where(eq(users.id, id))))
 }
 if (!user) throw new Error('开发测试账户生成失败。')
 
-let member = db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id)).get()
+let member = (await db.$first(db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id))))
 if (!member) {
   const workspaceId = createId('wsp')
-  db.transaction((tx) => {
-    tx.insert(workspaces).values({ id: workspaceId, name: workspaceName, ownerUserId: user.id, createdAt: now, updatedAt: now }).run()
-    tx.insert(workspaceMembers).values({ workspaceId, userId: user.id, role: 'owner', createdAt: now }).run()
+  await db.transaction(async (tx) => {
+    await tx.insert(workspaces).values({ id: workspaceId, name: workspaceName, ownerUserId: user.id, createdAt: now, updatedAt: now })
+    await tx.insert(workspaceMembers).values({ workspaceId, userId: user.id, role: 'owner', createdAt: now })
   })
-  member = db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id)).get()
+  member = (await db.$first(db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id))))
 }
 if (!member) throw new Error('开发测试工作区生成失败。')
 const workspaceId = member.workspaceId
-db.update(workspaces).set({ name: workspaceName, updatedAt: now }).where(eq(workspaces.id, workspaceId)).run()
+await db.update(workspaces).set({ name: workspaceName, updatedAt: now }).where(eq(workspaces.id, workspaceId))
 
 type CustomerSample = {
   company: string
@@ -322,7 +322,7 @@ const messageSamples: MessageSample[] = [
 const messageRows = messageSamples.map((sample, index) => {
   const contactId = createId('ict')
   const threadId = createId('mth')
-  const inboundAt = now - sample.offse
+  const inboundAt = now - sample.offset
   const outboundAt = inboundAt - 18 * 3_600_000
   const campaign = sample.campaignIndex === undefined ? null : campaignRows[sample.campaignIndex]
   return {
@@ -521,64 +521,64 @@ const channelCostRows = [
   },
 ])
 
-db.transaction((tx) => {
+await db.transaction(async (tx) => {
   for (const table of [
     candidateEvidence, candidateContacts, radarJobEvents, radarQueueItems, radarCandidates,
     messageEntries, messageThreads, inboxContacts, campaignContentLinks, campaignAudienceMembers,
     campaignSteps, campaigns, contentQualityChecks, contentVersions, contentAssets, tasks, deals,
     knowledgeItems, channelCosts, radarTasks, businessProfiles, customers,
   ]) {
-    tx.delete(table).where(eq(table.workspaceId, workspaceId)).run()
+    await tx.delete(table).where(eq(table.workspaceId, workspaceId))
   }
 
-  tx.insert(customers).values(customerRows).run()
-  tx.insert(deals).values(dealRows).run()
-  tx.insert(tasks).values(taskRows).run()
+  await tx.insert(customers).values(customerRows)
+  await tx.insert(deals).values(dealRows)
+  await tx.insert(tasks).values(taskRows)
 
   for (const row of contentRows) {
-    tx.insert(contentAssets).values(row.asset).run()
-    tx.insert(contentVersions).values(row.version).run()
-    tx.insert(contentQualityChecks).values(row.quality).run()
+    await tx.insert(contentAssets).values(row.asset)
+    await tx.insert(contentVersions).values(row.version)
+    await tx.insert(contentQualityChecks).values(row.quality)
   }
 
   for (const row of campaignRows) {
-    tx.insert(campaigns).values(row.campaign).run()
-    tx.insert(campaignSteps).values(row.steps).run()
-    tx.insert(campaignAudienceMembers).values(row.audience).run()
-    tx.insert(campaignContentLinks).values(row.contentLinks).run()
+    await tx.insert(campaigns).values(row.campaign)
+    await tx.insert(campaignSteps).values(row.steps)
+    await tx.insert(campaignAudienceMembers).values(row.audience)
+    await tx.insert(campaignContentLinks).values(row.contentLinks)
   }
 
   for (const row of messageRows) {
-    tx.insert(inboxContacts).values(row.contact).run()
-    tx.insert(messageThreads).values(row.thread).run()
-    tx.insert(messageEntries).values([row.outboundEntry, row.inboundEntry]).run()
+    await tx.insert(inboxContacts).values(row.contact)
+    await tx.insert(messageThreads).values(row.thread)
+    await tx.insert(messageEntries).values([row.outboundEntry, row.inboundEntry])
   }
 
-  tx.insert(radarTasks).values(radarTaskRows).run()
+  await tx.insert(radarTasks).values(radarTaskRows)
   for (const row of radarCandidateRows) {
-    tx.insert(radarCandidates).values(row.candidate).run()
-    tx.insert(candidateContacts).values(row.contact).run()
-    tx.insert(candidateEvidence).values(row.evidence).run()
+    await tx.insert(radarCandidates).values(row.candidate)
+    await tx.insert(candidateContacts).values(row.contact)
+    await tx.insert(candidateEvidence).values(row.evidence)
   }
 
-  tx.insert(businessProfiles).values(businessProfile).run()
-  tx.insert(knowledgeItems).values(knowledgeSamples.map((sample, index) => ({
+  await tx.insert(businessProfiles).values(businessProfile)
+  await tx.insert(knowledgeItems).values(knowledgeSamples.map((sample, index) => ({
     id: createId('knw'), workspaceId, ownerUserId: user.id, title: sample.title, itemType: sample.itemType,
     summary: sample.summary, source: sample.source, sourceUrl: sample.sourceUrl,
     tagsJson: JSON.stringify(sample.tags), status: sample.status, referenceCount: sample.referenceCount,
     createdAt: now - index * 3_600_000, updatedAt: now - index * 3_600_000,
-  }))).run()
-  tx.insert(channelCosts).values(channelCostRows).run()
+  })))
+  await tx.insert(channelCosts).values(channelCostRows)
 })
 
-const count = (table: any) =>
-  db.select().from(table).where(eq(table.workspaceId, workspaceId)).all().length
+const count = async (table: any) =>
+  (await db.select().from(table).where(eq(table.workspaceId, workspaceId))).length
 
 console.log(`Sondara fictional demo ready: ${email} / ${password}`)
 console.log([
-  `customers=${count(customers)}`, `deals=${count(deals)}`, `tasks=${count(tasks)}`,
-  `contentAssets=${count(contentAssets)}`, `campaigns=${count(campaigns)}`,
-  `messageThreads=${count(messageThreads)}`, `radarTasks=${count(radarTasks)}`,
-  `radarCandidates=${count(radarCandidates)}`, `knowledgeItems=${count(knowledgeItems)}`,
-  `channelCosts=${count(channelCosts)}`,
+  `customers=${(await count(customers))}`, `deals=${(await count(deals))}`, `tasks=${(await count(tasks))}`,
+  `contentAssets=${(await count(contentAssets))}`, `campaigns=${(await count(campaigns))}`,
+  `messageThreads=${(await count(messageThreads))}`, `radarTasks=${(await count(radarTasks))}`,
+  `radarCandidates=${(await count(radarCandidates))}`, `knowledgeItems=${(await count(knowledgeItems))}`,
+  `channelCosts=${(await count(channelCosts))}`,
 ].join('  '))

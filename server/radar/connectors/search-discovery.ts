@@ -55,8 +55,8 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
   id = 'search-discovery'
   label = '搜索发现'
 
-  supports(task: RadarTaskContext) {
-    return /智能多渠道|搜索引擎|招聘扩产|新闻融资|贸易海关|社交网络/.test(task.mode) && hasSearchConfiguration(task.workspaceId)
+  async supports(task: RadarTaskContext) {
+    return /智能多渠道|搜索引擎|招聘扩产|新闻融资|贸易海关|社交网络/.test(task.mode) && (await hasSearchConfiguration(task.workspaceId))
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {

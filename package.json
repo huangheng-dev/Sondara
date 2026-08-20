@@ -12,7 +12,9 @@
     "dev:all": "concurrently -k -n WEB,API -c blue,green \"npm:dev:web\" \"npm:dev:api\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
+    "db:migrate:sqlite": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "db:seed:dev": "tsx server/db/seed-dev.ts",
+    "setup": "node scripts/setup.mjs",
     "test:auth-2fa": "tsx server/tests/auth-2fa.integration.ts",
     "test:ai-client": "tsx server/tests/ai-client.integration.ts",
     "test:search-connector": "tsx server/tests/search-connector.integration.ts",
@@ -53,7 +55,6 @@
     "@tanstack/react-table": "8.21.3",
     "@types/mailparser": "^3.4.6",
     "antd": "^6.6.1",
-    "better-sqlite3": "^13.0.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "echarts": "^6.1.0",
@@ -62,6 +63,7 @@
     "lucide-react": "1.31.0",
     "mailparser": "^3.9.15",
     "nodemailer": "^9.0.5",
+    "pg": "^8.16.3",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
@@ -77,11 +79,13 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "24.3.0",
     "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.15.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "19.1.12",
     "@types/react-dom": "19.1.9",
     "@types/smtp-server": "^3.5.13",
     "@vitejs/plugin-react": "5.2.0",
+    "better-sqlite3": "^13.0.3",
     "concurrently": "^10.0.5",
     "drizzle-kit": "^0.31.10",
     "smtp-server": "^3.19.3",
@@ -94,5 +98,13 @@
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.25.4"
     }
+  },
+  "optionalDependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@sentry/node": "^10.70.0"
   }
 }

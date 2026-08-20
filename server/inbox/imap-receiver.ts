@@ -23,6 +23,7 @@ type ImapAccount = {
   workspaceId: string;
   host: string;
   port: number;
+  secure: boolean;
   user: string;
   password: string;
 };
@@ -38,7 +39,7 @@ type ParsedMail = {
   date: number;
 };
 
-const STATE_PATH = resolve(config.databasePath, "..", "imap-state.json");
+const STATE_PATH = resolve(process.cwd(), "data", "imap-state.json");
 const processedMessageIds = new Set<string>();
 
 const stripBrackets = (value: string | null | undefined) =>
@@ -78,100 +79,96 @@ const saveState = (state: Record<string, number>) => {
   }
 };
 
-const resolveAccounts = (): ImapAccount[] => {
-  const connections = db
-    .select()
-    .from(outboundChannelConnections)
-    .where(
-      and(
-        eq(outboundChannelConnections.enabled, true),
-        eq(outboundChannelConnections.provider, "smtp"),
-      ),
-    )
-    .all();
+const resolveAccounts = async (): Promise<ImapAccount[]> => {
+  const connections = (await db
+      .select()
+      .from(outboundChannelConnections)
+      .where(
+        and(
+          eq(outboundChannelConnections.enabled, true),
+          eq(outboundChannelConnections.provider, "smtp"),
+        ),
+      ));
 
   return connections
-    .filter((connection) => connection.secretCiphertext)
+    .filter((connection) => connection.imapEnabled
+      ? Boolean(connection.imapHost && connection.imapUsername && connection.imapSecretCiphertext && connection.imapSecretIv && connection.imapSecretTag)
+      : Boolean(config.imapEnabled && config.imapUser && config.imapPassword && connection.secretCiphertext))
     .map((connection) => {
-      const host = deriveImapHost(connection.host);
+      const dedicated = connection.imapEnabled;
+      const host = dedicated ? connection.imapHost! : deriveImapHost(connection.host);
       return {
         connectionId: connection.id,
         workspaceId: connection.workspaceId,
         host,
-        port: config.imapPort || 993,
-        user: config.imapUser || connection.username,
+        port: dedicated ? connection.imapPort : config.imapPort || 993,
+        secure: dedicated ? connection.imapSecure : true,
+        user: dedicated ? connection.imapUsername! : config.imapUser || connection.username,
         password:
-          config.imapPassword ||
-          decryptSecret({
-            ciphertext: connection.secretCiphertext!,
-            iv: connection.secretIv!,
-            tag: connection.secretTag!,
-          }),
+          dedicated
+            ? decryptSecret({ ciphertext: connection.imapSecretCiphertext!, iv: connection.imapSecretIv!, tag: connection.imapSecretTag! })
+            : config.imapPassword || decryptSecret({ ciphertext: connection.secretCiphertext!, iv: connection.secretIv!, tag: connection.secretTag! }),
       };
     });
 };
 
-const isOwnOutboundMessage = (workspaceId: string, messageId: string, fromAddress: string, accountUser: string) => {
+const isOwnOutboundMessage = async (workspaceId: string, messageId: string, fromAddress: string, accountUser: string) => {
   if (!messageId || normalizeEmail(fromAddress) !== normalizeEmail(accountUser)) return false
-  return Boolean(db.select({ id: outboxJobs.id }).from(outboxJobs).where(and(eq(outboxJobs.workspaceId, workspaceId), or(eq(outboxJobs.externalId, messageId), eq(outboxJobs.externalId, `<${messageId}>`)))).get())
+  return Boolean((await db.$first(db.select({ id: outboxJobs.id }).from(outboxJobs).where(and(eq(outboxJobs.workspaceId, workspaceId), or(eq(outboxJobs.externalId, messageId), eq(outboxJobs.externalId, `<${messageId}>`)))))))
 }
 
-const matchThreadByHeader = (
+const matchThreadByHeader = async (
   workspaceId: string,
   messageIdHeaders: string[],
 ) => {
   for (const headerId of messageIdHeaders) {
     const cleaned = stripBrackets(headerId);
     if (!cleaned) continue;
-    const job = db
-      .select()
-      .from(outboxJobs)
-      .where(
-        and(
-          eq(outboxJobs.workspaceId, workspaceId),
-          or(eq(outboxJobs.externalId, cleaned), eq(outboxJobs.externalId, `<${cleaned}>`)),
-        ),
-      )
-      .get();
+    const job = (await db.$first(db
+          .select()
+          .from(outboxJobs)
+          .where(
+            and(
+              eq(outboxJobs.workspaceId, workspaceId),
+              or(eq(outboxJobs.externalId, cleaned), eq(outboxJobs.externalId, `<${cleaned}>`)),
+            ),
+          )));
     if (job) {
-      const thread = db
-        .select()
-        .from(messageThreads)
-        .where(eq(messageThreads.id, job.threadId))
-        .get();
+      const thread = (await db.$first(db
+              .select()
+              .from(messageThreads)
+              .where(eq(messageThreads.id, job.threadId))));
       if (thread) return { thread, jobId: job.id, messageId: job.messageId };
     }
   }
   return null;
 };
 
-const findOrganicThread = (
+const findOrganicThread = async (
   workspaceId: string,
   fromAddress: string,
   subject: string,
 ) => {
-  const contact = db
-    .select()
-    .from(inboxContacts)
-    .where(
-      and(
-        eq(inboxContacts.workspaceId, workspaceId),
-        eq(inboxContacts.email, fromAddress),
-      ),
-    )
-    .get();
+  const contact = (await db.$first(db
+      .select()
+      .from(inboxContacts)
+      .where(
+        and(
+          eq(inboxContacts.workspaceId, workspaceId),
+          eq(inboxContacts.email, fromAddress),
+        ),
+      )));
   if (!contact) return null;
   const baseSubject = subject.replace(/^(re|fw|fwd)\s*:\s*/i, "").trim();
-  const threads = db
-    .select()
-    .from(messageThreads)
-    .where(
-      and(
-        eq(messageThreads.workspaceId, workspaceId),
-        eq(messageThreads.contactId, contact.id),
-      ),
-    )
-    .all();
+  const threads = (await db
+      .select()
+      .from(messageThreads)
+      .where(
+        and(
+          eq(messageThreads.workspaceId, workspaceId),
+          eq(messageThreads.contactId, contact.id),
+        ),
+      ));
   return (
     threads.find((thread) =>
       thread.subject
@@ -187,15 +184,14 @@ const findOrganicThread = (
 const normalizeSubject = (value: string) =>
   value.replace(/^[\s>[]*(?:re|fw|fwd)\s*:\s*/i, '').trim().toLowerCase()
 
-const findThreadBySubject = (workspaceId: string, subject: string) => {
+const findThreadBySubject = async (workspaceId: string, subject: string) => {
   const normalized = normalizeSubject(subject)
   if (normalized.length < 8) return null
   const since = Date.now() - 30 * 24 * 60 * 60 * 1000
-  const threads = db
-    .select()
-    .from(messageThreads)
-    .where(and(eq(messageThreads.workspaceId, workspaceId), gte(messageThreads.updatedAt, since)))
-    .all()
+  const threads = (await db
+      .select()
+      .from(messageThreads)
+      .where(and(eq(messageThreads.workspaceId, workspaceId), gte(messageThreads.updatedAt, since))))
   return (
     threads.find((thread) => {
       const candidate = normalizeSubject(thread.subject)
@@ -220,20 +216,19 @@ const parseAddresses = (value: unknown): { name: string; address: string } => {
   return { name: "", address: "" };
 };
 
-const ingestMail = (account: ImapAccount, mail: ParsedMail) => {
+const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
   if (!mail.messageId) return "ignored";
   if (processedMessageIds.has(mail.messageId)) return "duplicate";
-  const existing = db
-    .select({ id: messageEntries.id })
-    .from(messageEntries)
-    .where(
-      and(
-        eq(messageEntries.workspaceId, account.workspaceId),
-        eq(messageEntries.direction, "inbound"),
-        eq(messageEntries.externalId, mail.messageId),
-      ),
-    )
-    .get();
+  const existing = (await db.$first(db
+      .select({ id: messageEntries.id })
+      .from(messageEntries)
+      .where(
+        and(
+          eq(messageEntries.workspaceId, account.workspaceId),
+          eq(messageEntries.direction, "inbound"),
+          eq(messageEntries.externalId, mail.messageId),
+        ),
+      )));
   if (existing) {
     processedMessageIds.add(mail.messageId);
     return "duplicate";
@@ -243,20 +238,20 @@ const ingestMail = (account: ImapAccount, mail: ParsedMail) => {
   if (!fromAddress) return "ignored";
   const now = Date.now();
 
-  const headerMatch = matchThreadByHeader(account.workspaceId, [
+  const headerMatch = (await matchThreadByHeader(account.workspaceId, [
     mail.inReplyTo,
     ...mail.references,
-  ].filter((value): value is string => Boolean(value)));
+  ].filter((value): value is string => Boolean(value))));
   let thread = headerMatch?.thread ?? null;
 
-  if (!thread) thread = findThreadBySubject(account.workspaceId, mail.subject)
+  if (!thread) thread = (await findThreadBySubject(account.workspaceId, mail.subject))
 
   if (!thread) {
-    const organic = findOrganicThread(
+    const organic = (await findOrganicThread(
       account.workspaceId,
       fromAddress,
       mail.subject,
-    );
+    ));
     if (organic) thread = organic;
   }
 
@@ -269,16 +264,15 @@ const ingestMail = (account: ImapAccount, mail: ParsedMail) => {
     customerId = thread.customerId;
     campaignId = thread.campaignId;
   } else {
-    const contact = db
-      .select()
-      .from(inboxContacts)
-      .where(
-        and(
-          eq(inboxContacts.workspaceId, account.workspaceId),
-          eq(inboxContacts.email, fromAddress),
-        ),
-      )
-      .get();
+    const contact = (await db.$first(db
+          .select()
+          .from(inboxContacts)
+          .where(
+            and(
+              eq(inboxContacts.workspaceId, account.workspaceId),
+              eq(inboxContacts.email, fromAddress),
+            ),
+          )));
     if (contact) {
       contactId = contact.id;
       customerId = contact.customerId;
@@ -289,99 +283,93 @@ const ingestMail = (account: ImapAccount, mail: ParsedMail) => {
           ?.split(/[<>\[\]()]/)[0]
           ?.trim()
           ?.replace(/^["']+|["']+$/g, "") || fromAddress.split("@")[1];
-      db.insert(inboxContacts)
-        .values({
-          id: contactId,
-          workspaceId: account.workspaceId,
-          customerId: null,
-          name: mail.fromName || company,
-          company,
-          jobTitle: "待补全",
-          region: "待补全",
-          source: "IMAP 收件",
-          primaryChannel: "邮件",
-          email: fromAddress,
-          phone: null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      (await db.insert(inboxContacts)
+                .values({
+                  id: contactId,
+                  workspaceId: account.workspaceId,
+                  customerId: null,
+                  name: mail.fromName || company,
+                  company,
+                  jobTitle: "待补全",
+                  region: "待补全",
+                  source: "IMAP 收件",
+                  primaryChannel: "邮件",
+                  email: fromAddress,
+                  phone: null,
+                  createdAt: now,
+                  updatedAt: now,
+                }));
     }
     const threadId = createId("mth");
-    db.insert(messageThreads)
-      .values({
-        id: threadId,
-        workspaceId: account.workspaceId,
-        contactId,
-        customerId,
-        campaignId: null,
-        subject: mail.subject || "客户来信",
-        channel: "邮件",
-        intent: "待判断",
-        status: "open",
-        assigneeUserId: null,
-        lastMessagePreview: mail.text.slice(0, 200),
-        lastMessageAt: mail.date,
-        lastInboundAt: mail.date,
-        unreadCount: 1,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    thread = db.select().from(messageThreads).where(eq(messageThreads.id, threadId)).get()!;
+    (await db.insert(messageThreads)
+            .values({
+              id: threadId,
+              workspaceId: account.workspaceId,
+              contactId,
+              customerId,
+              campaignId: null,
+              subject: mail.subject || "客户来信",
+              channel: "邮件",
+              intent: "待判断",
+              status: "open",
+              assigneeUserId: null,
+              lastMessagePreview: mail.text.slice(0, 200),
+              lastMessageAt: mail.date,
+              lastInboundAt: mail.date,
+              unreadCount: 1,
+              createdAt: now,
+              updatedAt: now,
+            }));
+    thread = (await db.$first(db.select().from(messageThreads).where(eq(messageThreads.id, threadId))))!;
   }
 
   const inboundId = createId("msg");
-  db.transaction((tx) => {
-    tx.insert(messageEntries)
-      .values({
-        id: inboundId,
-        workspaceId: account.workspaceId,
-        threadId: thread!.id,
-        direction: "inbound",
-        messageType: "text",
-        body: mail.text || "（空回复）",
-        status: "received",
-        channel: "邮件",
-        senderLabel: mail.fromName || fromAddress,
-        externalId: mail.messageId,
-        metadataJson: JSON.stringify({
-          source: "imap",
-          connectionId: account.connectionId,
-          from: fromAddress,
-          inReplyTo: mail.inReplyTo,
-        }),
-        createdAt: mail.date,
-        updatedAt: now,
-      })
-      .run();
-    tx.update(messageThreads)
-      .set({
-        lastMessagePreview: mail.text.slice(0, 200),
-        lastMessageAt: mail.date,
-        lastInboundAt: mail.date,
-        unreadCount: sql`${messageThreads.unreadCount} + 1`,
-        updatedAt: now,
-      })
-      .where(eq(messageThreads.id, thread!.id))
-      .run();
-    if (campaignId) {
-      tx.update(campaigns)
-        .set({ replyCount: sql`${campaigns.replyCount} + 1`, updatedAt: now })
-        .where(eq(campaigns.id, campaignId))
-        .run();
-      if (customerId)
-        tx.update(campaignAudienceMembers)
-          .set({ status: "replied", lastEventAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(campaignAudienceMembers.campaignId, campaignId),
-              eq(campaignAudienceMembers.customerId, customerId),
-            ),
-          )
-          .run();
-    }
-  });
+  await db.transaction(async (tx) => {
+        (await tx.insert(messageEntries)
+                .values({
+                  id: inboundId,
+                  workspaceId: account.workspaceId,
+                  threadId: thread!.id,
+                  direction: "inbound",
+                  messageType: "text",
+                  body: mail.text || "（空回复）",
+                  status: "received",
+                  channel: "邮件",
+                  senderLabel: mail.fromName || fromAddress,
+                  externalId: mail.messageId,
+                  metadataJson: JSON.stringify({
+                    source: "imap",
+                    connectionId: account.connectionId,
+                    from: fromAddress,
+                    inReplyTo: mail.inReplyTo,
+                  }),
+                  createdAt: mail.date,
+                  updatedAt: now,
+                }));
+        (await tx.update(messageThreads)
+                .set({
+                  lastMessagePreview: mail.text.slice(0, 200),
+                  lastMessageAt: mail.date,
+                  lastInboundAt: mail.date,
+                  unreadCount: sql`${messageThreads.unreadCount} + 1`,
+                  updatedAt: now,
+                })
+                .where(eq(messageThreads.id, thread!.id)));
+        if (campaignId) {
+          (await tx.update(campaigns)
+                    .set({ replyCount: sql`${campaigns.replyCount} + 1`, updatedAt: now })
+                    .where(eq(campaigns.id, campaignId)));
+          if (customerId)
+            (await tx.update(campaignAudienceMembers)
+                        .set({ status: "replied", lastEventAt: now, updatedAt: now })
+                        .where(
+                          and(
+                            eq(campaignAudienceMembers.campaignId, campaignId),
+                            eq(campaignAudienceMembers.customerId, customerId),
+                          ),
+                        ));
+        }
+      });
   processedMessageIds.add(mail.messageId);
   logger.info(
     { threadId: thread.id, from: fromAddress, subject: mail.subject },
@@ -395,7 +383,7 @@ const pollAccount = async (account: ImapAccount, state: Record<string, number>) 
   const client = new ImapFlow({
     host: account.host,
     port: account.port,
-    secure: true,
+    secure: account.secure,
     auth: { user: account.user, pass: account.password },
     logger: false,
     connectionTimeout: 15_000,
@@ -433,7 +421,7 @@ const pollAccount = async (account: ImapAccount, state: Record<string, number>) 
             const from = parseAddresses(envelope.from as Parameters<typeof parseAddresses>[0]);
             const messageId = stripBrackets(typeof envelope.messageId === "string" ? envelope.messageId : "");
             const uid = Number(message.uid ?? 0);
-            if (uid < lastUid || isOwnOutboundMessage(account.workspaceId, messageId, from.address, account.user)) continue;
+            if (uid < lastUid || (await isOwnOutboundMessage(account.workspaceId, messageId, from.address, account.user))) continue;
             highestUid = Math.max(highestUid, uid);
             let text = "";
             try {
@@ -453,7 +441,7 @@ const pollAccount = async (account: ImapAccount, state: Record<string, number>) 
               references: Array.isArray(envelope.references) ? envelope.references.map(value => stripBrackets(typeof value === "string" ? value : "")).filter(Boolean) : [],
               date: envelope.date ? new Date(envelope.date as string | number | Date).getTime() : Date.now(),
             };
-            ingestMail(account, parsed);
+            await ingestMail(account, parsed);
             if (!message.flags?.has("\\Seen"))
               await client.messageFlagsAdd(message.uid, ["\\Seen"]);
           } catch (error) {
@@ -482,7 +470,7 @@ export const createImapReceiver = (intervalMs = 60_000) => {
     if (running) return;
     running = true;
     try {
-      const accounts = resolveAccounts();
+      const accounts = (await resolveAccounts());
       for (const account of accounts) {
         try {
           await pollAccount(account, state);

@@ -1,20 +1,42 @@
+name: sondara
+
 services:
-  sondara:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sondara}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sondara}
+      POSTGRES_DB: ${POSTGRES_DB:-sondara}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sondara} -d ${POSTGRES_DB:-sondara}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
     build: .
     image: sondara:latest
-    container_name: sondara
     restart: unless-stopped
     ports:
       - "4176:4176"
     volumes:
-      - sondara-data:/app/data
+      - app-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       - NODE_ENV=production
       - SONDARA_API_HOST=0.0.0.0
       - SONDARA_API_PORT=4176
-      - SONDARA_DATABASE_URL=/app/data/sondara.db
+      - SONDARA_DATABASE_URL=postgresql://${POSTGRES_USER:-sondara}:${POSTGRES_PASSWORD:-sondara}@postgres:5432/${POSTGRES_DB:-sondara}
       - SONDARA_WEB_ORIGIN=${SONDARA_WEB_ORIGIN:-http://localhost:4176}
       - SONDARA_SECURE_COOKIES=${SONDARA_SECURE_COOKIES:-false}
       - SONDARA_TRUST_PROXY=true
@@ -26,4 +48,5 @@ services:
       retries: 3
 
 volumes:
-  sondara-data:
+  app-data:
+  postgres-data:

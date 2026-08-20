@@ -160,76 +160,70 @@ const run = async () => {
     assert.equal(highIntent.json().total, 1);
 
     assert.equal(
-      db
-        .select()
-        .from(messageThreads)
-        .where(
-          and(
-            eq(messageThreads.id, threadId),
-            eq(messageThreads.workspaceId, workspaceId),
-          ),
-        )
-        .get()?.unreadCount,
+      (await db.$first(db
+                .select()
+                .from(messageThreads)
+                .where(
+                  and(
+                    eq(messageThreads.id, threadId),
+                    eq(messageThreads.workspaceId, workspaceId),
+                  ),
+                )))?.unreadCount,
       0,
     );
     assert.equal(
-      db
-        .select()
-        .from(messageEntries)
-        .where(
-          and(
-            eq(messageEntries.threadId, threadId),
-            eq(messageEntries.status, "confirmed"),
-          ),
-        )
-        .all().length,
+      (await db
+                .select()
+                .from(messageEntries)
+                .where(
+                  and(
+                    eq(messageEntries.threadId, threadId),
+                    eq(messageEntries.status, "confirmed"),
+                  ),
+                )).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(outboxJobs)
-        .where(
-          and(
-            eq(outboxJobs.threadId, threadId),
-            eq(outboxJobs.status, "awaiting_configuration"),
-          ),
-        )
-        .all().length,
+      (await db
+                .select()
+                .from(outboxJobs)
+                .where(
+                  and(
+                    eq(outboxJobs.threadId, threadId),
+                    eq(outboxJobs.status, "awaiting_configuration"),
+                  ),
+                )).length,
       1,
     );
     assert.ok(
-      db
-        .select()
-        .from(messageThreadReads)
-        .where(eq(messageThreadReads.threadId, threadId))
-        .get(),
+      (await db.$first(db
+                .select()
+                .from(messageThreadReads)
+                .where(eq(messageThreadReads.threadId, threadId)))),
     );
     assert.ok(
-      db
-        .select()
-        .from(campaignExecutionEvents)
-        .where(
-          and(
-            eq(campaignExecutionEvents.campaignId, campaign.json().id),
-            eq(campaignExecutionEvents.eventType, "message_thread_created"),
-          ),
-        )
-        .get(),
+      (await db.$first(db
+                .select()
+                .from(campaignExecutionEvents)
+                .where(
+                  and(
+                    eq(campaignExecutionEvents.campaignId, campaign.json().id),
+                    eq(campaignExecutionEvents.eventType, "message_thread_created"),
+                  ),
+                ))),
     );
     assert.equal(
-      db
-        .select()
-        .from(customers)
-        .where(eq(customers.id, customer.json().id))
-        .get()?.interaction,
+      (await db.$first(db
+                .select()
+                .from(customers)
+                .where(eq(customers.id, customer.json().id))))?.interaction,
       "刚刚 · 已确认回复",
     );
     console.log(
       "Inbox integration passed: threads, contacts, cursor loading, read state, campaign link and confirmed replies verified.",
     );
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run();
+    if (userId) await db.delete(users).where(eq(users.id, userId));
     await app.close();
   }
 };

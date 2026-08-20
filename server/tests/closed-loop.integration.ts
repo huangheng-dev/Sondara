@@ -86,7 +86,7 @@ const run = async () => {
     assert.ok(audit.json().items.some((item: { action: string }) => item.action === 'ai.policy.updated'))
 
     const resetToken = `closed-loop-reset-token-${suffix}`
-    db.insert(passwordResetTokens).values({ id: createId('prt'), userId: ownerId, tokenHash: hashSessionToken(resetToken), expiresAt: Date.now() + 60_000, createdAt: Date.now() }).run()
+    await db.insert(passwordResetTokens).values({ id: createId('prt'), userId: ownerId, tokenHash: hashSessionToken(resetToken), expiresAt: Date.now() + 60_000, createdAt: Date.now() })
     const reset = await app.inject({ method: 'POST', url: '/api/auth/reset-password', payload: { token: resetToken, newPassword: 'ClosedLoopNew@2026' } })
     assert.equal(reset.statusCode, 200, reset.body)
     const revoked = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: ownerCookie } })
@@ -98,8 +98,8 @@ const run = async () => {
 
     console.log('Closed-loop integration passed: RBAC, admin audit, profile/sessions, customer ownership/tags/contacts, AI policy/key lifecycle and password reset verified.')
   } finally {
-    if (memberId) db.delete(users).where(eq(users.id, memberId)).run()
-    if (ownerId) db.delete(users).where(eq(users.id, ownerId)).run()
+    if (memberId) await db.delete(users).where(eq(users.id, memberId))
+    if (ownerId) await db.delete(users).where(eq(users.id, ownerId))
     await app.close()
   }
 }

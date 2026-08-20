@@ -47,25 +47,25 @@ const run = async () => {
 
   try {
     const port = await listen(server)
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'AI integration', status: 'active', createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: 'AI integration', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-      tx.insert(workspaceAiPolicies).values({ workspaceId, rotationStrategy: 'failover', retryCount: 2, retryBackoff: 'fixed', retryDelayMs: 1, cooldownMs: 300_000, failoverEnabled: true, updatedAt: now }).run()
-      tx.insert(aiServices).values({ id: serviceId, workspaceId, name: 'Local mock', provider: 'openai-compatible', model: 'mock-model', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', createdAt: now, updatedAt: now }).run()
-      const failed = encryptSecret('fake-fail-key')
-      const good = encryptSecret('integration-good-key')
-      tx.insert(aiServiceKeys).values([
-        { id: failedKeyId, workspaceId, serviceId, name: 'failing', secretCiphertext: failed.ciphertext, secretIv: failed.iv, secretTag: failed.tag, ending: 'FAIL', enabled: true, failureCount: 0, createdAt: now, updatedAt: now },
-        { id: goodKeyId, workspaceId, serviceId, name: 'good', secretCiphertext: good.ciphertext, secretIv: good.iv, secretTag: good.tag, ending: 'GOOD', enabled: true, failureCount: 0, createdAt: now + 1, updatedAt: now + 1 },
-      ]).run()
-    })
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'AI integration', status: 'active', createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: 'AI integration', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+            await tx.insert(workspaceAiPolicies).values({ workspaceId, rotationStrategy: 'failover', retryCount: 2, retryBackoff: 'fixed', retryDelayMs: 1, cooldownMs: 300_000, failoverEnabled: true, updatedAt: now })
+            await tx.insert(aiServices).values({ id: serviceId, workspaceId, name: 'Local mock', provider: 'openai-compatible', model: 'mock-model', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', createdAt: now, updatedAt: now })
+            const failed = encryptSecret('fake-fail-key')
+            const good = encryptSecret('integration-good-key')
+            await tx.insert(aiServiceKeys).values([
+                      { id: failedKeyId, workspaceId, serviceId, name: 'failing', secretCiphertext: failed.ciphertext, secretIv: failed.iv, secretTag: failed.tag, ending: 'FAIL', enabled: true, failureCount: 0, createdAt: now, updatedAt: now },
+                      { id: goodKeyId, workspaceId, serviceId, name: 'good', secretCiphertext: good.ciphertext, secretIv: good.iv, secretTag: good.tag, ending: 'GOOD', enabled: true, failureCount: 0, createdAt: now + 1, updatedAt: now + 1 },
+                    ])
+          })
 
     const first = await completeWithAi({ workspaceId, messages: [{ role: 'user', content: 'integration' }] })
     assert.equal(first.serviceId, serviceId)
     assert.equal(failedCalls, 3)
     assert.equal(goodCalls, 1)
-    const failedKey = db.select().from(aiServiceKeys).where(eq(aiServiceKeys.id, failedKeyId)).get()
+    const failedKey = (await db.$first(db.select().from(aiServiceKeys).where(eq(aiServiceKeys.id, failedKeyId))))
     assert.equal(failedKey?.failureCount, 1)
     assert.ok((failedKey?.cooldownUntil ?? 0) > Date.now())
 
@@ -82,7 +82,7 @@ const run = async () => {
     assert.equal(goodCalls, 3)
     console.log('AI client integration passed: retry policy, key failover, cooldown and structured enrichment verified.')
   } finally {
-    db.delete(users).where(eq(users.id, userId)).run()
+    await db.delete(users).where(eq(users.id, userId))
     await close(server).catch(() => undefined)
   }
 }

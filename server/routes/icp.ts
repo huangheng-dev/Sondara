@@ -78,24 +78,24 @@ const serializeKnowledge = (row: KnowledgeRow) => ({
   updatedAt: row.updatedAt,
 })
 
-const writeAudit = (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
-  db.insert(auditLogs).values({
-    id: createId('aud'), workspaceId, actorUserId, action,
-    entityType: 'business_profile', entityId,
-    metadata: JSON.stringify(metadata), createdAt: Date.now(),
-  }).run()
+const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
+  await db.insert(auditLogs).values({
+        id: createId('aud'), workspaceId, actorUserId, action,
+        entityType: 'business_profile', entityId,
+        metadata: JSON.stringify(metadata), createdAt: Date.now(),
+      })
 }
 
-const writeKnowledgeAudit = (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
-  db.insert(auditLogs).values({
-    id: createId('aud'), workspaceId, actorUserId, action,
-    entityType: 'knowledge_item', entityId,
-    metadata: JSON.stringify(metadata), createdAt: Date.now(),
-  }).run()
+const writeKnowledgeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
+  await db.insert(auditLogs).values({
+        id: createId('aud'), workspaceId, actorUserId, action,
+        entityType: 'knowledge_item', entityId,
+        metadata: JSON.stringify(metadata), createdAt: Date.now(),
+      })
 }
 
-const ensureProfile = (workspaceId: string, userId: string): ProfileRow => {
-  const existing = db.select().from(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId)).get()
+const ensureProfile = async (workspaceId: string, userId: string): Promise<ProfileRow> => {
+  const existing = (await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId))))
   if (existing) return existing
   const now = Date.now()
   const row: ProfileRow = {
@@ -105,7 +105,7 @@ const ensureProfile = (workspaceId: string, userId: string): ProfileRow => {
     analysisStatus: 'idle', analysisSummary: '', analysisMode: 'idle', analysisError: null,
     analyzedAt: null, createdAt: now, updatedAt: now,
   }
-  db.insert(businessProfiles).values(row).run()
+  await db.insert(businessProfiles).values(row)
   return row
 }
 
@@ -149,29 +149,29 @@ export const icpRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
 
   app.get('/profile', async (request) => {
-    const row = ensureProfile(request.auth.workspaceId, request.auth.userId)
+    const row = (await ensureProfile(request.auth.workspaceId, request.auth.userId))
     return serializeProfile(row)
   })
 
   app.put('/profile', async (request, reply) => {
     const parsed = profileInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const existing = ensureProfile(request.auth.workspaceId, request.auth.userId)
+    const existing = (await ensureProfile(request.auth.workspaceId, request.auth.userId))
     const now = Date.now()
-    db.update(businessProfiles).set({
-      ...pickProvided(request.body, parsed.data),
-      updatedAt: now,
-    }).where(and(eq(businessProfiles.id, existing.id), eq(businessProfiles.workspaceId, request.auth.workspaceId))).run()
-    const updated = db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id)).get()!
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'icp.profile.updated', existing.id, { fields: Object.keys(parsed.data) })
+    await db.update(businessProfiles).set({
+            ...pickProvided(request.body, parsed.data),
+            updatedAt: now,
+          }).where(and(eq(businessProfiles.id, existing.id), eq(businessProfiles.workspaceId, request.auth.workspaceId)))
+    const updated = (await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id))))!
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'icp.profile.updated', existing.id, { fields: Object.keys(parsed.data) })
     return serializeProfile(updated)
   })
 
   app.post('/profile/analyze', async (request, reply) => {
-    const existing = ensureProfile(request.auth.workspaceId, request.auth.userId)
+    const existing = (await ensureProfile(request.auth.workspaceId, request.auth.userId))
     const now = Date.now()
-    db.update(businessProfiles).set({ analysisStatus: 'running', analysisError: null, updatedAt: now })
-      .where(eq(businessProfiles.id, existing.id)).run()
+    await db.update(businessProfiles).set({ analysisStatus: 'running', analysisError: null, updatedAt: now })
+            .where(eq(businessProfiles.id, existing.id))
     const input: z.infer<typeof profileInput> = {
       company: existing.company, website: existing.website, products: existing.products,
       regions: existing.regions, customers: existing.customers, exclusions: existing.exclusions,
@@ -180,7 +180,7 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     let result: AnalysisResult
     let mode: 'ai' | 'local-rules' = 'local-rules'
     let error: string | null = null
-    if (hasAiConfiguration(request.auth.workspaceId)) {
+    if ((await hasAiConfiguration(request.auth.workspaceId))) {
       try {
         const response = await completeWithAi({
           workspaceId: request.auth.workspaceId,
@@ -209,12 +209,12 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     }
     const analysisSummary = JSON.stringify(result)
     const completedAt = Date.now()
-    db.update(businessProfiles).set({
-      analysisStatus: 'complete', analysisSummary, analysisMode: mode,
-      analysisError: error, analyzedAt: completedAt, updatedAt: completedAt,
-    }).where(eq(businessProfiles.id, existing.id)).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'icp.profile.analyzed', existing.id, { mode, hasAi: mode === 'ai', error })
-    const updated = db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id)).get()!
+    await db.update(businessProfiles).set({
+            analysisStatus: 'complete', analysisSummary, analysisMode: mode,
+            analysisError: error, analyzedAt: completedAt, updatedAt: completedAt,
+          }).where(eq(businessProfiles.id, existing.id))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'icp.profile.analyzed', existing.id, { mode, hasAi: mode === 'ai', error })
+    const updated = (await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id))))!
     return reply.code(202).send({ ...serializeProfile(updated), analysis: result, mode })
   })
 
@@ -238,9 +238,9 @@ export const icpRoutes: FastifyPluginAsync = async app => {
       : query.sort === 'references_desc' ? desc(knowledgeItems.referenceCount)
       : query.sort === 'references_asc' ? asc(knowledgeItems.referenceCount)
       : desc(knowledgeItems.updatedAt)
-    const total = db.select({ count: sql<number>`count(*)` }).from(knowledgeItems).where(where).get()?.count ?? 0
-    const items = db.select().from(knowledgeItems).where(where).orderBy(orderBy)
-      .limit(query.pageSize).offset((query.page - 1) * query.pageSize).all().map(serializeKnowledge)
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(knowledgeItems).where(where)))?.count ?? 0
+    const items = (await db.select().from(knowledgeItems).where(where).orderBy(orderBy)
+          .limit(query.pageSize).offset((query.page - 1) * query.pageSize)).map(serializeKnowledge)
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
@@ -255,14 +255,14 @@ export const icpRoutes: FastifyPluginAsync = async app => {
       tagsJson: JSON.stringify(parsed.data.tags), status: parsed.data.status,
       referenceCount: 0, createdAt: now, updatedAt: now,
     }
-    db.insert(knowledgeItems).values(row).run()
-    writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.created', row.id, { title: row.title, itemType: row.itemType })
+    await db.insert(knowledgeItems).values(row)
+    await writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.created', row.id, { title: row.title, itemType: row.itemType })
     return reply.code(201).send(serializeKnowledge(row))
   })
 
   app.get('/knowledge/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const row = db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).get()
+    const row = (await db.$first(db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))))
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND', message: '知识条目不存在。' })
     return serializeKnowledge(row)
   })
@@ -271,7 +271,7 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = knowledgePatch.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const existing = db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '知识条目不存在。' })
     const provided = pickProvided(request.body, parsed.data) as Partial<z.infer<typeof knowledgeInput>>
     if (!Object.keys(provided).length) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
@@ -284,31 +284,31 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     if (provided.sourceUrl !== undefined) patch.sourceUrl = provided.sourceUrl
     if (provided.status !== undefined) patch.status = provided.status
     if (provided.tags !== undefined) patch.tagsJson = JSON.stringify(provided.tags)
-    db.update(knowledgeItems).set(patch)
-      .where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).run()
-    writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.updated', id, { fields: Object.keys(provided) })
-    return serializeKnowledge(db.select().from(knowledgeItems).where(eq(knowledgeItems.id, id)).get()!)
+    await db.update(knowledgeItems).set(patch)
+            .where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))
+    await writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.updated', id, { fields: Object.keys(provided) })
+    return serializeKnowledge((await db.$first(db.select().from(knowledgeItems).where(eq(knowledgeItems.id, id))))!)
   })
 
   app.patch('/knowledge/:id/status', async (request, reply) => {
     const id = (request.params as { id: string }).id
     const parsed = z.object({ status: z.enum(knowledgeStatuses) }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const existing = db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '知识条目不存在。' })
     const now = Date.now()
-    db.update(knowledgeItems).set({ status: parsed.data.status, updatedAt: now })
-      .where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).run()
-    writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.status_changed', id, { status: parsed.data.status })
-    return serializeKnowledge(db.select().from(knowledgeItems).where(eq(knowledgeItems.id, id)).get()!)
+    await db.update(knowledgeItems).set({ status: parsed.data.status, updatedAt: now })
+            .where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))
+    await writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.status_changed', id, { status: parsed.data.status })
+    return serializeKnowledge((await db.$first(db.select().from(knowledgeItems).where(eq(knowledgeItems.id, id))))!)
   })
 
   app.delete('/knowledge/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const existing = db.select({ id: knowledgeItems.id }).from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select({ id: knowledgeItems.id }).from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '知识条目不存在。' })
-    db.delete(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId))).run()
-    writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.deleted', id, {})
+    await db.delete(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))
+    await writeKnowledgeAudit(request.auth.workspaceId, request.auth.userId, 'knowledge.deleted', id, {})
     return reply.code(204).send()
   })
 }

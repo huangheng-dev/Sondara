@@ -74,18 +74,24 @@ export const initObservability = async (input: {
     const OTLPTraceExporter = isRecord(exporterModule)
       ? (exporterModule.OTLPTraceExporter as { new (options: { url: string }): unknown } | undefined)
       : undefined;
-    const Resource = isRecord(resourceModule)
-      ? (resourceModule.Resource as { new (attrs: Record<string, string>): unknown } | undefined)
+    const resourceFromAttributes = isRecord(resourceModule)
+      ? (resourceModule.resourceFromAttributes as ((attrs: Record<string, string>) => unknown) | undefined)
       : undefined;
-    const SemanticResourceAttributes = isRecord(semanticModule)
-      ? semanticModule.SemanticResourceAttributes as Record<string, string> | undefined
-      : undefined;
-    if (NodeSDK && getNodeAutoInstrumentations && OTLPTraceExporter && Resource && SemanticResourceAttributes) {
+    const serviceNameAttribute = isRecord(semanticModule) && typeof semanticModule.ATTR_SERVICE_NAME === "string"
+      ? semanticModule.ATTR_SERVICE_NAME
+      : "service.name";
+    const serviceVersionAttribute = isRecord(semanticModule) && typeof semanticModule.ATTR_SERVICE_VERSION === "string"
+      ? semanticModule.ATTR_SERVICE_VERSION
+      : "service.version";
+    const environmentAttribute = isRecord(semanticModule) && typeof semanticModule.ATTR_DEPLOYMENT_ENVIRONMENT_NAME === "string"
+      ? semanticModule.ATTR_DEPLOYMENT_ENVIRONMENT_NAME
+      : "deployment.environment.name";
+    if (NodeSDK && getNodeAutoInstrumentations && OTLPTraceExporter && resourceFromAttributes) {
       const traceExporter = new OTLPTraceExporter({ url: input.otelExporterOtlpEndpoint });
-      const resource = new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: input.otelServiceName,
-        [SemanticResourceAttributes.SERVICE_VERSION]: input.version,
-        [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: input.environment,
+      const resource = resourceFromAttributes({
+        [serviceNameAttribute]: input.otelServiceName,
+        [serviceVersionAttribute]: input.version,
+        [environmentAttribute]: input.environment,
       });
       const sdk = new NodeSDK({ traceExporter, resource, instrumentations: [getNodeAutoInstrumentations()] });
       sdk.start();

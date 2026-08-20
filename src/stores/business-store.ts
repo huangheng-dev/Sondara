@@ -55,16 +55,18 @@ type BusinessState = {
   updateAccountPreferences: (preferences: AccountPreferences) => void
 }
 
+const defaultAccountPreferences: AccountPreferences = {
+  displayName: '',
+  email: '',
+  language: '简体中文',
+  timezone: 'Asia/Shanghai (UTC+8)',
+  currency: 'CNY · 人民币',
+  businessName: '',
+}
+
 export const useBusinessStore = create<BusinessState>()(persist((set) => ({
   customers: [],
-  accountPreferences: {
-    displayName: '',
-    email: '',
-    language: '简体中文',
-    timezone: 'Asia/Shanghai (UTC+8)',
-    currency: 'CNY · 人民币',
-    businessName: '',
-  },
+  accountPreferences: defaultAccountPreferences,
   replaceCustomers: (customers) => set({ customers }),
   updateAccountPreferences: (accountPreferences) => set({ accountPreferences }),
 }), {
@@ -74,4 +76,12 @@ export const useBusinessStore = create<BusinessState>()(persist((set) => ({
   partialize: (state) => ({
     accountPreferences: state.accountPreferences,
   }),
+  merge: (persisted, current) => {
+    const saved = (persisted as Partial<BusinessState> | undefined)?.accountPreferences
+    return {
+      ...current,
+      ...(persisted as Partial<BusinessState> | undefined),
+      accountPreferences: { ...defaultAccountPreferences, ...saved },
+    }
+  },
 }))

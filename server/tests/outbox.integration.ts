@@ -19,6 +19,8 @@ import { signWebhookPayload } from "../outbox/webhook-signature.js";
 
 const run = async () => {
   const received: string[] = [];
+  const webhookCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const originalFetch = globalThis.fetch;
   const smtp = new SMTPServer({
     disabledCommands: ["STARTTLS"],
     onAuth(auth, _session, callback) {
@@ -81,12 +83,43 @@ const run = async () => {
     assert.equal(connection.json().hasSecret, true);
     assert.match(connection.json().webhookSecret, /^whsec_/);
     assert.equal("password" in connection.json(), false);
-    const stored = db
+    const stored = (await db.$first(db
+          .select()
+          .from(outboundChannelConnections)
+          .where(eq(outboundChannelConnections.id, connection.json().id))))!;
+    assert.notEqual(stored.secretCiphertext, "smtp-pass");
+
+    const imapConfig = await app.inject({
+      method: "POST",
+      url: "/api/outbox/connections",
+      headers,
+      payload: {
+        name: "第二邮箱 IMAP 配置",
+        provider: "smtp",
+        host: "smtp.example.com",
+        port: 465,
+        secure: true,
+        username: "second@example.com",
+        password: "smtp-second-secret",
+        fromName: "第二邮箱",
+        fromEmail: "second@example.com",
+        imapEnabled: true,
+        imapHost: "imap.example.com",
+        imapPort: 993,
+        imapSecure: true,
+        imapUsername: "second@example.com",
+        imapPassword: "imap-second-secret",
+        enabled: false,
+      },
+    });
+    assert.equal(imapConfig.statusCode, 201, imapConfig.body);
+    assert.equal(imapConfig.json().hasImapSecret, true);
+    assert.equal("imapPassword" in imapConfig.json(), false);
+    const storedImap = (await db.$first(db
       .select()
       .from(outboundChannelConnections)
-      .where(eq(outboundChannelConnections.id, connection.json().id))
-      .get()!;
-    assert.notEqual(stored.secretCiphertext, "smtp-pass");
+      .where(eq(outboundChannelConnections.id, imapConfig.json().id))))!;
+    assert.notEqual(storedImap.imapSecretCiphertext, "imap-second-secret");
 
     const tested = await app.inject({
       method: "POST",
@@ -127,38 +160,100 @@ const run = async () => {
     assert.equal(received.length, 1);
     assert.match(received[0], /To: recipient@example\.com/);
     assert.equal(
-      db
-        .select()
-        .from(outboxJobs)
-        .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "sent")))
-        .all().length,
+      (await db
+                .select()
+                .from(outboxJobs)
+                .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "sent")))).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(messageEntries)
-        .where(
-          and(
-            eq(messageEntries.id, confirmed.json().message.id),
-            eq(messageEntries.status, "sent"),
-          ),
-        )
-        .all().length,
+      (await db
+                .select()
+                .from(messageEntries)
+                .where(
+                  and(
+                    eq(messageEntries.id, confirmed.json().message.id),
+                    eq(messageEntries.status, "sent"),
+                  ),
+                )).length,
       1,
     );
     assert.ok(
-      db
-        .select()
-        .from(messageDeliveryEvents)
-        .where(
-          and(
-            eq(messageDeliveryEvents.outboxJobId, jobId),
-            eq(messageDeliveryEvents.eventType, "sent"),
-          ),
-        )
-        .get(),
+      (await db.$first(db
+                .select()
+                .from(messageDeliveryEvents)
+                .where(
+                  and(
+                    eq(messageDeliveryEvents.outboxJobId, jobId),
+                    eq(messageDeliveryEvents.eventType, "sent"),
+                  ),
+                ))),
     );
+
+    globalThis.fetch = (async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      webhookCalls.push({ url: String(input), body });
+      return new Response(JSON.stringify({ id: `webhook-${webhookCalls.length}` }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const webhookConnection = await app.inject({
+      method: "POST",
+      url: "/api/outbox/connections",
+      headers,
+      payload: {
+        name: "LinkedIn 合规适配器",
+        provider: "webhook",
+        host: "https://example.com/sondara-outbound",
+        port: 443,
+        secure: true,
+        username: "bearer",
+        password: "adapter-secret",
+        fromName: "Sondara 测试",
+        fromEmail: "sender@example.com",
+        priority: 1,
+      },
+    });
+    assert.equal(webhookConnection.statusCode, 201, webhookConnection.body);
+    const socialThread = await app.inject({
+      method: "POST",
+      url: "/api/inbox/threads",
+      headers,
+      payload: {
+        subject: "Webhook 渠道闭环验证",
+        channel: "LinkedIn",
+        contact: {
+          name: "渠道联系人",
+          company: "测试客户",
+          primaryChannel: "LinkedIn",
+          externalRef: "linkedin:contact-001",
+        },
+      },
+    });
+    assert.equal(socialThread.statusCode, 201, socialThread.body);
+    const socialReply = await app.inject({
+      method: "POST",
+      url: `/api/inbox/threads/${socialThread.json().id}/replies/confirm`,
+      headers,
+      payload: { body: "这是经过人工确认的渠道消息。", confirmation: true },
+    });
+    assert.equal(socialReply.statusCode, 201, socialReply.body);
+    assert.equal(socialReply.json().delivery.status, "awaiting_configuration");
+    const webhookTest = await app.inject({
+      method: "POST",
+      url: `/api/outbox/connections/${webhookConnection.json().id}/test`,
+      headers,
+    });
+    assert.equal(webhookTest.statusCode, 200, webhookTest.body);
+    assert.equal(webhookTest.json().activatedJobs, 1);
+    const socialProcessed = await processOutboxJob(socialReply.json().delivery.jobId);
+    assert.equal(socialProcessed.status, "sent");
+    assert.equal(webhookCalls.length, 2);
+    assert.equal(webhookCalls[1]?.body.type, "sondara.outbound_message");
+    assert.equal(webhookCalls[1]?.body.channel, "LinkedIn");
+    assert.equal(webhookCalls[1]?.body.recipient, "linkedin:contact-001");
+    globalThis.fetch = originalFetch;
 
     const webhookSecret = connection.json().webhookSecret as string;
     const sendEvent = (
@@ -225,11 +320,10 @@ const run = async () => {
     assert.equal(duplicate.statusCode, 200, duplicate.body);
     assert.equal(duplicate.json().duplicate, true);
     assert.equal(
-      db
-        .select()
-        .from(messageEntries)
-        .where(eq(messageEntries.id, confirmed.json().message.id))
-        .get()?.status,
+      (await db.$first(db
+                .select()
+                .from(messageEntries)
+                .where(eq(messageEntries.id, confirmed.json().message.id))))?.status,
       "delivered",
     );
 
@@ -245,24 +339,22 @@ const run = async () => {
     });
     assert.equal(replyEvent.statusCode, 200, replyEvent.body);
     assert.equal(
-      db
-        .select()
-        .from(messageEntries)
-        .where(
-          and(
-            eq(messageEntries.threadId, thread.json().id),
-            eq(messageEntries.direction, "inbound"),
-          ),
-        )
-        .all().length,
+      (await db
+                .select()
+                .from(messageEntries)
+                .where(
+                  and(
+                    eq(messageEntries.threadId, thread.json().id),
+                    eq(messageEntries.direction, "inbound"),
+                  ),
+                )).length,
       2,
     );
     assert.ok(
-      (db
-        .select()
-        .from(messageThreads)
-        .where(eq(messageThreads.id, thread.json().id))
-        .get()?.unreadCount ?? 0) >= 2,
+      ((await db.$first(db
+                .select()
+                .from(messageThreads)
+                .where(eq(messageThreads.id, thread.json().id))))?.unreadCount ?? 0) >= 2,
     );
 
     const unsubscribe = await sendEvent({
@@ -284,30 +376,28 @@ const run = async () => {
     });
     assert.equal(bounced.statusCode, 200, bounced.body);
     assert.equal(
-      db.select().from(outboxJobs).where(eq(outboxJobs.id, jobId)).get()
+      (await db.$first(db.select().from(outboxJobs).where(eq(outboxJobs.id, jobId))))
         ?.status,
       "failed",
     );
     assert.equal(
-      db
-        .select()
-        .from(contactSuppressions)
-        .where(
-          and(
-            eq(contactSuppressions.workspaceId, workspaceId),
-            eq(contactSuppressions.destination, "recipient@example.com"),
-            eq(contactSuppressions.active, true),
-          ),
-        )
-        .all().length,
+      (await db
+                .select()
+                .from(contactSuppressions)
+                .where(
+                  and(
+                    eq(contactSuppressions.workspaceId, workspaceId),
+                    eq(contactSuppressions.destination, "recipient@example.com"),
+                    eq(contactSuppressions.active, true),
+                  ),
+                )).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(channelWebhookEvents)
-        .where(eq(channelWebhookEvents.workspaceId, workspaceId))
-        .all().length,
+      (await db
+                .select()
+                .from(channelWebhookEvents)
+                .where(eq(channelWebhookEvents.workspaceId, workspaceId))).length,
       4,
     );
 
@@ -352,10 +442,11 @@ const run = async () => {
     assert.equal(restored.statusCode, 200, restored.body);
     assert.equal(restored.json().active, false);
     console.log(
-      "Outbox integration passed: encrypted SMTP, signed idempotent events, inbound replies, suppression and restore verified.",
+      "Outbox integration passed: SMTP, multi-IMAP secrets, generic channel webhook, signed events and suppression verified.",
     );
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run();
+    globalThis.fetch = originalFetch;
+    if (userId) await db.delete(users).where(eq(users.id, userId));
     await app.close();
     await new Promise<void>((resolve) => smtp.close(() => resolve()));
   }

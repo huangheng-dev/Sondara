@@ -24,13 +24,17 @@ const booleanFromEnv = (value: string | undefined, fallback = false) => {
 const logLevel = process.env.SONDARA_LOG_LEVEL ??
   (process.env.NODE_ENV === "production" ? "info" : "warn");
 
+const databaseUrl = process.env.SONDARA_DATABASE_URL?.trim()
+  ?? "postgresql://sondara:sondara@127.0.0.1:5432/sondara";
+if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
+  throw new Error("SONDARA_DATABASE_URL 必须是 PostgreSQL 连接地址。");
+}
+
 export const config = {
   host: process.env.SONDARA_API_HOST ?? "127.0.0.1",
   port: numberFromEnv(process.env.SONDARA_API_PORT, 4176),
-  databasePath: resolve(
-    process.cwd(),
-    process.env.SONDARA_DATABASE_URL ?? "./data/sondara.db",
-  ),
+  databaseDriver: "postgres" as const,
+  databaseUrl,
   webOrigin: process.env.SONDARA_WEB_ORIGIN ?? "http://127.0.0.1:4175",
   sessionDays: numberFromEnv(process.env.SONDARA_SESSION_DAYS, 30),
   secureCookies: booleanFromEnv(process.env.SONDARA_SECURE_COOKIES),

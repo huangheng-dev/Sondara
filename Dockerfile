@@ -1,5 +1,5 @@
 # ── Build stage ──
-FROM node:22-bookworm-slim AS builder
+FROM node:24.18.0-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -20,29 +20,31 @@ COPY index.html vite.config.ts ./
 RUN npm run build
 
 # ── Production stage ──
-FROM node:22-bookworm-slim
+FROM node:24.18.0-bookworm-slim
 
 WORKDIR /app
 
 ENV NODE_ENV=production \
     SONDARA_API_HOST=0.0.0.0 \
     SONDARA_API_PORT=4176 \
-    SONDARA_DATABASE_URL=/app/data/sondara.db \
+    SONDARA_DATABASE_URL=postgresql://sondara:sondara@postgres:5432/sondara \
     SONDARA_WEB_ORIGIN=http://localhost:4175
 
-# Install tini for proper signal handling
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
+# Install tini and a pg_dump client matching the PostgreSQL 17 service.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tini \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy built artifacts
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server-dist ./server-dist
-COPY --from=builder /app/server/db/migrations ./server/db/migrations
-COPY --from=builder /app/server/db/seed-dev.ts ./server/db/seed-dev.ts
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder /app/server/db/migrations-pg ./server/db/migrations-pg
 
 # Data volume
 RUN mkdir -p /app/data

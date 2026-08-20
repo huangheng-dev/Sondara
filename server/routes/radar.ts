@@ -93,17 +93,17 @@ const safeJson = <T>(value: string, fallback: T): T => {
   try { return JSON.parse(value) as T } catch { return fallback }
 }
 
-const writeAudit = (workspaceId: string, actorUserId: string, action: string, entityType: string, entityId: string, metadata: unknown = {}) => {
-  db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType, entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() }).run()
+const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityType: string, entityId: string, metadata: unknown = {}) => {
+  await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType, entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() })
 }
 
-const refreshTaskCounts = (workspaceId: string, radarTaskId: string) => {
-  const summary = db.select({
-    total: sql<number>`count(*)`,
-    highMatch: sql<number>`sum(case when ${radarCandidates.score} >= 90 then 1 else 0 end)`,
-  }).from(radarCandidates).where(and(eq(radarCandidates.workspaceId, workspaceId), eq(radarCandidates.radarTaskId, radarTaskId))).get()
-  db.update(radarTasks).set({ candidatesFound: summary?.total ?? 0, highMatchCount: summary?.highMatch ?? 0, updatedAt: Date.now() })
-    .where(and(eq(radarTasks.id, radarTaskId), eq(radarTasks.workspaceId, workspaceId))).run()
+const refreshTaskCounts = async (workspaceId: string, radarTaskId: string) => {
+  const summary = (await db.$first(db.select({
+      total: sql<number>`count(*)`,
+      highMatch: sql<number>`sum(case when ${radarCandidates.score} >= 90 then 1 else 0 end)`,
+    }).from(radarCandidates).where(and(eq(radarCandidates.workspaceId, workspaceId), eq(radarCandidates.radarTaskId, radarTaskId)))))
+  await db.update(radarTasks).set({ candidatesFound: summary?.total ?? 0, highMatchCount: summary?.highMatch ?? 0, updatedAt: Date.now() })
+        .where(and(eq(radarTasks.id, radarTaskId), eq(radarTasks.workspaceId, workspaceId)))
 }
 
 export const radarRoutes: FastifyPluginAsync = async app => {
@@ -116,8 +116,8 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const conditions = [eq(radarTasks.workspaceId, request.auth.workspaceId)]
     if (query.status) conditions.push(eq(radarTasks.status, query.status))
     const where = and(...conditions)
-    const total = db.select({ count: sql<number>`count(*)` }).from(radarTasks).where(where).get()?.count ?? 0
-    const items = db.select().from(radarTasks).where(where).orderBy(desc(radarTasks.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize).all().map(item=>({...item,seedUrls:safeJson(item.seedUrlsJson,[])}))
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(radarTasks).where(where)))?.count ?? 0
+    const items = (await db.select().from(radarTasks).where(where).orderBy(desc(radarTasks.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize)).map(item=>({...item,seedUrls:safeJson(item.seedUrlsJson,[])}))
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
@@ -125,8 +125,8 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const parsed = taskInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const hasSeeds = parsed.data.seedUrls.length > 0
-    const hasSearch = hasSearchConfiguration(request.auth.workspaceId)
-    const hasMap = hasMapConfiguration(request.auth.workspaceId)
+    const hasSearch = (await hasSearchConfiguration(request.auth.workspaceId))
+    const hasMap = (await hasMapConfiguration(request.auth.workspaceId))
     const ready = parsed.data.mode === '智能多渠道' ? hasSeeds || hasSearch || hasMap
       : /企业官网|种子名单/.test(parsed.data.mode) ? hasSeeds
         : /地图找客/.test(parsed.data.mode) ? hasMap
@@ -153,17 +153,17 @@ export const radarRoutes: FastifyPluginAsync = async app => {
       status: 'queued', attempts: 0, maxAttempts: 3, scheduledAt: now, startedAt: null, completedAt: null,
       lastError: null, payload: JSON.stringify(parsed.data), createdAt: now, updatedAt: now,
     }
-    db.transaction(tx => {
-      tx.insert(radarTasks).values(record).run()
-      tx.insert(radarQueueItems).values(queue).run()
-    })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.task.created', 'radar_task', record.id, { mode: record.mode, inputSource: record.inputSource })
+    await db.transaction(async tx => {
+            await tx.insert(radarTasks).values(record)
+            await tx.insert(radarQueueItems).values(queue)
+          })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.task.created', 'radar_task', record.id, { mode: record.mode, inputSource: record.inputSource })
     return reply.code(201).send({ ...record, seedUrls, queueItem: queue })
   })
 
   app.get('/tasks/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const task = db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId))).get()
+    const task = (await db.$first(db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId)))))
     if (!task) return reply.code(404).send({ error: 'NOT_FOUND', message: '雷达任务不存在。' })
     return { ...task, seedUrls: safeJson(task.seedUrlsJson, []) }
   })
@@ -171,9 +171,9 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = taskAction.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const existing = db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '雷达任务不存在。' })
-    const latestQueue = db.select().from(radarQueueItems).where(and(eq(radarQueueItems.radarTaskId, id), eq(radarQueueItems.workspaceId, request.auth.workspaceId))).orderBy(desc(radarQueueItems.createdAt)).get()
+    const latestQueue = (await db.$first(db.select().from(radarQueueItems).where(and(eq(radarQueueItems.radarTaskId, id), eq(radarQueueItems.workspaceId, request.auth.workspaceId))).orderBy(desc(radarQueueItems.createdAt))))
     const action = parsed.data.action
     const allowed = action === 'pause' ? ['queued', 'running'].includes(existing.status)
       : action === 'resume' ? existing.status === 'paused'
@@ -184,21 +184,21 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const now = Date.now()
     const nextStatus = action === 'pause' ? 'paused' : action === 'cancel' ? 'cancelled' : 'queued'
     const nextStage = action === 'pause' ? '已暂停' : action === 'cancel' ? '已取消' : '等待执行'
-    db.transaction(tx => {
-      tx.update(radarTasks).set({ status: nextStatus, currentStage: nextStage, lastError: action === 'retry' ? null : existing.lastError, completedAt: action === 'cancel' ? now : null, updatedAt: now })
-        .where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId))).run()
-      if (latestQueue) tx.update(radarQueueItems).set({ status: nextStatus, attempts: latestQueue.attempts, lastError: action === 'retry' ? null : latestQueue.lastError, completedAt: action === 'cancel' ? now : null, scheduledAt: action === 'retry' || action === 'resume' ? now : latestQueue.scheduledAt, updatedAt: now })
-        .where(and(eq(radarQueueItems.id, latestQueue.id), eq(radarQueueItems.workspaceId, request.auth.workspaceId))).run()
-    })
-    writeAudit(request.auth.workspaceId, request.auth.userId, `radar.task.${action}`, 'radar_task', id)
-    return db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId))).get()
+    await db.transaction(async tx => {
+            await tx.update(radarTasks).set({ status: nextStatus, currentStage: nextStage, lastError: action === 'retry' ? null : existing.lastError, completedAt: action === 'cancel' ? now : null, updatedAt: now })
+                      .where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId)))
+            if (latestQueue) await tx.update(radarQueueItems).set({ status: nextStatus, attempts: latestQueue.attempts, lastError: action === 'retry' ? null : latestQueue.lastError, completedAt: action === 'cancel' ? now : null, scheduledAt: action === 'retry' || action === 'resume' ? now : latestQueue.scheduledAt, updatedAt: now })
+                    .where(and(eq(radarQueueItems.id, latestQueue.id), eq(radarQueueItems.workspaceId, request.auth.workspaceId)))
+          })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, `radar.task.${action}`, 'radar_task', id)
+    return (await db.$first(db.select().from(radarTasks).where(and(eq(radarTasks.id, id), eq(radarTasks.workspaceId, request.auth.workspaceId)))))
   })
 
   app.get('/tasks/:id/events', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const task = db.select({ id: radarTasks.id }).from(radarTasks).where(and(eq(radarTasks.id,id),eq(radarTasks.workspaceId,request.auth.workspaceId))).get()
+    const task = (await db.$first(db.select({ id: radarTasks.id }).from(radarTasks).where(and(eq(radarTasks.id,id),eq(radarTasks.workspaceId,request.auth.workspaceId)))))
     if(!task)return reply.code(404).send({error:'NOT_FOUND',message:'雷达任务不存在。'})
-    const items=db.select().from(radarJobEvents).where(and(eq(radarJobEvents.radarTaskId,id),eq(radarJobEvents.workspaceId,request.auth.workspaceId))).orderBy(desc(radarJobEvents.createdAt)).limit(100).all()
+    const items=(await db.select().from(radarJobEvents).where(and(eq(radarJobEvents.radarTaskId,id),eq(radarJobEvents.workspaceId,request.auth.workspaceId))).orderBy(desc(radarJobEvents.createdAt)).limit(100))
     return {items,total:items.length}
   })
 
@@ -216,10 +216,10 @@ export const radarRoutes: FastifyPluginAsync = async app => {
       : query.sort === 'score_asc' ? asc(radarCandidates.score)
       : query.sort === 'company_asc' ? asc(radarCandidates.company)
       : desc(radarCandidates.updatedAt)
-    const total = db.select({ count: sql<number>`count(*)` }).from(radarCandidates).where(where).get()?.count ?? 0
-    const rows = db.select().from(radarCandidates).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize).all()
-    const evidenceRows = rows.length ? db.select().from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, request.auth.workspaceId), inArray(candidateEvidence.candidateId, rows.map(row => row.id)))).orderBy(desc(candidateEvidence.createdAt)).all() : []
-    const contactRows = rows.length ? db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, request.auth.workspaceId), inArray(candidateContacts.candidateId, rows.map(row => row.id)))).orderBy(desc(candidateContacts.confidence), desc(candidateContacts.updatedAt)).all() : []
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(radarCandidates).where(where)))?.count ?? 0
+    const rows = (await db.select().from(radarCandidates).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize))
+    const evidenceRows = rows.length ? (await db.select().from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, request.auth.workspaceId), inArray(candidateEvidence.candidateId, rows.map(row => row.id)))).orderBy(desc(candidateEvidence.createdAt))) : []
+    const contactRows = rows.length ? (await db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, request.auth.workspaceId), inArray(candidateContacts.candidateId, rows.map(row => row.id)))).orderBy(desc(candidateContacts.confidence), desc(candidateContacts.updatedAt))) : []
     const items = rows.map(row => ({
       ...row,
       dimensions: safeJson(row.dimensionsJson, []),
@@ -235,10 +235,10 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const parsed = candidateInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     if (parsed.data.radarTaskId) {
-      const task = db.select({ id: radarTasks.id }).from(radarTasks).where(and(eq(radarTasks.id, parsed.data.radarTaskId), eq(radarTasks.workspaceId, request.auth.workspaceId))).get()
+      const task = (await db.$first(db.select({ id: radarTasks.id }).from(radarTasks).where(and(eq(radarTasks.id, parsed.data.radarTaskId), eq(radarTasks.workspaceId, request.auth.workspaceId)))))
       if (!task) return reply.code(404).send({ error: 'TASK_NOT_FOUND', message: '关联雷达任务不存在。' })
     }
-    const existing = db.select({ id: radarCandidates.id }).from(radarCandidates).where(and(eq(radarCandidates.workspaceId, request.auth.workspaceId), eq(radarCandidates.company, parsed.data.company))).get()
+    const existing = (await db.$first(db.select({ id: radarCandidates.id }).from(radarCandidates).where(and(eq(radarCandidates.workspaceId, request.auth.workspaceId), eq(radarCandidates.company, parsed.data.company)))))
     if (existing) return reply.code(409).send({ error: 'CANDIDATE_EXISTS', message: '该工作区已存在同名候选客户。' })
     const now = Date.now()
     const { dimensions, evidence, committee, relationships, ...fields } = parsed.data
@@ -246,16 +246,16 @@ export const radarRoutes: FastifyPluginAsync = async app => {
       id: createId('can'), workspaceId: request.auth.workspaceId, discoveredAt: now, updatedAt: now,
       dimensionsJson: JSON.stringify(dimensions), committeeJson: JSON.stringify(committee), relationshipsJson: JSON.stringify(relationships), ...fields,
     }
-    db.transaction(tx => {
-      tx.insert(radarCandidates).values(record).run()
-      if (evidence.length) tx.insert(candidateEvidence).values(evidence.map(item => ({
-        id: createId('evd'), workspaceId: request.auth.workspaceId, candidateId: record.id,
-        title: item.title, source: item.source, observedLabel: item.time, strength: item.strength,
-        sourceUrl: item.sourceUrl ?? null, createdAt: now,
-      }))).run()
-    })
-    if (record.radarTaskId) refreshTaskCounts(request.auth.workspaceId, record.radarTaskId)
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.created', 'radar_candidate', record.id, { company: record.company, source: record.source })
+    await db.transaction(async tx => {
+            await tx.insert(radarCandidates).values(record)
+            if (evidence.length) await tx.insert(candidateEvidence).values(evidence.map(item => ({
+                    id: createId('evd'), workspaceId: request.auth.workspaceId, candidateId: record.id,
+                    title: item.title, source: item.source, observedLabel: item.time, strength: item.strength,
+                    sourceUrl: item.sourceUrl ?? null, createdAt: now,
+                  })))
+          })
+    if (record.radarTaskId) await refreshTaskCounts(request.auth.workspaceId, record.radarTaskId)
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.created', 'radar_candidate', record.id, { company: record.company, source: record.source })
     return reply.code(201).send({ ...record, dimensions, committee, relationships, evidence })
   })
 
@@ -263,103 +263,103 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = candidatePatch.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const existing = db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '候选客户不存在。' })
-    db.update(radarCandidates).set({ status: parsed.data.status, updatedAt: Date.now() }).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.updated', 'radar_candidate', id, { status: parsed.data.status })
-    return db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).get()
+    await db.update(radarCandidates).set({ status: parsed.data.status, updatedAt: Date.now() }).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.updated', 'radar_candidate', id, { status: parsed.data.status })
+    return (await db.$first(db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
   })
 
   app.post('/candidates/:id/enrich-contacts', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const candidate = db.select({ id: radarCandidates.id, company: radarCandidates.company }).from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).get()
+    const candidate = (await db.$first(db.select({ id: radarCandidates.id, company: radarCandidates.company }).from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
     if (!candidate) return reply.code(404).send({ error: 'NOT_FOUND', message: '候选客户不存在。' })
     const result = await enrichCandidateContacts(request.auth.workspaceId, id)
     if (!result) return reply.code(404).send({ error: 'NOT_FOUND', message: '候选客户不存在。' })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.contacts_enriched', 'radar_candidate', id, { discovered: result.discovered, pagesScanned: result.pagesScanned })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.contacts_enriched', 'radar_candidate', id, { discovered: result.discovered, pagesScanned: result.pagesScanned })
     return { ...result, message: result.discovered ? `已发现 ${result.discovered} 条新的公开联系方式。` : result.contacts.length ? '未发现新的联系方式，已保留现有结果。' : '未在公开页面中发现可验证的联系方式。' }
   })
   app.post('/candidates/:id/promote', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const candidate = db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).get()
+    const candidate = (await db.$first(db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
     if (!candidate) return reply.code(404).send({ error: 'NOT_FOUND', message: '候选客户不存在。' })
     if (isChineseDomesticProspect({ company: candidate.company, region: candidate.region, industry: candidate.industry, signal: candidate.signal, source: candidate.source, reason: candidate.reason })) return reply.code(409).send({ error: 'DOMESTIC_CHINA_PROSPECT_BLOCKED', message: '外贸获客流程已阻止中国境内公司进入客户库。' })
 
     // Choose the best reachable contact: verified email first, then any email, then phone-only.
-    const contacts = db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, request.auth.workspaceId), eq(candidateContacts.candidateId, id))).orderBy(desc(candidateContacts.confidence), desc(candidateContacts.updatedAt)).all()
+    const contacts = (await db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, request.auth.workspaceId), eq(candidateContacts.candidateId, id))).orderBy(desc(candidateContacts.confidence), desc(candidateContacts.updatedAt)))
     const bestContact = contacts.find(c => c.email && c.verificationStatus === 'verified')
       ?? contacts.find(c => c.email)
       ?? contacts[0]
       ?? null
 
     const now = Date.now()
-    const existingCustomer = db.select().from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), eq(customers.company, candidate.company))).get()
+    const existingCustomer = (await db.$first(db.select().from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), eq(customers.company, candidate.company)))))
     const validContacts = contacts.filter(c => c.verificationStatus === 'verified').length
 
     let customer = existingCustomer
     let newCustomer: NonNullable<typeof existingCustomer> | null = null
     let contactCreated = false
-    db.transaction((tx) => {
-      if (!customer) {
-        newCustomer = {
-          id: createId('cus'),
-          workspaceId: request.auth.workspaceId,
-          company: candidate.company,
-          region: candidate.region,
-          industry: candidate.industry,
-          score: candidate.score,
-          confidence: candidate.confidence,
-          signal: candidate.signal,
-          source: candidate.source,
-          estimatedValue: candidate.estimatedValue,
-          size: candidate.size,
-          stage: candidate.score >= 90 ? '重点跟进' : '培育中',
-          contacts: contacts.length,
-          validContacts,
-          interaction: '刚刚 · AI 获客保存',
-          nextAction: bestContact?.email ? '安排首次触达' : '补全联系人邮箱',
-          ownerUserId: request.auth.userId,
-          dueAt: null,
-          createdAt: now,
-          updatedAt: now,
-        }
-        customer = newCustomer
-        try { tx.insert(customers).values(newCustomer).run() }
-        catch { customer = tx.select().from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), eq(customers.company, candidate.company))).get()! }
-      } else {
-        tx.update(customers).set({ contacts: Math.max(existingCustomer!.contacts, contacts.length), validContacts: Math.max(existingCustomer!.validContacts, validContacts), updatedAt: now }).where(eq(customers.id, existingCustomer!.id)).run()
-        customer = tx.select().from(customers).where(eq(customers.id, existingCustomer!.id)).get()
-      }
+    await db.transaction(async (tx) => {
+            if (!customer) {
+              newCustomer = {
+                id: createId('cus'),
+                workspaceId: request.auth.workspaceId,
+                company: candidate.company,
+                region: candidate.region,
+                industry: candidate.industry,
+                score: candidate.score,
+                confidence: candidate.confidence,
+                signal: candidate.signal,
+                source: candidate.source,
+                estimatedValue: candidate.estimatedValue,
+                size: candidate.size,
+                stage: candidate.score >= 90 ? '重点跟进' : '培育中',
+                contacts: contacts.length,
+                validContacts,
+                interaction: '刚刚 · AI 获客保存',
+                nextAction: bestContact?.email ? '安排首次触达' : '补全联系人邮箱',
+                ownerUserId: request.auth.userId,
+                dueAt: null,
+                createdAt: now,
+                updatedAt: now,
+              }
+              customer = newCustomer
+              try { await tx.insert(customers).values(newCustomer) }
+              catch { customer = (await db.$first(tx.select().from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), eq(customers.company, candidate.company)))))! }
+            } else {
+              await tx.update(customers).set({ contacts: Math.max(existingCustomer!.contacts, contacts.length), validContacts: Math.max(existingCustomer!.validContacts, validContacts), updatedAt: now }).where(eq(customers.id, existingCustomer!.id))
+              customer = (await db.$first(tx.select().from(customers).where(eq(customers.id, existingCustomer!.id))))
+            }
 
-      // Create an inbox contact (with verified email) so campaigns can actually send to this customer.
-      if (bestContact?.email) {
-        const existingInbox = tx.select().from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.email, bestContact.email))).get()
-        if (!existingInbox) {
-          tx.insert(inboxContacts).values({
-            id: createId('ict'),
-            workspaceId: request.auth.workspaceId,
-            customerId: customer!.id,
-            name: bestContact.name || customer!.company,
-            company: customer!.company,
-            jobTitle: bestContact.role || '待补全',
-            region: customer!.region,
-            source: 'AI 获客',
-            primaryChannel: '邮件',
-            email: bestContact.email,
-            phone: bestContact.phone,
-            createdAt: now,
-            updatedAt: now,
-          }).run()
-          contactCreated = true
-        } else if (!existingInbox.customerId) {
-          tx.update(inboxContacts).set({ customerId: customer!.id, updatedAt: now }).where(eq(inboxContacts.id, existingInbox.id)).run()
-        }
-      }
+            // Create an inbox contact (with verified email) so campaigns can actually send to this customer.
+            if (bestContact?.email) {
+              const existingInbox = (await db.$first(tx.select().from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.email, bestContact.email)))))
+              if (!existingInbox) {
+                await tx.insert(inboxContacts).values({
+                              id: createId('ict'),
+                              workspaceId: request.auth.workspaceId,
+                              customerId: customer!.id,
+                              name: bestContact.name || customer!.company,
+                              company: customer!.company,
+                              jobTitle: bestContact.role || '待补全',
+                              region: customer!.region,
+                              source: 'AI 获客',
+                              primaryChannel: '邮件',
+                              email: bestContact.email,
+                              phone: bestContact.phone,
+                              createdAt: now,
+                              updatedAt: now,
+                            })
+                contactCreated = true
+              } else if (!existingInbox.customerId) {
+                await tx.update(inboxContacts).set({ customerId: customer!.id, updatedAt: now }).where(eq(inboxContacts.id, existingInbox.id))
+              }
+            }
 
-      tx.update(radarCandidates).set({ status: 'saved', updatedAt: now }).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))).run()
-    })
+            await tx.update(radarCandidates).set({ status: 'saved', updatedAt: now }).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))
+          })
 
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.promoted', 'customer', customer!.id, { candidateId: id, company: candidate.company, contactEmail: bestContact?.email ?? null, contactCreated })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'radar.candidate.promoted', 'customer', customer!.id, { candidateId: id, company: candidate.company, contactEmail: bestContact?.email ?? null, contactCreated })
     return reply.code(existingCustomer ? 200 : 201).send({ customer, contact: bestContact, contactCreated, reachable: Boolean(bestContact?.email), created: !existingCustomer })
   })
 
@@ -371,8 +371,8 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     if (query.taskId) conditions.push(eq(radarQueueItems.radarTaskId, query.taskId))
     if (query.status) conditions.push(eq(radarQueueItems.status, query.status))
     const where = and(...conditions)
-    const total = db.select({ count: sql<number>`count(*)` }).from(radarQueueItems).where(where).get()?.count ?? 0
-    const items = db.select().from(radarQueueItems).where(where).orderBy(desc(radarQueueItems.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize).all()
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(radarQueueItems).where(where)))?.count ?? 0
+    const items = (await db.select().from(radarQueueItems).where(where).orderBy(desc(radarQueueItems.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize))
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 }

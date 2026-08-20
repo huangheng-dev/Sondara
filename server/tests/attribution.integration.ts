@@ -34,21 +34,21 @@ const run = async () => {
     const now = Date.now()
     const today = new Date()
     const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 2)
-    db.insert(customers).values({
-      id: 'cus-test-attr-1', workspaceId, company: 'Test GmbH',
-      region: 'Germany', industry: 'Food Equipment', source: '搜索引擎',
-      stage: '已成交', score: 80, confidence: 70, signal: 'Active',
-      estimatedValue: 500000, size: '50-200', contacts: 2, validContacts: 1,
-      interaction: 'Replied', nextAction: 'Follow up', createdAt: monthStart + 86400000, updatedAt: now,
-    }).run()
+    await db.insert(customers).values({
+            id: 'cus-test-attr-1', workspaceId, company: 'Test GmbH',
+            region: 'Germany', industry: 'Food Equipment', source: '搜索引擎',
+            stage: '已成交', score: 80, confidence: 70, signal: 'Active',
+            estimatedValue: 500000, size: '50-200', contacts: 2, validContacts: 1,
+            interaction: 'Replied', nextAction: 'Follow up', createdAt: monthStart + 86400000, updatedAt: now,
+          })
 
-    db.insert(deals).values({
-      id: 'dea-test-attr-1', workspaceId, customerId: 'cus-test-attr-1',
-      company: 'Test GmbH', stage: '赢单', probability: 100,
-      valueAmount: 500000, currency: 'EUR', source: '搜索引擎',
-      ownerLabel: '我', nextAction: '交付', risk: '低',
-      stageEnteredAt: now, createdAt: monthStart + 172800000, updatedAt: now,
-    }).run()
+    await db.insert(deals).values({
+            id: 'dea-test-attr-1', workspaceId, customerId: 'cus-test-attr-1',
+            company: 'Test GmbH', stage: '赢单', probability: 100,
+            valueAmount: 500000, currency: 'EUR', source: '搜索引擎',
+            ownerLabel: '我', nextAction: '交付', risk: '低',
+            stageEnteredAt: now, createdAt: monthStart + 172800000, updatedAt: now,
+          })
 
     // Overview should now show the customer and deal
     const overview = await app.inject({ method: 'GET', url: '/api/attribution/overview?period=month&currency=EUR', headers })
@@ -105,7 +105,7 @@ const run = async () => {
     assert.ok(Array.isArray(opt.json().taskIds))
 
     // Verify tasks exist
-    const createdTasks = db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId)).all()
+    const createdTasks = (await db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId)))
     assert.ok(createdTasks.length >= 1)
     assert.ok(createdTasks.some(t => t.source === '转化分析'))
 
@@ -136,11 +136,11 @@ const run = async () => {
     console.log('Attribution integration passed: funnel aggregation, costs CRUD, optimize tasks, quality and workspace isolation verified.')
   } finally {
     if (userId) {
-      db.delete(tasks).where(eq(tasks.workspaceId, workspaceId)).run()
-      db.delete(channelCosts).where(eq(channelCosts.workspaceId, workspaceId)).run()
-      db.delete(deals).where(eq(deals.workspaceId, workspaceId)).run()
-      db.delete(customers).where(eq(customers.workspaceId, workspaceId)).run()
-      db.delete(users).where(eq(users.id, userId)).run()
+      await db.delete(tasks).where(eq(tasks.workspaceId, workspaceId))
+      await db.delete(channelCosts).where(eq(channelCosts.workspaceId, workspaceId))
+      await db.delete(deals).where(eq(deals.workspaceId, workspaceId))
+      await db.delete(customers).where(eq(customers.workspaceId, workspaceId))
+      await db.delete(users).where(eq(users.id, userId))
     }
     await app.close()
   }

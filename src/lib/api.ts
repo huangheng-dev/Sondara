@@ -340,7 +340,7 @@ export type OutboundConnectionApiRecord = {
   id: string;
   workspaceId: string;
   name: string;
-  provider: "smtp";
+  provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
   host: string;
   port: number;
   secure: boolean;
@@ -348,6 +348,13 @@ export type OutboundConnectionApiRecord = {
   fromName: string;
   fromEmail: string;
   replyTo: string | null;
+  imapEnabled: boolean;
+  imapHost: string | null;
+  imapPort: number;
+  imapSecure: boolean;
+  imapUsername: string | null;
+  hasImapSecret: boolean;
+  imapSecretEnding: string | null;
   priority: number;
   enabled: boolean;
   status: "untested" | "available" | "error";
@@ -1142,6 +1149,7 @@ export const outboxApi = {
     request<{ items: OutboundConnectionApiRecord[] }>("/outbox/connections"),
   createConnection: (input: {
     name: string;
+    provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
     host: string;
     port: number;
     secure: boolean;
@@ -1150,6 +1158,12 @@ export const outboxApi = {
     fromName: string;
     fromEmail: string;
     replyTo?: string | null;
+    imapEnabled?: boolean;
+    imapHost?: string | null;
+    imapPort?: number;
+    imapSecure?: boolean;
+    imapUsername?: string | null;
+    imapPassword?: string;
     priority?: number;
     enabled?: boolean;
   }) =>
@@ -1164,6 +1178,7 @@ export const outboxApi = {
     id: string,
     input: Partial<{
       name: string;
+      provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
       host: string;
       port: number;
       secure: boolean;
@@ -1172,6 +1187,12 @@ export const outboxApi = {
       fromName: string;
       fromEmail: string;
       replyTo: string | null;
+      imapEnabled: boolean;
+      imapHost: string | null;
+      imapPort: number;
+      imapSecure: boolean;
+      imapUsername: string | null;
+      imapPassword: string;
       priority: number;
       enabled: boolean;
     }>,
@@ -1181,7 +1202,7 @@ export const outboxApi = {
       { method: "PATCH", body: JSON.stringify(input) },
     ),
   testConnection: (id: string) =>
-    request<{ ok: true; latencyMs: number; activatedJobs: number }>(
+    request<{ ok: true; latencyMs: number; imapLatencyMs: number | null; activatedJobs: number }>(
       `/outbox/connections/${encodeURIComponent(id)}/test`,
       { method: "POST" },
     ),

@@ -154,13 +154,13 @@ const run = async () => {
     const unauth = await app.inject({ method: 'GET', url: '/api/icp/profile' })
     assert.equal(unauth.statusCode, 401)
 
-    assert.ok(db.select().from(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId)).get())
+    assert.ok((await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId)))))
     console.log('ICP integration passed: profile upsert, analyze, knowledge CRUD, filtering and workspace isolation verified.')
   } finally {
     if (userId) {
-      db.delete(knowledgeItems).where(eq(knowledgeItems.workspaceId, workspaceId)).run()
-      db.delete(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId)).run()
-      db.delete(users).where(eq(users.id, userId)).run()
+      await db.delete(knowledgeItems).where(eq(knowledgeItems.workspaceId, workspaceId))
+      await db.delete(businessProfiles).where(eq(businessProfiles.workspaceId, workspaceId))
+      await db.delete(users).where(eq(users.id, userId))
     }
     await app.close()
   }

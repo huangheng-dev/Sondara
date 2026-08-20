@@ -21,20 +21,20 @@ const rolePermissions: Record<(typeof roles)[number], string[]> = {
   viewer: ["查看客户", "查看活动", "查看分析", "不可编辑"],
 };
 
-const audit = (
+const audit = async (
   workspaceId: string,
   actorUserId: string,
   action: string,
   entityId: string,
   ipAddress: string,
   metadata: Record<string, unknown> = {},
-) => db.insert(auditLogs).values({
-  id: createId("aud"), workspaceId, actorUserId, action,
-  entityType: "workspace_member", entityId,
-  metadata: JSON.stringify(metadata), ipAddress, createdAt: Date.now(),
-}).run();
+) => (await db.insert(auditLogs).values({
+      id: createId("aud"), workspaceId, actorUserId, action,
+      entityType: "workspace_member", entityId,
+      metadata: JSON.stringify(metadata), ipAddress, createdAt: Date.now(),
+    }));
 
-const memberView = (workspaceId: string) => db.select({
+const memberView = async (workspaceId: string) => Promise.all((await db.select({
   id: users.id,
   displayName: users.displayName,
   email: users.email,
@@ -44,11 +44,10 @@ const memberView = (workspaceId: string) => db.select({
   createdAt: users.createdAt,
 }).from(workspaceMembers)
   .innerJoin(users, eq(users.id, workspaceMembers.userId))
-  .where(eq(workspaceMembers.workspaceId, workspaceId))
-  .all()
-  .map(item => {
-    const lastSeenAt = db.select({ value: sql<number>`max(${sessions.lastSeenAt})` })
-      .from(sessions).where(eq(sessions.userId, item.id)).get()?.value ?? null;
+  .where(eq(workspaceMembers.workspaceId, workspaceId)))
+  .map(async item => {
+    const lastSeenAt = (await db.$first(db.select({ value: sql<number>`max(${sessions.lastSeenAt})` })
+          .from(sessions).where(eq(sessions.userId, item.id))))?.value ?? null;
     const role = roles.includes(item.role as (typeof roles)[number]) ? item.role as (typeof roles)[number] : "member";
     return {
       ...item,
@@ -58,12 +57,12 @@ const memberView = (workspaceId: string) => db.select({
       lastSeenAt,
       source: item.joinedAt === item.createdAt ? "首次部署或自主注册" : "管理员创建",
     };
-  });
+  }));
 
 export const adminRoutes: FastifyPluginAsync = async app => {
   app.addHook("preHandler", requireAdmin);
 
-  app.get("/members", async request => ({ items: memberView(request.auth.workspaceId) }));
+  app.get("/members", async request => ({ items: (await memberView(request.auth.workspaceId)) }));
 
   app.post("/members", async (request, reply) => {
     const parsed = z.object({
@@ -76,25 +75,25 @@ export const adminRoutes: FastifyPluginAsync = async app => {
     if (parsed.data.role === "admin" && request.auth.role !== "owner") {
       return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以创建管理员。" });
     }
-    if (db.select({ id: users.id }).from(users).where(eq(users.email, parsed.data.email)).get()) {
+    if ((await db.$first(db.select({ id: users.id }).from(users).where(eq(users.email, parsed.data.email))))) {
       return reply.code(409).send({ error: "EMAIL_EXISTS", message: "该邮箱已有账户，请使用尚未注册的邮箱创建成员。" });
     }
     const now = Date.now();
     const userId = createId("usr");
     const passwordHash = await hashPassword(parsed.data.password);
-    db.transaction(tx => {
-      tx.insert(users).values({
-        id: userId, email: parsed.data.email, passwordHash,
-        displayName: parsed.data.displayName, status: "active",
-        createdAt: now, updatedAt: now,
-      }).run();
-      tx.insert(workspaceMembers).values({
-        workspaceId: request.auth.workspaceId, userId,
-        role: parsed.data.role, createdAt: now,
-      }).run();
-    });
-    audit(request.auth.workspaceId, request.auth.userId, "member.created", userId, request.ip, { role: parsed.data.role });
-    return reply.code(201).send(memberView(request.auth.workspaceId).find(item => item.id === userId));
+    await db.transaction(async tx => {
+            await tx.insert(users).values({
+                      id: userId, email: parsed.data.email, passwordHash,
+                      displayName: parsed.data.displayName, status: "active",
+                      createdAt: now, updatedAt: now,
+                    });
+            await tx.insert(workspaceMembers).values({
+                      workspaceId: request.auth.workspaceId, userId,
+                      role: parsed.data.role, createdAt: now,
+                    });
+          });
+    await audit(request.auth.workspaceId, request.auth.userId, "member.created", userId, request.ip, { role: parsed.data.role });
+    return reply.code(201).send((await memberView(request.auth.workspaceId)).find(item => item.id === userId));
   });
 
   app.patch("/members/:id", async (request, reply) => {
@@ -104,43 +103,43 @@ export const adminRoutes: FastifyPluginAsync = async app => {
       status: z.enum(["active", "disabled"]).optional(),
     }).safeParse(request.body);
     if (!parsed.success || !Object.keys(parsed.data).length) return reply.code(400).send({ error: "INVALID_INPUT", message: "没有可更新的成员字段。" });
-    const target = db.select({ role: workspaceMembers.role, status: users.status })
-      .from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId))
-      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).get();
+    const target = (await db.$first(db.select({ role: workspaceMembers.role, status: users.status })
+          .from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId))
+          .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id)))));
     if (!target) return reply.code(404).send({ error: "NOT_FOUND", message: "成员不存在。" });
     if (target.role === "owner") return reply.code(409).send({ error: "OWNER_PROTECTED", message: "不能通过成员管理修改所有者。" });
     if ((target.role === "admin" || parsed.data.role === "admin") && request.auth.role !== "owner") {
       return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以管理管理员角色。" });
     }
-    if (parsed.data.role) db.update(workspaceMembers).set({ role: parsed.data.role })
-      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).run();
+    if (parsed.data.role) await db.update(workspaceMembers).set({ role: parsed.data.role })
+          .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id)));
     if (parsed.data.status) {
-      db.update(users).set({ status: parsed.data.status, updatedAt: Date.now() }).where(eq(users.id, id)).run();
-      if (parsed.data.status === "disabled") db.delete(sessions).where(eq(sessions.userId, id)).run();
+      await db.update(users).set({ status: parsed.data.status, updatedAt: Date.now() }).where(eq(users.id, id));
+      if (parsed.data.status === "disabled") await db.delete(sessions).where(eq(sessions.userId, id));
     }
-    audit(request.auth.workspaceId, request.auth.userId, "member.updated", id, request.ip, parsed.data);
-    return memberView(request.auth.workspaceId).find(item => item.id === id);
+    await audit(request.auth.workspaceId, request.auth.userId, "member.updated", id, request.ip, parsed.data);
+    return (await memberView(request.auth.workspaceId)).find(item => item.id === id);
   });
 
   app.delete("/members/:id", async (request, reply) => {
     const id = (request.params as { id: string }).id;
-    const target = db.select({ role: workspaceMembers.role }).from(workspaceMembers)
-      .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).get();
+    const target = (await db.$first(db.select({ role: workspaceMembers.role }).from(workspaceMembers)
+          .where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id)))));
     if (!target) return reply.code(404).send({ error: "NOT_FOUND", message: "成员不存在。" });
     if (target.role === "owner") return reply.code(409).send({ error: "OWNER_PROTECTED", message: "不能移除工作区所有者。" });
     if (target.role === "admin" && request.auth.role !== "owner") return reply.code(403).send({ error: "FORBIDDEN", message: "只有所有者可以移除管理员。" });
-    db.transaction(tx => {
-      tx.delete(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id))).run();
-      tx.delete(sessions).where(eq(sessions.userId, id)).run();
-      const memberships = tx.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.userId, id)).get()?.count ?? 0;
-      if (memberships === 0) tx.delete(users).where(eq(users.id, id)).run();
-    });
-    audit(request.auth.workspaceId, request.auth.userId, "member.removed", id, request.ip);
+    await db.transaction(async tx => {
+            await tx.delete(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, id)));
+            await tx.delete(sessions).where(eq(sessions.userId, id));
+            const memberships = (await db.$first(tx.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.userId, id))))?.count ?? 0;
+            if (memberships === 0) await tx.delete(users).where(eq(users.id, id));
+          });
+    await audit(request.auth.workspaceId, request.auth.userId, "member.removed", id, request.ip);
     return reply.code(204).send();
   });
 
   app.get("/roles", async request => {
-    const members = memberView(request.auth.workspaceId);
+    const members = (await memberView(request.auth.workspaceId));
     return { items: roles.map(role => ({
       role, name: roleLabels[role], members: members.filter(item => item.role === role).length,
       permissions: rolePermissions[role],
@@ -152,10 +151,10 @@ export const adminRoutes: FastifyPluginAsync = async app => {
   });
 
   app.get("/audit-logs", async request => {
-    const items = db.select().from(auditLogs)
-      .where(eq(auditLogs.workspaceId, request.auth.workspaceId))
-      .orderBy(desc(auditLogs.createdAt)).limit(500).all();
-    const names = new Map(db.select({ id: users.id, name: users.displayName }).from(users).all().map(item => [item.id, item.name]));
+    const items = (await db.select().from(auditLogs)
+          .where(eq(auditLogs.workspaceId, request.auth.workspaceId))
+          .orderBy(desc(auditLogs.createdAt)).limit(500));
+    const names = new Map((await db.select({ id: users.id, name: users.displayName }).from(users)).map(item => [item.id, item.name]));
     return { items: items.map(item => ({
       id: item.id,
       actorUserId: item.actorUserId,

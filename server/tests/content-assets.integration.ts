@@ -59,12 +59,12 @@ const run = async () => {
     const listed = await app.inject({ method: 'GET', url: '/api/content/assets?q=工业设备&pageSize=20', headers })
     assert.equal(listed.statusCode, 200, listed.body)
     assert.ok(listed.json().total >= 2)
-    assert.ok(db.select().from(contentVersions).where(eq(contentVersions.contentAssetId, asset.id)).all().length >= 2)
-    assert.ok(db.select().from(contentQualityChecks).where(eq(contentQualityChecks.contentAssetId, asset.id)).all().length >= 2)
-    assert.ok(db.select().from(contentGenerationRuns).where(eq(contentGenerationRuns.contentAssetId, generated.json().assetId)).get())
+    assert.ok((await db.select().from(contentVersions).where(eq(contentVersions.contentAssetId, asset.id))).length >= 2)
+    assert.ok((await db.select().from(contentQualityChecks).where(eq(contentQualityChecks.contentAssetId, asset.id))).length >= 2)
+    assert.ok((await db.$first(db.select().from(contentGenerationRuns).where(eq(contentGenerationRuns.contentAssetId, generated.json().assetId)))))
     console.log('Content assets integration passed: CRUD, versions, quality checks, generation records and duplication verified.')
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run()
+    if (userId) await db.delete(users).where(eq(users.id, userId))
     await app.close()
   }
 }

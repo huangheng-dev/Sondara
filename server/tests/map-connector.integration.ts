@@ -49,19 +49,19 @@ const run = async () => {
     await assert.rejects(() => assertSafeOutboundUrl('http://127.0.0.1:8080', { label: '测试地址' }), /内网地址/)
     const port = await listen(mockServer)
     const encrypted = encryptSecret('integration-map-token')
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Map integration', status: 'active', createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: 'Map integration', ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-      tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'map', name: 'Local Google Places mock', provider: 'google-places', endpoint: `http://127.0.0.1:${port}/v1/places:searchText`, priority: 1, enabled: true, status: 'untested', secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: 'OKEN', configJson: JSON.stringify({ resultLimit: 5 }), createdAt: now, updatedAt: now }).run()
-    })
-    const stored = db.select().from(integrationConnections).where(eq(integrationConnections.id, connectionId)).get()
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email: `${userId}@integration.local`, passwordHash: 'integration-only', displayName: 'Map integration', status: 'active', createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: 'Map integration', ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+            await tx.insert(integrationConnections).values({ id: connectionId, workspaceId, category: 'map', name: 'Local Google Places mock', provider: 'google-places', endpoint: `http://127.0.0.1:${port}/v1/places:searchText`, priority: 1, enabled: true, status: 'untested', secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, secretEnding: 'OKEN', configJson: JSON.stringify({ resultLimit: 5 }), createdAt: now, updatedAt: now })
+          })
+    const stored = (await db.$first(db.select().from(integrationConnections).where(eq(integrationConnections.id, connectionId))))
     assert.ok(stored?.secretCiphertext)
     assert.ok(!stored.secretCiphertext.includes('integration-map-token'))
 
     const connector = new MapDiscoveryConnector()
     const task = { id: 'integration-task', workspaceId, name: 'Map integration', icp: '制药设备', mode: '地图找客', depth: '标准研究', candidateLimit: 3, targetRegion: '常州', researchLanguage: '中文', seedUrls: [] }
-    assert.equal(connector.supports(task), true)
+    assert.equal(await connector.supports(task), true)
     const progress: string[] = []
     const candidates = await connector.discover(task, message => progress.push(message))
     assert.equal(receivedKey, 'integration-map-token')
@@ -75,7 +75,7 @@ const run = async () => {
     assert.ok(progress.some(item => /地图/.test(item)))
     console.log('Map connector integration passed: encrypted configuration, place discovery, map evidence and SSRF default verified.')
   } finally {
-    db.delete(users).where(eq(users.id, userId)).run()
+    await db.delete(users).where(eq(users.id, userId))
     await close(mockServer).catch(() => undefined)
   }
 }

@@ -1,5 +1,7 @@
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import nodemailer from "nodemailer";
+import { ImapFlow } from "imapflow";
+import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
 import {
   campaignAudienceMembers,
@@ -14,27 +16,30 @@ import {
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { decryptSecret } from "../lib/secret-vault.js";
+import { assertSafeOutboundUrl } from "../lib/url-safety.js";
+import { config } from "../config.js";
 import { isDestinationSuppressed } from "./events.js";
 
 const emailChannels = new Set(["邮件", "邮件序列", "email", "Email", "EMAIL"]);
-const event = (
+const emailChannelList = [...emailChannels];
+const emailProviders = new Set(["smtp", "sendgrid", "mailgun"]);
+const event = async (
   job: typeof outboxJobs.$inferSelect,
   eventType: string,
   status: string,
   metadata: unknown = {},
 ) => {
-  db.insert(messageDeliveryEvents)
-    .values({
-      id: createId("mde"),
-      workspaceId: job.workspaceId,
-      outboxJobId: job.id,
-      messageId: job.messageId,
-      eventType,
-      status,
-      metadataJson: JSON.stringify(metadata),
-      createdAt: Date.now(),
-    })
-    .run();
+  await db.insert(messageDeliveryEvents)
+        .values({
+          id: createId("mde"),
+          workspaceId: job.workspaceId,
+          outboxJobId: job.id,
+          messageId: job.messageId,
+          eventType,
+          status,
+          metadataJson: JSON.stringify(metadata),
+          createdAt: Date.now(),
+        });
 };
 
 export const serializeOutboundConnection = (
@@ -51,6 +56,13 @@ export const serializeOutboundConnection = (
   fromName: item.fromName,
   fromEmail: item.fromEmail,
   replyTo: item.replyTo,
+  imapEnabled: item.imapEnabled,
+  imapHost: item.imapHost,
+  imapPort: item.imapPort,
+  imapSecure: item.imapSecure,
+  imapUsername: item.imapUsername,
+  hasImapSecret: Boolean(item.imapSecretCiphertext),
+  imapSecretEnding: item.imapSecretEnding,
   priority: item.priority,
   enabled: item.enabled,
   status: item.status,
@@ -65,24 +77,27 @@ export const serializeOutboundConnection = (
   updatedAt: item.updatedAt,
 });
 
-export const getAvailableConnection = (workspaceId: string) =>
-  db
-    .select()
-    .from(outboundChannelConnections)
-    .where(
-      and(
-        eq(outboundChannelConnections.workspaceId, workspaceId),
-        eq(outboundChannelConnections.enabled, true),
-        eq(outboundChannelConnections.status, "available"),
-      ),
-    )
-    .orderBy(
-      asc(outboundChannelConnections.priority),
-      asc(outboundChannelConnections.createdAt),
-    )
-    .get();
+export const getAvailableConnection = async (workspaceId: string, channel = "邮件") => {
+  const connections = await db
+        .select()
+        .from(outboundChannelConnections)
+        .where(
+          and(
+            eq(outboundChannelConnections.workspaceId, workspaceId),
+            eq(outboundChannelConnections.enabled, true),
+            eq(outboundChannelConnections.status, "available"),
+          ),
+        )
+        .orderBy(
+          asc(outboundChannelConnections.priority),
+          asc(outboundChannelConnections.createdAt),
+        );
+  return connections.find(connection => emailChannels.has(channel)
+    ? emailProviders.has(connection.provider)
+    : connection.provider === "webhook");
+};
 
-export const enqueueConfirmedMessage = (input: {
+export const enqueueConfirmedMessage = async (input: {
   workspaceId: string;
   messageId: string;
   threadId: string;
@@ -90,34 +105,30 @@ export const enqueueConfirmedMessage = (input: {
   scheduledAt?: number;
 }) => {
   const now = Date.now();
-  const thread = db
-    .select()
-    .from(messageThreads)
-    .where(
-      and(
-        eq(messageThreads.id, input.threadId),
-        eq(messageThreads.workspaceId, input.workspaceId),
-      ),
-    )
-    .get();
+  const thread = (await db.$first(db
+      .select()
+      .from(messageThreads)
+      .where(
+        and(
+          eq(messageThreads.id, input.threadId),
+          eq(messageThreads.workspaceId, input.workspaceId),
+        ),
+      )));
   const contact = thread
-    ? db
-        .select()
-        .from(inboxContacts)
-        .where(
-          and(
-            eq(inboxContacts.id, thread.contactId),
-            eq(inboxContacts.workspaceId, input.workspaceId),
-          ),
-        )
-        .get()
+    ? (await db.$first(db
+              .select()
+              .from(inboxContacts)
+              .where(
+                and(
+                  eq(inboxContacts.id, thread.contactId),
+                  eq(inboxContacts.workspaceId, input.workspaceId),
+                ),
+              )))
     : null;
   const suppressed = Boolean(
-    contact?.email && isDestinationSuppressed(input.workspaceId, contact.email),
+    contact?.email && (await isDestinationSuppressed(input.workspaceId, contact.email)),
   );
-  const connection = emailChannels.has(input.channel)
-    ? getAvailableConnection(input.workspaceId)
-    : null;
+  const connection = await getAvailableConnection(input.workspaceId, input.channel);
   const status = suppressed
     ? "cancelled"
     : connection
@@ -141,14 +152,14 @@ export const enqueueConfirmedMessage = (input: {
       : connection
         ? null
         : emailChannels.has(input.channel)
-          ? "尚未配置可用的 SMTP 服务。"
-          : `暂不支持 ${input.channel} 自动发送。`,
+          ? "尚未配置可用的邮件发送服务。"
+          : `尚未配置 ${input.channel} 的 Webhook 发送服务。`,
     externalId: null,
     createdAt: now,
     updatedAt: now,
   };
-  db.insert(outboxJobs).values(job).run();
-  event(job as typeof outboxJobs.$inferSelect, "queued", status, {
+  await db.insert(outboxJobs).values(job);
+  await event(job as typeof outboxJobs.$inferSelect, "queued", status, {
     channel: input.channel,
     connectionId: suppressed ? null : (connection?.id ?? null),
     suppressed,
@@ -156,10 +167,38 @@ export const enqueueConfirmedMessage = (input: {
   return job;
 };
 
-export const testSmtpConnection = async (
+const secretFor = (connection: typeof outboundChannelConnections.$inferSelect) => decryptSecret({
+  ciphertext: connection.secretCiphertext,
+  iv: connection.secretIv,
+  tag: connection.secretTag,
+});
+
+const apiBase = (connection: typeof outboundChannelConnections.$inferSelect, fallback: string) =>
+  (connection.host.startsWith("http://") || connection.host.startsWith("https://") ? connection.host : fallback).replace(/\/$/, "");
+
+export const testOutboundConnection = async (
   connection: typeof outboundChannelConnections.$inferSelect,
 ) => {
   const startedAt = Date.now();
+  if (connection.provider !== "smtp") {
+    const secret = secretFor(connection);
+    const endpoint = connection.provider === "sendgrid"
+      ? `${apiBase(connection, "https://api.sendgrid.com/v3")}/user/profile`
+      : connection.provider === "mailgun"
+        ? `${apiBase(connection, "https://api.mailgun.net")}/v3/domains/${encodeURIComponent(connection.username)}`
+        : apiBase(connection, connection.host);
+    await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "发送服务地址" });
+    const response = await fetch(endpoint, {
+      method: connection.provider === "webhook" ? "POST" : "GET",
+      headers: connection.provider === "mailgun"
+        ? { authorization: `Basic ${Buffer.from(`api:${secret}`).toString("base64")}` }
+        : { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: connection.provider === "webhook" ? JSON.stringify({ type: "sondara.connection_test", sentAt: new Date().toISOString() }) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`${connection.provider} 返回 HTTP ${response.status}。`);
+    return { latencyMs: Date.now() - startedAt };
+  }
   const transport = nodemailer.createTransport({
     host: connection.host,
     port: connection.port,
@@ -181,233 +220,277 @@ export const testSmtpConnection = async (
   return { latencyMs: Date.now() - startedAt };
 };
 
-export const activateWaitingJobs = (
+export const testImapConnection = async (connection: typeof outboundChannelConnections.$inferSelect) => {
+  if (!connection.imapEnabled) return null;
+  if (!connection.imapHost || !connection.imapUsername || !connection.imapSecretCiphertext || !connection.imapSecretIv || !connection.imapSecretTag) {
+    throw new Error("IMAP 已启用但配置不完整。");
+  }
+  const startedAt = Date.now();
+  const client = new ImapFlow({
+    host: connection.imapHost,
+    port: connection.imapPort,
+    secure: connection.imapSecure,
+    auth: { user: connection.imapUsername, pass: decryptSecret({ ciphertext: connection.imapSecretCiphertext, iv: connection.imapSecretIv, tag: connection.imapSecretTag }) },
+    logger: false,
+    connectionTimeout: 15_000,
+  });
+  try {
+    await client.connect();
+    await client.status("INBOX", { messages: true });
+    return { latencyMs: Date.now() - startedAt };
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+};
+
+const sendWithConnection = async (
+  connection: typeof outboundChannelConnections.$inferSelect,
+  input: { to: string; subject: string; body: string; channel: string },
+) => {
+  const secret = secretFor(connection);
+  if (connection.provider === "smtp") {
+    const transport = nodemailer.createTransport({
+      host: connection.host, port: connection.port, secure: connection.secure,
+      auth: { user: connection.username, pass: secret },
+      connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000,
+    });
+    try {
+      const result = await transport.sendMail({
+        from: { name: connection.fromName, address: connection.fromEmail }, to: input.to,
+        replyTo: connection.replyTo ?? undefined, subject: input.subject, text: input.body,
+      });
+      return { messageId: result.messageId };
+    } finally { transport.close(); }
+  }
+  if (connection.provider === "sendgrid") {
+    const endpoint = `${apiBase(connection, "https://api.sendgrid.com/v3")}/mail/send`;
+    await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "SendGrid 地址" });
+    const response = await fetch(endpoint, {
+      method: "POST", signal: AbortSignal.timeout(20_000),
+      headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+      body: JSON.stringify({ personalizations: [{ to: [{ email: input.to }] }], from: { email: connection.fromEmail, name: connection.fromName }, reply_to: connection.replyTo ? { email: connection.replyTo } : undefined, subject: input.subject, content: [{ type: "text/plain", value: input.body }] }),
+    });
+    if (!response.ok) throw new Error(`SendGrid 返回 HTTP ${response.status}。`);
+    return { messageId: response.headers.get("x-message-id") ?? randomUUID() };
+  }
+  if (connection.provider === "mailgun") {
+    const endpoint = `${apiBase(connection, "https://api.mailgun.net")}/v3/${encodeURIComponent(connection.username)}/messages`;
+    await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "Mailgun 地址" });
+    const body = new FormData();
+    body.set("from", `${connection.fromName} <${connection.fromEmail}>`); body.set("to", input.to); body.set("subject", input.subject); body.set("text", input.body);
+    if (connection.replyTo) body.set("h:Reply-To", connection.replyTo);
+    const response = await fetch(endpoint, { method: "POST", signal: AbortSignal.timeout(20_000), headers: { authorization: `Basic ${Buffer.from(`api:${secret}`).toString("base64")}` }, body });
+    if (!response.ok) throw new Error(`Mailgun 返回 HTTP ${response.status}。`);
+    const result = await response.json().catch(() => ({})) as { id?: string };
+    return { messageId: result.id ?? randomUUID() };
+  }
+  const endpoint = apiBase(connection, connection.host);
+  await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "Webhook 地址" });
+  const response = await fetch(endpoint, {
+    method: "POST", signal: AbortSignal.timeout(20_000),
+    headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+    body: JSON.stringify({ type: "sondara.outbound_message", channel: input.channel, recipient: input.to, subject: input.subject, body: input.body, from: { name: connection.fromName, address: connection.fromEmail } }),
+  });
+  if (!response.ok) throw new Error(`Webhook 返回 HTTP ${response.status}。`);
+  const result = await response.json().catch(() => ({})) as { id?: string; messageId?: string };
+  return { messageId: result.messageId ?? result.id ?? randomUUID() };
+};
+
+export const activateWaitingJobs = async (
   workspaceId: string,
   connectionId: string,
 ) => {
   const now = Date.now();
-  return db
-    .update(outboxJobs)
-    .set({
-      status: "queued",
-      connectionId,
-      lastError: null,
-      scheduledAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(outboxJobs.workspaceId, workspaceId),
-        eq(outboxJobs.status, "awaiting_configuration"),
-        or(
-          eq(outboxJobs.channel, "邮件"),
-          eq(outboxJobs.channel, "邮件序列"),
-          eq(outboxJobs.channel, "email"),
-          eq(outboxJobs.channel, "Email"),
+  const connection = await db.$first(db
+    .select({ provider: outboundChannelConnections.provider })
+    .from(outboundChannelConnections)
+    .where(and(
+      eq(outboundChannelConnections.id, connectionId),
+      eq(outboundChannelConnections.workspaceId, workspaceId),
+    )));
+  if (!connection) return 0;
+  const channelCondition = connection.provider === "webhook"
+    ? notInArray(outboxJobs.channel, emailChannelList)
+    : inArray(outboxJobs.channel, emailChannelList);
+  return (await db
+      .update(outboxJobs)
+      .set({
+        status: "queued",
+        connectionId,
+        lastError: null,
+        scheduledAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(outboxJobs.workspaceId, workspaceId),
+          eq(outboxJobs.status, "awaiting_configuration"),
+          channelCondition,
         ),
-      ),
-    )
-    .run().changes;
+      )).rowCount ?? 0;
 };
 
 export const processOutboxJob = async (jobId: string) => {
-  const original = db
-    .select()
-    .from(outboxJobs)
-    .where(eq(outboxJobs.id, jobId))
-    .get();
+  const original = (await db.$first(db
+      .select()
+      .from(outboxJobs)
+      .where(eq(outboxJobs.id, jobId))));
   if (!original || !["queued", "processing"].includes(original.status))
     return { processed: false, status: original?.status ?? "missing" };
   const now = Date.now();
-  const claimed = db
-    .update(outboxJobs)
-    .set({ status: "processing", startedAt: now, updatedAt: now })
-    .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "queued")))
-    .run().changes;
+  const claimed = (await db
+      .update(outboxJobs)
+      .set({ status: "processing", startedAt: now, updatedAt: now })
+      .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "queued")))).rowCount ?? 0;
   if (!claimed && original.status !== "processing")
     return { processed: false, status: "claimed" };
-  const job = db
-    .select()
-    .from(outboxJobs)
-    .where(eq(outboxJobs.id, jobId))
-    .get()!;
-  const message = db
-    .select()
-    .from(messageEntries)
-    .where(
-      and(
-        eq(messageEntries.id, job.messageId),
-        eq(messageEntries.workspaceId, job.workspaceId),
-      ),
-    )
-    .get();
-  const thread = db
-    .select()
-    .from(messageThreads)
-    .where(
-      and(
-        eq(messageThreads.id, job.threadId),
-        eq(messageThreads.workspaceId, job.workspaceId),
-      ),
-    )
-    .get();
+  const job = (await db.$first(db
+      .select()
+      .from(outboxJobs)
+      .where(eq(outboxJobs.id, jobId))))!;
+  const message = (await db.$first(db
+      .select()
+      .from(messageEntries)
+      .where(
+        and(
+          eq(messageEntries.id, job.messageId),
+          eq(messageEntries.workspaceId, job.workspaceId),
+        ),
+      )));
+  const thread = (await db.$first(db
+      .select()
+      .from(messageThreads)
+      .where(
+        and(
+          eq(messageThreads.id, job.threadId),
+          eq(messageThreads.workspaceId, job.workspaceId),
+        ),
+      )));
   const contact = thread
-    ? db
-        .select()
-        .from(inboxContacts)
-        .where(
-          and(
-            eq(inboxContacts.id, thread.contactId),
-            eq(inboxContacts.workspaceId, job.workspaceId),
-          ),
-        )
-        .get()
+    ? (await db.$first(db
+              .select()
+              .from(inboxContacts)
+              .where(
+                and(
+                  eq(inboxContacts.id, thread.contactId),
+                  eq(inboxContacts.workspaceId, job.workspaceId),
+                ),
+              )))
     : null;
   const connection = job.connectionId
-    ? db
-        .select()
-        .from(outboundChannelConnections)
-        .where(
-          and(
-            eq(outboundChannelConnections.id, job.connectionId),
-            eq(outboundChannelConnections.workspaceId, job.workspaceId),
-            eq(outboundChannelConnections.enabled, true),
-            eq(outboundChannelConnections.status, "available"),
-          ),
-        )
-        .get()
-    : getAvailableConnection(job.workspaceId);
+    ? (await db.$first(db
+              .select()
+              .from(outboundChannelConnections)
+              .where(
+                and(
+                  eq(outboundChannelConnections.id, job.connectionId),
+                  eq(outboundChannelConnections.workspaceId, job.workspaceId),
+                  eq(outboundChannelConnections.enabled, true),
+                  eq(outboundChannelConnections.status, "available"),
+                ),
+              )))
+    : (await getAvailableConnection(job.workspaceId, job.channel));
   try {
     if (!message || message.status !== "confirmed")
       throw new Error("只有已由用户确认的消息才能发送。");
     if (!thread || !contact) throw new Error("消息联系人或线程不存在。");
-    if (!emailChannels.has(job.channel))
-      throw new Error(`暂不支持 ${job.channel} 自动发送。`);
-    if (!contact.email) throw new Error("联系人缺少有效邮箱地址。");
-    if (isDestinationSuppressed(job.workspaceId, contact.email))
+    const destination = emailChannels.has(job.channel) ? contact.email : contact.externalRef || contact.email;
+    if (!destination) throw new Error("联系人缺少当前渠道的有效接收地址。");
+    if (emailChannels.has(job.channel) && contact.email && (await isDestinationSuppressed(job.workspaceId, contact.email)))
       throw new Error("收件地址位于抑制名单，已阻止发送。");
     if (!connection) {
-      db.update(outboxJobs)
-        .set({
-          status: "awaiting_configuration",
-          connectionId: null,
-          lastError: "尚未配置可用的 SMTP 服务。",
-          updatedAt: Date.now(),
-        })
-        .where(eq(outboxJobs.id, job.id))
-        .run();
-      event(job, "configuration_required", "awaiting_configuration");
+      await db.update(outboxJobs)
+                .set({
+                  status: "awaiting_configuration",
+                  connectionId: null,
+                  lastError: "尚未配置可用的当前渠道发送服务。",
+                  updatedAt: Date.now(),
+                })
+                .where(eq(outboxJobs.id, job.id));
+      await event(job, "configuration_required", "awaiting_configuration");
       return { processed: true, status: "awaiting_configuration" };
     }
-    const transport = nodemailer.createTransport({
-      host: connection.host,
-      port: connection.port,
-      secure: connection.secure,
-      auth: {
-        user: connection.username,
-        pass: decryptSecret({
-          ciphertext: connection.secretCiphertext,
-          iv: connection.secretIv,
-          tag: connection.secretTag,
-        }),
-      },
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 20_000,
-    });
-    const result = await transport.sendMail({
-      from: { name: connection.fromName, address: connection.fromEmail },
-      to: contact.email,
-      replyTo: connection.replyTo ?? undefined,
-      subject: thread.subject,
-      text: message.body,
-    });
-    transport.close();
+    const result = await sendWithConnection(connection, { to: destination, subject: thread.subject, body: message.body, channel: job.channel });
     const completedAt = Date.now();
-    db.transaction((tx) => {
-      tx.update(outboxJobs)
-        .set({
-          status: "sent",
-          connectionId: connection.id,
-          attempts: job.attempts + 1,
-          externalId: result.messageId,
-          lastError: null,
-          completedAt,
-          updatedAt: completedAt,
-        })
-        .where(eq(outboxJobs.id, job.id))
-        .run();
-      tx.update(messageEntries)
-        .set({
-          status: "sent",
-          externalId: result.messageId,
-          sentAt: completedAt,
-          updatedAt: completedAt,
-          metadataJson: JSON.stringify({
-            deliveryMode: "smtp",
-            connectionId: connection.id,
-          }),
-        })
-        .where(eq(messageEntries.id, message.id))
-        .run();
-      if (thread.campaignId) {
-        const messageMetadata = (() => {
-          try {
-            return JSON.parse(message.metadataJson) as Record<string, unknown>;
-          } catch {
-            return {};
-          }
-        })();
-        tx.update(campaigns)
-          .set({
-            sentCount: sql`${campaigns.sentCount} + 1`,
-            updatedAt: completedAt,
-          })
-          .where(
-            and(
-              eq(campaigns.id, thread.campaignId),
-              eq(campaigns.workspaceId, job.workspaceId),
-            ),
-          )
-          .run();
-        if (thread.customerId)
-          tx.update(campaignAudienceMembers)
-            .set({
-              status: "sent",
-              lastEventAt: completedAt,
-              updatedAt: completedAt,
-            })
-            .where(
-              and(
-                eq(campaignAudienceMembers.campaignId, thread.campaignId),
-                eq(campaignAudienceMembers.customerId, thread.customerId),
-                eq(campaignAudienceMembers.workspaceId, job.workspaceId),
-              ),
-            )
-            .run();
-        tx.insert(campaignExecutionEvents)
-          .values({
-            id: createId("cev"),
-            workspaceId: job.workspaceId,
-            campaignId: thread.campaignId,
-            campaignStepId:
-              typeof messageMetadata.campaignStepId === "string"
-                ? messageMetadata.campaignStepId
-                : null,
-            eventType: "message_sent",
-            status: "completed",
-            recipientCount: 1,
-            metadataJson: JSON.stringify({
-              outboxJobId: job.id,
-              messageId: message.id,
-              externalId: result.messageId,
-            }),
-            createdAt: completedAt,
-          })
-          .run();
-      }
-    });
-    event(job, "sent", "sent", {
+    await db.transaction(async (tx) => {
+            await tx.update(outboxJobs)
+                      .set({
+                        status: "sent",
+                        connectionId: connection.id,
+                        attempts: job.attempts + 1,
+                        externalId: result.messageId,
+                        lastError: null,
+                        completedAt,
+                        updatedAt: completedAt,
+                      })
+                      .where(eq(outboxJobs.id, job.id));
+            await tx.update(messageEntries)
+                      .set({
+                        status: "sent",
+                        externalId: result.messageId,
+                        sentAt: completedAt,
+                        updatedAt: completedAt,
+                        metadataJson: JSON.stringify({
+                          deliveryMode: connection.provider,
+                          connectionId: connection.id,
+                        }),
+                      })
+                      .where(eq(messageEntries.id, message.id));
+            if (thread.campaignId) {
+              const messageMetadata = (() => {
+                try {
+                  return JSON.parse(message.metadataJson) as Record<string, unknown>;
+                } catch {
+                  return {};
+                }
+              })();
+              await tx.update(campaigns)
+                          .set({
+                            sentCount: sql`${campaigns.sentCount} + 1`,
+                            updatedAt: completedAt,
+                          })
+                          .where(
+                            and(
+                              eq(campaigns.id, thread.campaignId),
+                              eq(campaigns.workspaceId, job.workspaceId),
+                            ),
+                          );
+              if (thread.customerId)
+                await tx.update(campaignAudienceMembers)
+                              .set({
+                                status: "sent",
+                                lastEventAt: completedAt,
+                                updatedAt: completedAt,
+                              })
+                              .where(
+                                and(
+                                  eq(campaignAudienceMembers.campaignId, thread.campaignId),
+                                  eq(campaignAudienceMembers.customerId, thread.customerId),
+                                  eq(campaignAudienceMembers.workspaceId, job.workspaceId),
+                                ),
+                              );
+              await tx.insert(campaignExecutionEvents)
+                          .values({
+                            id: createId("cev"),
+                            workspaceId: job.workspaceId,
+                            campaignId: thread.campaignId,
+                            campaignStepId:
+                              typeof messageMetadata.campaignStepId === "string"
+                                ? messageMetadata.campaignStepId
+                                : null,
+                            eventType: "message_sent",
+                            status: "completed",
+                            recipientCount: 1,
+                            metadataJson: JSON.stringify({
+                              outboxJobId: job.id,
+                              messageId: message.id,
+                              externalId: result.messageId,
+                            }),
+                            createdAt: completedAt,
+                          });
+            }
+          });
+    await event(job, "sent", "sent", {
       connectionId: connection.id,
       externalId: result.messageId,
       recipient: contact.email,
@@ -427,18 +510,17 @@ export const processOutboxJob = async (jobId: string) => {
     const scheduledAt = retryable
       ? updatedAt + Math.min(60_000, 5_000 * 2 ** (attempts - 1))
       : job.scheduledAt;
-    db.update(outboxJobs)
-      .set({
-        status,
-        attempts,
-        lastError: error,
-        scheduledAt,
-        completedAt: retryable ? null : updatedAt,
-        updatedAt,
-      })
-      .where(eq(outboxJobs.id, job.id))
-      .run();
-    event(job, retryable ? "retry_scheduled" : "failed", status, {
+    await db.update(outboxJobs)
+            .set({
+              status,
+              attempts,
+              lastError: error,
+              scheduledAt,
+              completedAt: retryable ? null : updatedAt,
+              updatedAt,
+            })
+            .where(eq(outboxJobs.id, job.id));
+    await event(job, retryable ? "retry_scheduled" : "failed", status, {
       attempts,
       error,
       scheduledAt,
@@ -448,35 +530,33 @@ export const processOutboxJob = async (jobId: string) => {
 };
 
 export const processDueOutboxJobs = async (limit = 5) => {
-  const due = db
-    .select({ id: outboxJobs.id })
-    .from(outboxJobs)
-    .where(
-      and(
-        eq(outboxJobs.status, "queued"),
-        lte(outboxJobs.scheduledAt, Date.now()),
-      ),
-    )
-    .orderBy(asc(outboxJobs.scheduledAt))
-    .limit(limit)
-    .all();
+  const due = (await db
+      .select({ id: outboxJobs.id })
+      .from(outboxJobs)
+      .where(
+        and(
+          eq(outboxJobs.status, "queued"),
+          lte(outboxJobs.scheduledAt, Date.now()),
+        ),
+      )
+      .orderBy(asc(outboxJobs.scheduledAt))
+      .limit(limit));
   for (const job of due) await processOutboxJob(job.id);
   return due.length;
 };
 
-export const recoverStuckOutboxJobs = (olderThanMs = 5 * 60_000) =>
-  db
-    .update(outboxJobs)
-    .set({
-      status: "queued",
-      lastError: "发送进程中断，任务已自动恢复。",
-      scheduledAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    .where(
-      and(
-        eq(outboxJobs.status, "processing"),
-        lte(outboxJobs.startedAt, Date.now() - olderThanMs),
-      ),
-    )
-    .run().changes;
+export const recoverStuckOutboxJobs = async (olderThanMs = 5 * 60_000) =>
+  (await db
+        .update(outboxJobs)
+        .set({
+          status: "queued",
+          lastError: "发送进程中断，任务已自动恢复。",
+          scheduledAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+        .where(
+          and(
+            eq(outboxJobs.status, "processing"),
+            lte(outboxJobs.startedAt, Date.now() - olderThanMs),
+          ),
+        )).rowCount ?? 0;

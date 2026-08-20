@@ -48,8 +48,8 @@ export class MapDiscoveryConnector implements DiscoveryConnector {
   id = 'map-discovery'
   label = '地图与本地企业发现'
 
-  supports(task: RadarTaskContext) {
-    return /智能多渠道|地图找客/.test(task.mode) && hasMapConfiguration(task.workspaceId)
+  async supports(task: RadarTaskContext) {
+    return /智能多渠道|地图找客/.test(task.mode) && (await hasMapConfiguration(task.workspaceId))
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {

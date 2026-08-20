@@ -1,13 +1,14 @@
-import { readFile, readdir, rm } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Client } from 'pg'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const dataDir = resolve(root, 'data')
 const storageState = resolve(root, '.tmp/e2e-auth.json')
 const serverPidFile = resolve(root, '.tmp/e2e-server.pid')
+const databaseFile = resolve(root, '.tmp/e2e-database.json')
 
-const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+const sleep = (ms: number) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 
 const removeWithRetry = async (path, attempts = 20) => {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -48,26 +49,29 @@ const stopE2eServer = async () => {
   await rm(serverPidFile, { force: true })
 }
 
+const dropE2eDatabase = async () => {
+  let metadata: { databaseName?: string; adminUrl?: string }
+  try {
+    metadata = JSON.parse(await readFile(databaseFile, 'utf8')) as typeof metadata
+  } catch {
+    return
+  }
+  const { databaseName, adminUrl } = metadata
+  if (!databaseName || !adminUrl || !/^sondara_e2e_\d+_\d+$/.test(databaseName)) return
+  const client = new Client({ connectionString: adminUrl, connectionTimeoutMillis: 10_000 })
+  await client.connect()
+  try {
+    await client.query('select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()', [databaseName])
+    await client.query(`drop database if exists "${databaseName}"`)
+  } finally {
+    await client.end()
+    await rm(databaseFile, { force: true })
+  }
+}
+
 export default async function globalTeardown() {
   await stopE2eServer()
+  await dropE2eDatabase()
   await removeWithRetry(storageState, 5)
 
-  const configuredDatabase = process.env.SONDARA_E2E_DATABASE_URL
-  if (configuredDatabase) {
-    const databasePath = resolve(root, configuredDatabase)
-    if (databasePath.startsWith(`${dataDir}\\`) && /e2e-check(?:-\d+)?\.db$/.test(databasePath)) {
-      await Promise.allSettled([
-        removeWithRetry(databasePath),
-        removeWithRetry(`${databasePath}-wal`),
-        removeWithRetry(`${databasePath}-shm`),
-      ])
-    }
-  }
-
-  const files = await readdir(dataDir)
-  await Promise.allSettled(
-    files
-      .filter((file) => /^e2e-check(?:-\d+)?\.db(?:-wal|-shm)?$/.test(file))
-      .map((file) => removeWithRetry(resolve(dataDir, file))),
-  )
 }

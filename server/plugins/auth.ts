@@ -4,7 +4,7 @@ import { findSessionContext, sessionCookieName } from '../lib/session.js'
 export const requireAuth = async (request: FastifyRequest, reply: FastifyReply) => {
   const token = request.cookies[sessionCookieName]
   if (!token) return reply.code(401).send({ error: 'UNAUTHENTICATED', message: '请先登录。' })
-  const context = findSessionContext(token)
+  const context = (await findSessionContext(token))
   if (!context) return reply.code(401).send({ error: 'SESSION_EXPIRED', message: '登录已过期，请重新登录。' })
   if (context.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
     return reply.code(403).send({ error: 'FORBIDDEN', message: '只读成员不能修改工作区数据。' })

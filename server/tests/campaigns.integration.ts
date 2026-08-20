@@ -162,64 +162,58 @@ const run = async () => {
     assert.equal(listed.json().items[0].nextStep.name, "第二轮案例触达");
 
     assert.equal(
-      db.select().from(campaigns).where(eq(campaigns.id, campaign.id)).get()
+      (await db.$first(db.select().from(campaigns).where(eq(campaigns.id, campaign.id))))
         ?.status,
       "运行中",
     );
     assert.equal(
-      db
-        .select()
-        .from(campaignAudienceMembers)
-        .where(eq(campaignAudienceMembers.campaignId, campaign.id))
-        .all().length,
+      (await db
+                .select()
+                .from(campaignAudienceMembers)
+                .where(eq(campaignAudienceMembers.campaignId, campaign.id))).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(campaignContentLinks)
-        .where(eq(campaignContentLinks.campaignId, campaign.id))
-        .all().length,
+      (await db
+                .select()
+                .from(campaignContentLinks)
+                .where(eq(campaignContentLinks.campaignId, campaign.id))).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(campaignSteps)
-        .where(eq(campaignSteps.campaignId, campaign.id))
-        .all().length,
+      (await db
+                .select()
+                .from(campaignSteps)
+                .where(eq(campaignSteps.campaignId, campaign.id))).length,
       2,
     );
     assert.equal(
-      db
-        .select()
-        .from(outboxJobs)
-        .where(eq(outboxJobs.workspaceId, register.json().workspace.id))
-        .all().length,
+      (await db
+                .select()
+                .from(outboxJobs)
+                .where(eq(outboxJobs.workspaceId, register.json().workspace.id))).length,
       1,
     );
     assert.equal(
-      db
-        .select()
-        .from(messageEntries)
-        .where(eq(messageEntries.status, "confirmed"))
-        .all()
+      (await db
+                .select()
+                .from(messageEntries)
+                .where(eq(messageEntries.status, "confirmed")))
         .filter((item) => item.workspaceId === register.json().workspace.id)
         .length,
       1,
     );
     assert.ok(
-      db
-        .select()
-        .from(campaignExecutionEvents)
-        .where(eq(campaignExecutionEvents.campaignId, campaign.id))
-        .get(),
+      (await db.$first(db
+                .select()
+                .from(campaignExecutionEvents)
+                .where(eq(campaignExecutionEvents.campaignId, campaign.id)))),
     );
     console.log(
       "Campaigns integration passed: audience, content, schedule, status and execution events verified.",
     );
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run();
+    if (userId) await db.delete(users).where(eq(users.id, userId));
     await app.close();
   }
 };

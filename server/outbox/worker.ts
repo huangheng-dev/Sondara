@@ -16,9 +16,9 @@ export const createOutboxWorker = (intervalMs = 5_000) => {
     }
   };
   return {
-    start() {
+    async start() {
       if (timer) return;
-      recoverStuckOutboxJobs();
+      await recoverStuckOutboxJobs();
       void tick();
       timer = setInterval(() => void tick(), intervalMs);
       timer.unref();

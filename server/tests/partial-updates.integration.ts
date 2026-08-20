@@ -34,7 +34,7 @@ const run = async () => {
     assert.equal(dealUpdate.json().source, '客户消息')
     console.log('Partial update integration passed: customer, task and deal fields are preserved.')
   } finally {
-    if (userId) db.delete(users).where(eq(users.id, userId)).run()
+    if (userId) await db.delete(users).where(eq(users.id, userId))
     await app.close()
   }
 }

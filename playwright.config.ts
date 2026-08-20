@@ -4,8 +4,6 @@ import { resolve } from 'node:path'
 const root = process.cwd()
 const port = Number(process.env.SONDARA_E2E_PORT ?? 4177)
 const baseURL = `http://127.0.0.1:${port}`
-process.env.SONDARA_E2E_DATABASE_URL ??= `./data/e2e-check-${process.pid}.db`
-const e2eDatabaseUrl = process.env.SONDARA_E2E_DATABASE_URL
 
 export default defineConfig({
   testDir: './e2e',
@@ -36,7 +34,10 @@ export default defineConfig({
       NODE_ENV: 'production',
       SONDARA_API_HOST: '127.0.0.1',
       SONDARA_API_PORT: String(port),
-      SONDARA_DATABASE_URL: e2eDatabaseUrl,
+      SONDARA_E2E_DATABASE_URL: process.env.SONDARA_E2E_DATABASE_URL ?? '',
+      SONDARA_E2E_DATABASE_ADMIN_URL: process.env.SONDARA_E2E_DATABASE_ADMIN_URL
+        ?? process.env.SONDARA_DATABASE_URL
+        ?? 'postgresql://sondara:sondara@127.0.0.1:5432/postgres',
       SONDARA_RADAR_WORKER_ENABLED: 'false',
       SONDARA_OUTBOX_WORKER_ENABLED: 'false',
       SONDARA_RATE_LIMIT_MAX: '3000',

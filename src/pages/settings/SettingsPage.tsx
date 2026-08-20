@@ -148,7 +148,7 @@ const mapAiKey = (key: AiServiceKeyApiRecord): AiKeyRecord => ({
   name: key.name,
   ending: key.ending,
   status: key.enabled ? "启用" : "停用",
-  lastUsed: key.lastUsedA
+  lastUsed: key.lastUsedAt
     ? new Date(key.lastUsedAt).toLocaleString("zh-CN")
     : "尚未使用",
 });
@@ -226,8 +226,10 @@ function OutboundSettings() {
   });
   const current = editing === "new" ? null : editing;
   const save = async (values: Record<string, string>) => {
+    const providerMap = { SMTP: "smtp", SendGrid: "sendgrid", Mailgun: "mailgun", Webhook: "webhook" } as const;
     const input = {
       name: values.name,
+      provider: providerMap[values.provider as keyof typeof providerMap] ?? "smtp",
       host: values.host,
       port: Number(values.port) || 587,
       secure: values.security === "SSL / TLS",
@@ -236,13 +238,23 @@ function OutboundSettings() {
       fromName: values.fromName,
       fromEmail: values.fromEmail,
       replyTo: values.replyTo || null,
+      imapEnabled: values.imapEnabled === "启用",
+      imapHost: values.imapHost || null,
+      imapPort: Number(values.imapPort) || 993,
+      imapSecure: values.imapSecurity !== "明文 / STARTTLS",
+      imapUsername: values.imapUsername || null,
+      imapPassword: values.imapPassword,
       priority: Number(values.priority) || 1,
     };
     if (current) {
-      const { password, ...rest } = input;
-      await outboxApi.updateConnection(current.id, password ? input : rest);
+      const { password, imapPassword, ...rest } = input;
+      await outboxApi.updateConnection(current.id, {
+        ...rest,
+        ...(password ? { password } : {}),
+        ...(imapPassword ? { imapPassword } : {}),
+      });
     } else {
-      if (!input.password) throw new Error("首次配置必须填写 SMTP 密码。");
+      if (!input.password) throw new Error("首次配置必须填写发送服务密钥或密码。");
       const created = await outboxApi.createConnection(input);
       setWebhookConnection(created);
       setWebhookSecret(created.webhookSecret);
@@ -255,9 +267,9 @@ function OutboundSettings() {
     <section className="outbound-settings-section">
       <header>
         <span>
-          <strong>邮件发送与队列</strong>
+          <strong>消息发送、收件与队列</strong>
           <small>
-            使用 SMTP 发送已由用户确认的邮件；失败任务按策略重试并保留事件记录
+            支持 SMTP、SendGrid、Mailgun 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件
           </small>
         </span>
         <div>
@@ -271,7 +283,7 @@ function OutboundSettings() {
           </Button>
           <Button size="sm" variant="primary" onClick={() => setEditing("new")}>
             <Plus size={14} />
-            添加 SMTP
+            添加发送服务
           </Button>
         </div>
       </header>
@@ -285,7 +297,7 @@ function OutboundSettings() {
               <span>
                 <strong>{connection.name}</strong>
                 <small>
-                  {connection.host}:{connection.port} · {connection.fromEmail}
+                  {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
                 </small>
                 <em>
                   优先级 {connection.priority}
@@ -318,14 +330,14 @@ function OutboundSettings() {
                         jobs.refetch(),
                       ]);
                       showToast(
-                        `SMTP 连接正常 · ${result.latencyMs} ms${result.activatedJobs ? `，已激活 ${result.activatedJobs} 个待发送任务` : ""}`,
+                        `发送服务正常 · ${result.latencyMs} ms${result.imapLatencyMs ? ` · IMAP ${result.imapLatencyMs} ms` : ""}${result.activatedJobs ? `，已激活 ${result.activatedJobs} 个待发送任务` : ""}`,
                       );
                     } catch (cause) {
                       await connections.refetch();
                       showToast(
                         cause instanceof Error
                           ? cause.message
-                          : "SMTP 连接测试失败",
+                          : "发送服务连接测试失败",
                       );
                     }
                   }}
@@ -357,16 +369,17 @@ function OutboundSettings() {
       </div>
       <CreateDialog
         open={Boolean(editing)}
-        title={current ? "管理 SMTP 服务" : "添加 SMTP 服务"}
-        description="密码仅发送到本部署的服务端并以 AES-256-GCM 加密保存。只有用户明确确认的邮件才会进入发送队列。"
+        title={current ? "管理发送与收件服务" : "添加发送与收件服务"}
+        description="密钥、密码和 IMAP 凭据仅发送到本部署并加密保存；Webhook 可承接 LinkedIn、WhatsApp 等已获授权的渠道适配器。"
         submitLabel={current ? "保存修改" : "保存服务"}
-        successMessage="SMTP 服务已保存，请执行连接测试"
+        successMessage="发送服务已保存，请执行连接测试"
         onClose={() => setEditing(null)}
         onSubmit={save}
         initialValues={
-          curren
+          current
             ? {
                 name: current.name,
+                provider: current.provider === "smtp" ? "SMTP" : current.provider === "sendgrid" ? "SendGrid" : current.provider === "mailgun" ? "Mailgun" : "Webhook",
                 host: current.host,
                 port: String(current.port),
                 security: current.secure ? "SSL / TLS" : "STARTTLS",
@@ -376,11 +389,21 @@ function OutboundSettings() {
                 fromEmail: current.fromEmail,
                 replyTo: current.replyTo ?? "",
                 priority: String(current.priority),
+                imapEnabled: current.imapEnabled ? "启用" : "关闭",
+                imapHost: current.imapHost ?? "",
+                imapPort: String(current.imapPort),
+                imapSecurity: current.imapSecure ? "SSL / TLS" : "明文 / STARTTLS",
+                imapUsername: current.imapUsername ?? "",
+                imapPassword: "",
               }
             : {
                 port: "587",
+                provider: "SMTP",
                 security: "STARTTLS",
                 priority: String((connections.data?.items.length ?? 0) + 1),
+                imapEnabled: "关闭",
+                imapPort: "993",
+                imapSecurity: "SSL / TLS",
               }
         }
         fields={[
@@ -390,11 +413,12 @@ function OutboundSettings() {
             required: true,
             placeholder: "例如：企业邮箱主服务",
           },
+          { name: "provider", label: "发送方式", type: "select", required: true, options: ["SMTP", "SendGrid", "Mailgun", "Webhook"] },
           {
             name: "host",
-            label: "SMTP 主机",
+            label: "SMTP 主机或 API 地址",
             required: true,
-            placeholder: "smtp.example.com",
+            placeholder: "smtp.example.com 或 https://api.example.com",
           },
           { name: "port", label: "端口", type: "number", required: true },
           {
@@ -412,13 +436,13 @@ function OutboundSettings() {
           },
           {
             name: "password",
-            label: curren
-              ? `SMTP 密码（当前 •••• ${current.secretEnding}）`
-              : "SMTP 密码",
+            label: current
+              ? `发送密钥/密码（当前 •••• ${current.secretEnding}）`
+              : "发送密钥/密码",
             required: !current,
-            placeholder: curren
+            placeholder: current
               ? "留空保留现有密码"
-              : "输入授权码或 SMTP 密码",
+              : "输入 API Key、Token、授权码或 SMTP 密码",
           },
           {
             name: "fromName",
@@ -443,6 +467,12 @@ function OutboundSettings() {
             type: "number",
             required: true,
           },
+          { name: "imapEnabled", label: "IMAP 自动收件", type: "select", required: true, options: ["关闭", "启用"] },
+          { name: "imapHost", label: "IMAP 主机", placeholder: "imap.example.com；未启用可留空" },
+          { name: "imapPort", label: "IMAP 端口", type: "number" },
+          { name: "imapSecurity", label: "IMAP 安全", type: "select", options: ["SSL / TLS", "明文 / STARTTLS"] },
+          { name: "imapUsername", label: "IMAP 账号", placeholder: "通常为完整邮箱地址" },
+          { name: "imapPassword", label: current?.hasImapSecret ? `IMAP 密码（当前 •••• ${current.imapSecretEnding}）` : "IMAP 密码", placeholder: current?.hasImapSecret ? "留空保留现有密码" : "启用 IMAP 时填写" },
         ]}
       />
       <Modal
@@ -455,7 +485,7 @@ function OutboundSettings() {
       >
         <div className="outbox-modal">
           <div className="outbox-toolbar">
-            <CustomSelec
+            <CustomSelect
               ariaLabel="发送状态"
               value={jobStatus}
               onChange={setJobStatus}
@@ -497,7 +527,7 @@ function OutboundSettings() {
       >
         <div className="outbox-modal">
           <div className="outbox-toolbar governance-toolbar">
-            <CustomSelec
+            <CustomSelect
               ariaLabel="治理内容"
               value={governanceView}
               onChange={setGovernanceView}
@@ -507,7 +537,7 @@ function OutboundSettings() {
               <>
                 <label className="customer-search module-search">
                   <Search />
-                  <Inpu
+                  <Input
                     aria-label="搜索抑制名单"
                     value={suppressionQuery}
                     onChange={(event) =>
@@ -516,7 +546,7 @@ function OutboundSettings() {
                     placeholder="搜索邮箱或原因"
                   />
                 </label>
-                <CustomSelec
+                <CustomSelect
                   ariaLabel="抑制状态"
                   value={suppressionStatus}
                   onChange={setSuppressionStatus}
@@ -587,7 +617,7 @@ function OutboundSettings() {
                   setWebhookSecret(result.webhookSecret);
                   await connections.refetch();
                   showToast(
-                    webhookConnection.hasWebhookSecre
+                    webhookConnection.hasWebhookSecret
                       ? "签名密钥已轮换，旧密钥立即失效"
                       : "签名密钥已生成",
                   );
@@ -598,7 +628,7 @@ function OutboundSettings() {
                 }
               }}
             >
-              {webhookConnection?.hasWebhookSecre
+              {webhookConnection?.hasWebhookSecret
                 ? "轮换签名密钥"
                 : "生成签名密钥"}
             </Button>
@@ -634,7 +664,7 @@ function OutboundSettings() {
             <span>
               <strong>签名密钥</strong>
               <small>
-                {webhookSecre
+                {webhookSecret
                   ? "请立即保存，关闭后无法再次查看"
                   : "当前密钥仅显示末四位"}
               </small>
@@ -708,9 +738,17 @@ export function SettingsPage() {
   const [twoFactorBusy, setTwoFactorBusy] = useState(false);
   const [accountDeletePassword, setAccountDeletePassword] = useState("");
   const [accountDeleteConfirmation, setAccountDeleteConfirmation] = useState("");
-  const [profileDraft, setProfileDraft] = useState(
-    () => useBusinessStore.getState().accountPreferences,
-  );
+  const [profileDraft, setProfileDraft] = useState(() => {
+    const saved = useBusinessStore.getState().accountPreferences;
+    return {
+      displayName: saved?.displayName ?? "",
+      email: saved?.email ?? "",
+      language: saved?.language ?? "简体中文",
+      timezone: saved?.timezone ?? "Asia/Shanghai (UTC+8)",
+      currency: saved?.currency ?? "CNY · 人民币",
+      businessName: saved?.businessName ?? "",
+    };
+  });
   const showToast = useUiStore((s) => s.showToast);
   const twoFactorStatusQuery = useQuery({
     queryKey: ["auth", "2fa"],
@@ -878,7 +916,7 @@ export function SettingsPage() {
                 ? (Number.parseInt(a.latency) || 99999) -
                   (Number.parseInt(b.latency) || 99999)
                 : serviceSort === "密钥最多"
-                  ? b.keyCount - a.keyCoun
+                  ? b.keyCount - a.keyCount
                   : a.priority - b.priority,
         ),
     [aiServices, serviceQuery, serviceSort, serviceStatus],
@@ -1099,7 +1137,7 @@ export function SettingsPage() {
                 </span>
               </header>
               <div className="profile-preview">
-                <b>{profileDraft.displayName.trim().slice(0, 1) || "用"}</b>
+                <b>{profileDraft.displayName?.trim().slice(0, 1) || "用"}</b>
                 <span>
                   <strong>{profileDraft.displayName || "未设置名称"}</strong>
                   <small>{profileDraft.email || "未设置邮箱"}</small>
@@ -1108,7 +1146,7 @@ export function SettingsPage() {
               <div className="profile-form">
                 <label>
                   显示名称
-                  <Inpu
+                  <Input
                     value={profileDraft.displayName}
                     onChange={(e) =>
                       setProfileDraft((value) => ({
@@ -1120,7 +1158,7 @@ export function SettingsPage() {
                 </label>
                 <label>
                   邮箱
-                  <Inpu
+                  <Input
                     type="email"
                     value={profileDraft.email}
                     onChange={(e) =>
@@ -1146,7 +1184,7 @@ export function SettingsPage() {
               <div className="profile-form profile-preference-grid">
                 <label>
                   默认语言
-                  <CustomSelec
+                  <CustomSelect
                     ariaLabel="默认语言"
                     value={profileDraft.language}
                     onChange={(language) =>
@@ -1157,7 +1195,7 @@ export function SettingsPage() {
                 </label>
                 <label>
                   时区
-                  <CustomSelec
+                  <CustomSelect
                     ariaLabel="时区"
                     value={profileDraft.timezone}
                     onChange={(timezone) =>
@@ -1168,7 +1206,7 @@ export function SettingsPage() {
                 </label>
                 <label>
                   基准币种
-                  <CustomSelec
+                  <CustomSelect
                     ariaLabel="基准币种"
                     value={profileDraft.currency}
                     onChange={(currency) =>
@@ -1179,7 +1217,7 @@ export function SettingsPage() {
                 </label>
                 <label>
                   经营名称
-                  <Inpu
+                  <Input
                     value={profileDraft.businessName}
                     onChange={(e) =>
                       setProfileDraft((value) => ({
@@ -1199,21 +1237,21 @@ export function SettingsPage() {
                 <div className="customer-filter-controls">
                   <label className="customer-search module-search">
                     <Search />
-                    <Inpu
+                    <Input
                       aria-label="搜索 AI 服务"
                       value={serviceQuery}
                       onChange={(event) => setServiceQuery(event.target.value)}
                       placeholder="搜索服务、模型或提供商"
                     />
                   </label>
-                  <CustomSelec
+                  <CustomSelect
                     className="ai-status-select"
                     ariaLabel="筛选 AI 服务状态"
                     value={serviceStatus}
                     onChange={setServiceStatus}
                     options={["全部状态", "可用", "未验证", "异常", "停用"]}
                   />
-                  <CustomSelec
+                  <CustomSelect
                     className="sort-select"
                     ariaLabel="AI 服务排序"
                     value={serviceSort}
@@ -1661,7 +1699,7 @@ export function SettingsPage() {
           <div className="ai-policy-grid">
             <label>
               密钥轮转方式
-              <CustomSelec
+              <CustomSelect
                 ariaLabel="密钥轮转方式"
                 value={rotationStrategy}
                 onChange={setRotationStrategy}
@@ -1670,7 +1708,7 @@ export function SettingsPage() {
             </label>
             <label>
               单密钥重试次数
-              <CustomSelec
+              <CustomSelect
                 ariaLabel="单密钥重试次数"
                 value={retryCount}
                 onChange={setRetryCount}
@@ -1679,7 +1717,7 @@ export function SettingsPage() {
             </label>
             <label>
               重试间隔
-              <CustomSelec
+              <CustomSelect
                 ariaLabel="重试间隔"
                 value={retryDelay}
                 onChange={setRetryDelay}
@@ -1688,7 +1726,7 @@ export function SettingsPage() {
             </label>
             <label>
               失败冷却时间
-              <CustomSelec
+              <CustomSelect
                 ariaLabel="失败冷却时间"
                 value={cooldown}
                 onChange={setCooldown}
@@ -1979,10 +2017,10 @@ export function SettingsPage() {
                 },
                 {
                   name: "key",
-                  label: searchConnection?.hasSecre
+                  label: searchConnection?.hasSecret
                     ? `访问密钥（当前 •••• ${searchConnection.secretEnding}）`
                     : "访问密钥",
-                  placeholder: searchConnection?.hasSecre
+                  placeholder: searchConnection?.hasSecret
                     ? "留空保留现有密钥"
                     : "商业 API 必填；Google 需在接口地址附加 ?cx=ID；SearXNG 可选",
                 },
@@ -2014,11 +2052,11 @@ export function SettingsPage() {
                   },
                   {
                     name: "key",
-                    label: mapConnection?.hasSecre
+                    label: mapConnection?.hasSecret
                       ? `访问密钥（当前 •••• ${mapConnection.secretEnding}）`
                       : "访问密钥",
                     required: !mapConnection?.hasSecret,
-                    placeholder: mapConnection?.hasSecre
+                    placeholder: mapConnection?.hasSecret
                       ? "留空保留现有密钥"
                       : "输入地图 Web Service API Key",
                   },

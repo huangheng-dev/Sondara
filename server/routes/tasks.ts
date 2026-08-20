@@ -27,8 +27,8 @@ const listQuery = z.object({
   sort: z.enum(['created_desc', 'due_asc', 'priority_desc']).default('created_desc'),
 })
 
-const writeAudit = (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
-  db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'task', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() }).run()
+const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
+  await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'task', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() })
 }
 
 export const taskRoutes: FastifyPluginAsync = async app => {
@@ -43,8 +43,8 @@ export const taskRoutes: FastifyPluginAsync = async app => {
     if (query.status) conditions.push(eq(tasks.status, query.status))
     const where = and(...conditions)
     const orderBy = query.sort === 'due_asc' ? asc(tasks.dueAt) : query.sort === 'priority_desc' ? asc(tasks.priority) : desc(tasks.createdAt)
-    const total = db.select({ count: sql<number>`count(*)` }).from(tasks).where(where).get()?.count ?? 0
-    const items = db.select().from(tasks).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize).all()
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(tasks).where(where)))?.count ?? 0
+    const items = (await db.select().from(tasks).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize))
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
@@ -52,13 +52,13 @@ export const taskRoutes: FastifyPluginAsync = async app => {
     const parsed = taskInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     if (parsed.data.customerId) {
-      const customer = db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, parsed.data.customerId), eq(customers.workspaceId, request.auth.workspaceId))).get()
+      const customer = (await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, parsed.data.customerId), eq(customers.workspaceId, request.auth.workspaceId)))))
       if (!customer) return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', message: '关联客户不存在。' })
     }
     const now = Date.now()
     const record = { id: createId('tsk'), workspaceId: request.auth.workspaceId, ownerUserId: request.auth.userId, status: 'open', createdAt: now, updatedAt: now, ...parsed.data }
-    db.insert(tasks).values(record).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'task.created', record.id, { title: record.title, customerId: record.customerId })
+    await db.insert(tasks).values(record)
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'task.created', record.id, { title: record.title, customerId: record.customerId })
     return reply.code(201).send(record)
   })
 
@@ -66,16 +66,16 @@ export const taskRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = taskPatch.safeParse(request.body)
     if (!parsed.success || Object.keys(parsed.data).length === 0) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
-    const existing = db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '任务不存在。' })
     if (parsed.data.customerId) {
-      const customer = db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, parsed.data.customerId), eq(customers.workspaceId, request.auth.workspaceId))).get()
+      const customer = (await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, parsed.data.customerId), eq(customers.workspaceId, request.auth.workspaceId)))))
       if (!customer) return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', message: '关联客户不存在。' })
     }
     const changes = pickProvided(request.body, parsed.data)
     if (!Object.keys(changes).length) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
-    db.update(tasks).set({ ...changes, updatedAt: Date.now() }).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId))).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'task.updated', id, { fields: Object.keys(changes) })
-    return db.select().from(tasks).where(eq(tasks.id, id)).get()
+    await db.update(tasks).set({ ...changes, updatedAt: Date.now() }).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId)))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'task.updated', id, { fields: Object.keys(changes) })
+    return (await db.$first(db.select().from(tasks).where(eq(tasks.id, id))))
   })
 }

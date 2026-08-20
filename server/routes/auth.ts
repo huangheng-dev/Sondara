@@ -40,9 +40,9 @@ const createRecoveryCodes = () => Array.from({ length: 8 }, () => {
 
 const normalizeRecoveryCode = (value: string) => value.replace(/\s|-/g, '').toUpperCase()
 
-const getPrimaryWorkspace = (userId: string) => db.select({ workspaceId: workspaces.id, workspaceName: workspaces.name, role: workspaceMembers.role })
+const getPrimaryWorkspace = async (userId: string) => (await db.$first(db.select({ workspaceId: workspaces.id, workspaceName: workspaces.name, role: workspaceMembers.role })
   .from(workspaceMembers).innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-  .where(eq(workspaceMembers.userId, userId)).limit(1).get()
+  .where(eq(workspaceMembers.userId, userId)).limit(1)))
 
 const getTotpSecret = (user: typeof users.$inferSelect) => {
   if (!user.totpSecretCiphertext || !user.totpSecretIv || !user.totpSecretTag) return null
@@ -55,14 +55,14 @@ const sessionMetadata = (request: { headers: Record<string, unknown>; ip: string
 })
 
 const sendPasswordResetEmail = async (user: typeof users.$inferSelect, token: string) => {
-  const member = getPrimaryWorkspace(user.id)
+  const member = (await getPrimaryWorkspace(user.id))
   if (!member) return false
-  const connection = db.select().from(outboundChannelConnections)
-    .where(and(
-      eq(outboundChannelConnections.workspaceId, member.workspaceId),
-      eq(outboundChannelConnections.enabled, true),
-      eq(outboundChannelConnections.provider, 'smtp'),
-    )).orderBy(asc(outboundChannelConnections.priority)).get()
+  const connection = (await db.$first(db.select().from(outboundChannelConnections)
+      .where(and(
+        eq(outboundChannelConnections.workspaceId, member.workspaceId),
+        eq(outboundChannelConnections.enabled, true),
+        eq(outboundChannelConnections.provider, 'smtp'),
+      )).orderBy(asc(outboundChannelConnections.priority))))
   if (!connection) return false
   const resetUrl = `${config.webOrigin.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`
   const transport = nodemailer.createTransport({
@@ -94,19 +94,19 @@ export const authRoutes: FastifyPluginAsync = async app => {
     const parsed = registerSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const { email, password, displayName } = parsed.data
-    if (db.select({ id: users.id }).from(users).where(eq(users.email, email)).get()) {
+    if ((await db.$first(db.select({ id: users.id }).from(users).where(eq(users.email, email))))) {
       return reply.code(409).send({ error: 'EMAIL_EXISTS', message: '该邮箱已注册。' })
     }
     const now = Date.now()
     const userId = createId('usr')
     const workspaceId = createId('wsp')
     const passwordHash = await hashPassword(password)
-    db.transaction(tx => {
-      tx.insert(users).values({ id: userId, email, passwordHash, displayName, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaces).values({ id: workspaceId, name: `${displayName}的工作区`, ownerUserId: userId, createdAt: now, updatedAt: now }).run()
-      tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now }).run()
-    })
-    const session = createSession(userId, undefined, sessionMetadata(request))
+    await db.transaction(async tx => {
+            await tx.insert(users).values({ id: userId, email, passwordHash, displayName, createdAt: now, updatedAt: now })
+            await tx.insert(workspaces).values({ id: workspaceId, name: `${displayName}的工作区`, ownerUserId: userId, createdAt: now, updatedAt: now })
+            await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
+          })
+    const session = (await createSession(userId, undefined, sessionMetadata(request)))
     setSessionCookie(reply, session.token, session.expiresAt)
     return reply.code(201).send({ user: { id: userId, email, displayName }, workspace: { id: workspaceId, name: `${displayName}的工作区`, role: 'owner' } })
   })
@@ -114,7 +114,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.post('/login', { config: { rateLimit: { max: 12, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '邮箱或密码格式不正确。' })
-    const user = db.select().from(users).where(eq(users.email, parsed.data.email)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.email, parsed.data.email))))
     if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
       return reply.code(401).send({ error: 'INVALID_CREDENTIALS', message: '邮箱或密码不正确。' })
     }
@@ -123,13 +123,13 @@ export const authRoutes: FastifyPluginAsync = async app => {
       const now = Date.now()
       const token = randomBytes(32).toString('base64url')
       const expiresAt = now + 10 * 60_000
-      db.insert(authChallenges).values({ id: createId('ach'), userId: user.id, purpose: 'login_2fa', tokenHash: hashSessionToken(token), expiresAt, createdAt: now }).run()
+      await db.insert(authChallenges).values({ id: createId('ach'), userId: user.id, purpose: 'login_2fa', tokenHash: hashSessionToken(token), expiresAt, createdAt: now })
       setChallengeCookie(reply, token, expiresAt)
       return reply.code(202).send({ twoFactorRequired: true, maskedEmail: user.email.replace(/^(.).*?(@.*)$/, '$1***$2') })
     }
-    const session = createSession(user.id, parsed.data.remember ? undefined : 1, sessionMetadata(request))
+    const session = (await createSession(user.id, parsed.data.remember ? undefined : 1, sessionMetadata(request)))
     setSessionCookie(reply, session.token, session.expiresAt)
-    const member = getPrimaryWorkspace(user.id)
+    const member = (await getPrimaryWorkspace(user.id))
     if (!member) return reply.code(403).send({ error: 'NO_WORKSPACE', message: '账户尚未关联工作空间。' })
     return { user: { id: user.id, email: user.email, displayName: user.displayName }, workspace: { id: member.workspaceId, name: member.workspaceName, role: member.role } }
   })
@@ -139,14 +139,14 @@ export const authRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '请输入 6 位验证码或恢复码。' })
     const token = request.cookies[challengeCookieName]
     if (!token) return reply.code(401).send({ error: 'CHALLENGE_REQUIRED', message: '二次验证已过期，请重新登录。' })
-    const challenge = db.select().from(authChallenges).where(and(eq(authChallenges.tokenHash, hashSessionToken(token)), eq(authChallenges.purpose, 'login_2fa'), gt(authChallenges.expiresAt, Date.now()))).get()
+    const challenge = (await db.$first(db.select().from(authChallenges).where(and(eq(authChallenges.tokenHash, hashSessionToken(token)), eq(authChallenges.purpose, 'login_2fa'), gt(authChallenges.expiresAt, Date.now())))))
     if (!challenge) {
       clearChallengeCookie(reply)
       return reply.code(401).send({ error: 'CHALLENGE_EXPIRED', message: '二次验证已过期，请重新登录。' })
     }
-    const user = db.select().from(users).where(eq(users.id, challenge.userId)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.id, challenge.userId))))
     if (!user || user.status !== 'active' || !user.totpEnabled) {
-      db.delete(authChallenges).where(eq(authChallenges.id, challenge.id)).run()
+      await db.delete(authChallenges).where(eq(authChallenges.id, challenge.id))
       clearChallengeCookie(reply)
       return reply.code(401).send({ error: 'INVALID_USER', message: '账户不可用，请重新登录。' })
     }
@@ -163,33 +163,33 @@ export const authRoutes: FastifyPluginAsync = async app => {
           if (await verifyPassword(normalized, hash)) {
             valid = true
             usedRecovery = true
-            db.update(users).set({ totpRecoveryCodesJson: JSON.stringify(hashes.filter(item => item !== hash)), updatedAt: Date.now() }).where(eq(users.id, user.id)).run()
+            await db.update(users).set({ totpRecoveryCodesJson: JSON.stringify(hashes.filter(item => item !== hash)), updatedAt: Date.now() }).where(eq(users.id, user.id))
             break
           }
         }
       }
     }
     if (!valid) return reply.code(401).send({ error: 'INVALID_CODE', message: '验证码不正确或已过期。' })
-    db.delete(authChallenges).where(eq(authChallenges.id, challenge.id)).run()
+    await db.delete(authChallenges).where(eq(authChallenges.id, challenge.id))
     clearChallengeCookie(reply)
-    const session = createSession(user.id, parsed.data.remember ? undefined : 1, sessionMetadata(request))
+    const session = (await createSession(user.id, parsed.data.remember ? undefined : 1, sessionMetadata(request)))
     setSessionCookie(reply, session.token, session.expiresAt)
-    const member = getPrimaryWorkspace(user.id)
+    const member = (await getPrimaryWorkspace(user.id))
     if (!member) return reply.code(403).send({ error: 'NO_WORKSPACE', message: '账户尚未关联工作空间。' })
     return reply.code(201).send({ user: { id: user.id, email: user.email, displayName: user.displayName }, workspace: { id: member.workspaceId, name: member.workspaceName, role: member.role }, usedRecovery })
   })
 
   app.post('/logout', async (request, reply) => {
     const token = request.cookies[sessionCookieName]
-    if (token) db.delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(token))).run()
+    if (token) await db.delete(sessions).where(eq(sessions.tokenHash, hashSessionToken(token)))
     clearSessionCookie(reply)
     clearChallengeCookie(reply)
     return reply.code(204).send()
   })
 
   app.get('/session', { preHandler: requireAuth }, async request => ({
-    user: (() => {
-      const user = db.select({ locale: users.locale, timezone: users.timezone, currency: users.currency }).from(users).where(eq(users.id, request.auth.userId)).get()
+    user: (async () => {
+      const user = (await db.$first(db.select({ locale: users.locale, timezone: users.timezone, currency: users.currency }).from(users).where(eq(users.id, request.auth.userId))))
       return { id: request.auth.userId, email: request.auth.email, displayName: request.auth.displayName, locale: user?.locale ?? 'zh-CN', timezone: user?.timezone ?? 'Asia/Shanghai', currency: user?.currency ?? 'CNY' }
     })(),
     workspace: { id: request.auth.workspaceId, name: request.auth.workspaceName, role: request.auth.role },
@@ -198,12 +198,12 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.post('/forgot-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const parsed = z.object({ email: z.string().trim().toLowerCase().email() }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '请输入有效邮箱。' })
-    const user = db.select().from(users).where(eq(users.email, parsed.data.email)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.email, parsed.data.email))))
     if (!user || user.status !== 'active') return { ok: true, delivery: 'accepted' }
     const token = randomBytes(32).toString('base64url')
     const now = Date.now()
-    db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, user.id)).run()
-    db.insert(passwordResetTokens).values({ id: createId('prt'), userId: user.id, tokenHash: hashSessionToken(token), expiresAt: now + 30 * 60_000, createdAt: now }).run()
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, user.id))
+    await db.insert(passwordResetTokens).values({ id: createId('prt'), userId: user.id, tokenHash: hashSessionToken(token), expiresAt: now + 30 * 60_000, createdAt: now })
     let delivered = false
     try { delivered = await sendPasswordResetEmail(user, token) } catch { delivered = false }
     return {
@@ -216,19 +216,19 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.post('/reset-password', { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const parsed = z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(8).max(128) }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const record = db.select().from(passwordResetTokens).where(and(
-      eq(passwordResetTokens.tokenHash, hashSessionToken(parsed.data.token)),
-      gt(passwordResetTokens.expiresAt, Date.now()),
-      isNull(passwordResetTokens.usedAt),
-    )).get()
+    const record = (await db.$first(db.select().from(passwordResetTokens).where(and(
+          eq(passwordResetTokens.tokenHash, hashSessionToken(parsed.data.token)),
+          gt(passwordResetTokens.expiresAt, Date.now()),
+          isNull(passwordResetTokens.usedAt),
+        ))))
     if (!record) return reply.code(400).send({ error: 'RESET_TOKEN_INVALID', message: '重置链接无效或已过期，请重新申请。' })
     const passwordHash = await hashPassword(parsed.data.newPassword)
     const now = Date.now()
-    db.transaction(tx => {
-      tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, record.userId)).run()
-      tx.update(passwordResetTokens).set({ usedAt: now }).where(eq(passwordResetTokens.id, record.id)).run()
-      tx.delete(sessions).where(eq(sessions.userId, record.userId)).run()
-    })
+    await db.transaction(async tx => {
+            await tx.update(users).set({ passwordHash, updatedAt: now }).where(eq(users.id, record.userId))
+            await tx.update(passwordResetTokens).set({ usedAt: now }).where(eq(passwordResetTokens.id, record.id))
+            await tx.delete(sessions).where(eq(sessions.userId, record.userId))
+          })
     return { ok: true }
   })
 
@@ -242,41 +242,41 @@ export const authRoutes: FastifyPluginAsync = async app => {
       businessName: z.string().trim().min(1).max(120),
     }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const duplicate = db.select({ id: users.id }).from(users).where(and(eq(users.email, parsed.data.email), ne(users.id, request.auth.userId))).get()
+    const duplicate = (await db.$first(db.select({ id: users.id }).from(users).where(and(eq(users.email, parsed.data.email), ne(users.id, request.auth.userId)))))
     if (duplicate) return reply.code(409).send({ error: 'EMAIL_EXISTS', message: '该邮箱已被其他账户使用。' })
     const now = Date.now()
-    db.transaction(tx => {
-      tx.update(users).set({ displayName: parsed.data.displayName, email: parsed.data.email, locale: parsed.data.locale, timezone: parsed.data.timezone, currency: parsed.data.currency, updatedAt: now }).where(eq(users.id, request.auth.userId)).run()
-      if (request.auth.role === 'owner') tx.update(workspaces).set({ name: parsed.data.businessName, updatedAt: now }).where(eq(workspaces.id, request.auth.workspaceId)).run()
-    })
+    await db.transaction(async tx => {
+            await tx.update(users).set({ displayName: parsed.data.displayName, email: parsed.data.email, locale: parsed.data.locale, timezone: parsed.data.timezone, currency: parsed.data.currency, updatedAt: now }).where(eq(users.id, request.auth.userId))
+            if (request.auth.role === 'owner') await tx.update(workspaces).set({ name: parsed.data.businessName, updatedAt: now }).where(eq(workspaces.id, request.auth.workspaceId))
+          })
     return { user: { id: request.auth.userId, displayName: parsed.data.displayName, email: parsed.data.email, locale: parsed.data.locale, timezone: parsed.data.timezone, currency: parsed.data.currency }, workspace: { id: request.auth.workspaceId, name: request.auth.role === 'owner' ? parsed.data.businessName : request.auth.workspaceName, role: request.auth.role } }
   })
 
-  app.get('/sessions', { preHandler: requireAuth }, async request => ({ items: db.select().from(sessions).where(eq(sessions.userId, request.auth.userId)).orderBy(asc(sessions.createdAt)).all().map(item => ({ id: item.id, current: item.id === request.auth.sessionId, userAgent: item.userAgent, ipAddress: item.ipAddress, lastSeenAt: item.lastSeenAt, createdAt: item.createdAt, expiresAt: item.expiresAt })) }))
+  app.get('/sessions', { preHandler: requireAuth }, async request => ({ items: (await db.select().from(sessions).where(eq(sessions.userId, request.auth.userId)).orderBy(asc(sessions.createdAt))).map(item => ({ id: item.id, current: item.id === request.auth.sessionId, userAgent: item.userAgent, ipAddress: item.ipAddress, lastSeenAt: item.lastSeenAt, createdAt: item.createdAt, expiresAt: item.expiresAt })) }))
 
-  app.get('/workspace-members', { preHandler: requireAuth }, async request => ({ items: db.select({ id: users.id, displayName: users.displayName, email: users.email, role: workspaceMembers.role }).from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId)).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(users.status, 'active'))).all() }))
+  app.get('/workspace-members', { preHandler: requireAuth }, async request => ({ items: (await db.select({ id: users.id, displayName: users.displayName, email: users.email, role: workspaceMembers.role }).from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId)).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(users.status, 'active')))) }))
 
   app.delete('/sessions/:id', { preHandler: requireAuth }, async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const record = db.select().from(sessions).where(and(eq(sessions.id, id), eq(sessions.userId, request.auth.userId))).get()
+    const record = (await db.$first(db.select().from(sessions).where(and(eq(sessions.id, id), eq(sessions.userId, request.auth.userId)))))
     if (!record) return reply.code(404).send({ error: 'NOT_FOUND', message: '登录会话不存在。' })
-    db.delete(sessions).where(eq(sessions.id, id)).run()
+    await db.delete(sessions).where(eq(sessions.id, id))
     if (id === request.auth.sessionId) clearSessionCookie(reply)
     return reply.code(204).send()
   })
 
   app.delete('/sessions', { preHandler: requireAuth }, async request => {
-    const removed = db.delete(sessions).where(and(eq(sessions.userId, request.auth.userId), ne(sessions.id, request.auth.sessionId))).run().changes
+    const removed = (await db.delete(sessions).where(and(eq(sessions.userId, request.auth.userId), ne(sessions.id, request.auth.sessionId)))).rowCount ?? 0
     return { removed }
   })
 
   app.get('/2fa/status', { preHandler: requireAuth }, async request => {
-    const user = db.select({ totpEnabled: users.totpEnabled, totpVerifiedAt: users.totpVerifiedAt }).from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select({ totpEnabled: users.totpEnabled, totpVerifiedAt: users.totpVerifiedAt }).from(users).where(eq(users.id, request.auth.userId))))
     return { enabled: user?.totpEnabled ?? false, verifiedAt: user?.totpVerifiedAt ?? null }
   })
 
   app.post('/2fa/setup', { preHandler: requireAuth }, async (request, reply) => {
-    const user = db.select({ email: users.email, totpEnabled: users.totpEnabled, totpVerifiedAt: users.totpVerifiedAt }).from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select({ email: users.email, totpEnabled: users.totpEnabled, totpVerifiedAt: users.totpVerifiedAt }).from(users).where(eq(users.id, request.auth.userId))))
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: '用户不存在。' })
     if (user.totpEnabled) return { enabled: true, verifiedAt: user.totpVerifiedAt }
     const secret = generateTotpSecret()
@@ -290,7 +290,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
       code: z.string().trim().regex(/^\d{6}$/, '请输入 6 位数字验证码。'),
     }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const user = db.select().from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.id, request.auth.userId))))
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: '用户不存在。' })
     if (user.totpEnabled) return reply.code(409).send({ error: 'ALREADY_ENABLED', message: '双重验证已启用。' })
     if (!(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) return reply.code(401).send({ error: 'INVALID_PASSWORD', message: '当前密码不正确。' })
@@ -300,15 +300,15 @@ export const authRoutes: FastifyPluginAsync = async app => {
     const recoveryCodes = createRecoveryCodes()
     const recoveryHashes = await Promise.all(recoveryCodes.map(code => hashPassword(normalizeRecoveryCode(code))))
     const now = Date.now()
-    db.update(users).set({
-      totpSecretCiphertext: encrypted.ciphertext,
-      totpSecretIv: encrypted.iv,
-      totpSecretTag: encrypted.tag,
-      totpEnabled: true,
-      totpVerifiedAt: now,
-      totpRecoveryCodesJson: JSON.stringify(recoveryHashes),
-      updatedAt: now,
-    }).where(eq(users.id, user.id)).run()
+    await db.update(users).set({
+            totpSecretCiphertext: encrypted.ciphertext,
+            totpSecretIv: encrypted.iv,
+            totpSecretTag: encrypted.tag,
+            totpEnabled: true,
+            totpVerifiedAt: now,
+            totpRecoveryCodesJson: JSON.stringify(recoveryHashes),
+            updatedAt: now,
+          }).where(eq(users.id, user.id))
     return reply.code(201).send({ enabled: true, verifiedAt: now, recoveryCodes })
   })
 
@@ -318,7 +318,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
       code: z.string().trim().min(6).max(20),
     }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const user = db.select().from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.id, request.auth.userId))))
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: '用户不存在。' })
     if (!user.totpEnabled) return reply.code(409).send({ error: 'NOT_ENABLED', message: '双重验证尚未启用。' })
     if (!(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) return reply.code(401).send({ error: 'INVALID_PASSWORD', message: '当前密码不正确。' })
@@ -333,7 +333,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
         for (const hash of hashes) {
           if (await verifyPassword(normalized, hash)) {
             valid = true
-            db.update(users).set({ totpRecoveryCodesJson: JSON.stringify(hashes.filter(item => item !== hash)), updatedAt: Date.now() }).where(eq(users.id, user.id)).run()
+            await db.update(users).set({ totpRecoveryCodesJson: JSON.stringify(hashes.filter(item => item !== hash)), updatedAt: Date.now() }).where(eq(users.id, user.id))
             break
           }
         }
@@ -341,17 +341,17 @@ export const authRoutes: FastifyPluginAsync = async app => {
     }
     if (!valid) return reply.code(400).send({ error: 'INVALID_CODE', message: '验证码或恢复码不正确。' })
     const now = Date.now()
-    db.update(users).set({
-      totpSecretCiphertext: null,
-      totpSecretIv: null,
-      totpSecretTag: null,
-      totpEnabled: false,
-      totpVerifiedAt: null,
-      totpRecoveryCodesJson: '[]',
-      updatedAt: now,
-    }).where(eq(users.id, user.id)).run()
-    db.delete(sessions).where(eq(sessions.userId, user.id)).run()
-    const session = createSession(user.id, undefined, sessionMetadata(request))
+    await db.update(users).set({
+            totpSecretCiphertext: null,
+            totpSecretIv: null,
+            totpSecretTag: null,
+            totpEnabled: false,
+            totpVerifiedAt: null,
+            totpRecoveryCodesJson: '[]',
+            updatedAt: now,
+          }).where(eq(users.id, user.id))
+    await db.delete(sessions).where(eq(sessions.userId, user.id))
+    const session = (await createSession(user.id, undefined, sessionMetadata(request)))
     setSessionCookie(reply, session.token, session.expiresAt)
     return { enabled: false }
   })
@@ -359,25 +359,25 @@ export const authRoutes: FastifyPluginAsync = async app => {
   app.post('/change-password', { preHandler: requireAuth }, async (request, reply) => {
     const parsed = z.object({ currentPassword: z.string().min(1, '请输入当前密码。'), newPassword: z.string().min(8, '新密码至少需要 8 位。').max(128) }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const user = db.select().from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.id, request.auth.userId))))
     if (!user) return reply.code(404).send({ error: 'NOT_FOUND', message: '用户不存在。' })
     if (!(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) return reply.code(401).send({ error: 'INVALID_PASSWORD', message: '当前密码不正确。' })
     const passwordHash = await hashPassword(parsed.data.newPassword)
-    db.update(users).set({ passwordHash, updatedAt: Date.now() }).where(eq(users.id, user.id)).run()
-    db.delete(sessions).where(and(eq(sessions.userId, user.id), ne(sessions.id, request.auth.sessionId))).run()
+    await db.update(users).set({ passwordHash, updatedAt: Date.now() }).where(eq(users.id, user.id))
+    await db.delete(sessions).where(and(eq(sessions.userId, user.id), ne(sessions.id, request.auth.sessionId)))
     return { ok: true }
   })
 
   app.delete('/account', { preHandler: requireAuth }, async (request, reply) => {
     const parsed = z.object({ currentPassword: z.string().min(1), confirmation: z.literal('DELETE') }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '请输入当前密码并填写 DELETE 确认。' })
-    const user = db.select().from(users).where(eq(users.id, request.auth.userId)).get()
+    const user = (await db.$first(db.select().from(users).where(eq(users.id, request.auth.userId))))
     if (!user || !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) return reply.code(401).send({ error: 'INVALID_PASSWORD', message: '当前密码不正确。' })
     if (request.auth.role === 'owner') {
-      const memberCount = db.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, request.auth.workspaceId)).get()?.count ?? 0
+      const memberCount = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, request.auth.workspaceId))))?.count ?? 0
       if (memberCount > 1) return reply.code(409).send({ error: 'WORKSPACE_HAS_MEMBERS', message: '请先移除其他成员，再删除所有者账户和工作区。' })
     }
-    db.delete(users).where(eq(users.id, request.auth.userId)).run()
+    await db.delete(users).where(eq(users.id, request.auth.userId))
     clearSessionCookie(reply)
     clearChallengeCookie(reply)
     return reply.code(204).send()

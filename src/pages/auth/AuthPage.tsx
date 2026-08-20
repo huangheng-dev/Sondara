@@ -50,7 +50,7 @@ const pageCopy = {
     description: '重置成功后，其他设备上的旧会话会全部失效。',
     submit: '更新登录密码',
   },
-} as cons
+} as const
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset' }) {
   const navigate = useNavigate()

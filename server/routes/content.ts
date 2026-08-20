@@ -68,37 +68,37 @@ const serializeAsset = (asset: typeof contentAssets.$inferSelect) => ({
   linkedCampaignIds: (() => { try { return JSON.parse(asset.linkedCampaignIdsJson) as string[] } catch { return [] } })(),
 })
 
-const writeAudit = (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
-  db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'content_asset', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() }).run()
+const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
+  await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'content_asset', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() })
 }
 
-const insertQuality = (workspaceId: string, assetId: string, versionId: string | null, quality: QualityResult, now = Date.now()) => {
+const insertQuality = async (workspaceId: string, assetId: string, versionId: string | null, quality: QualityResult, now = Date.now()) => {
   const checkId = createId('cqc')
-  db.insert(contentQualityChecks).values({
-    id: checkId, workspaceId, contentAssetId: assetId, contentVersionId: versionId,
-    overallScore: quality.overallScore, customerRelevance: quality.customerRelevance,
-    evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity,
-    status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now,
-  }).run()
+  await db.insert(contentQualityChecks).values({
+        id: checkId, workspaceId, contentAssetId: assetId, contentVersionId: versionId,
+        overallScore: quality.overallScore, customerRelevance: quality.customerRelevance,
+        evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity,
+        status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now,
+      })
   return checkId
 }
 
-const createAsset = (workspaceId: string, userId: string, input: z.infer<typeof assetInput>) => {
+const createAsset = async (workspaceId: string, userId: string, input: z.infer<typeof assetInput>) => {
   const now = Date.now()
   const assetId = createId('cnt')
   const versionId = createId('cvn')
   const quality = evaluateQuality(input.body, input.targetMarket, input.customerRole, input.customerSignal)
-  db.transaction(tx => {
-    tx.insert(contentAssets).values({
-      id: assetId, workspaceId, ownerUserId: userId, ...input, currentVersion: 1,
-      qualityScore: quality.overallScore, customerRelevance: quality.customerRelevance,
-      evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity,
-      linkedCampaignIdsJson: '[]', publishedAt: input.status === '已发布' ? now : null,
-      archivedAt: input.status === '已归档' ? now : null, createdAt: now, updatedAt: now,
-    }).run()
-    tx.insert(contentVersions).values({ id: versionId, workspaceId, contentAssetId: assetId, versionNumber: 1, title: input.title, body: input.body, changeNote: '创建内容', createdByUserId: userId, createdAt: now }).run()
-    tx.insert(contentQualityChecks).values({ id: createId('cqc'), workspaceId, contentAssetId: assetId, contentVersionId: versionId, overallScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now }).run()
-  })
+  await db.transaction(async tx => {
+        await tx.insert(contentAssets).values({
+                id: assetId, workspaceId, ownerUserId: userId, ...input, currentVersion: 1,
+                qualityScore: quality.overallScore, customerRelevance: quality.customerRelevance,
+                evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity,
+                linkedCampaignIdsJson: '[]', publishedAt: input.status === '已发布' ? now : null,
+                archivedAt: input.status === '已归档' ? now : null, createdAt: now, updatedAt: now,
+              })
+        await tx.insert(contentVersions).values({ id: versionId, workspaceId, contentAssetId: assetId, versionNumber: 1, title: input.title, body: input.body, changeNote: '创建内容', createdByUserId: userId, createdAt: now })
+        await tx.insert(contentQualityChecks).values({ id: createId('cqc'), workspaceId, contentAssetId: assetId, contentVersionId: versionId, overallScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now })
+      })
   return assetId
 }
 
@@ -136,24 +136,24 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     if (query.contentType) conditions.push(eq(contentAssets.contentType, query.contentType))
     const where = and(...conditions)
     const orderBy = query.sort === 'updated_asc' ? asc(contentAssets.updatedAt) : query.sort === 'title_asc' ? asc(contentAssets.title) : query.sort === 'title_desc' ? desc(contentAssets.title) : query.sort === 'market_asc' ? asc(contentAssets.targetMarket) : desc(contentAssets.updatedAt)
-    const total = db.select({ count: sql<number>`count(*)` }).from(contentAssets).where(where).get()?.count ?? 0
-    const items = db.select().from(contentAssets).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize).all().map(serializeAsset)
+    const total = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(contentAssets).where(where)))?.count ?? 0
+    const items = (await db.select().from(contentAssets).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize)).map(serializeAsset)
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
   app.post('/assets', async (request, reply) => {
     const parsed = assetInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
-    const id = createAsset(request.auth.workspaceId, request.auth.userId, parsed.data)
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.created', id, { title: parsed.data.title })
-    return reply.code(201).send(serializeAsset(db.select().from(contentAssets).where(eq(contentAssets.id, id)).get()!))
+    const id = (await createAsset(request.auth.workspaceId, request.auth.userId, parsed.data))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.created', id, { title: parsed.data.title })
+    return reply.code(201).send(serializeAsset((await db.$first(db.select().from(contentAssets).where(eq(contentAssets.id, id))))!))
   })
 
   app.get('/assets/:id', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const asset = db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const asset = (await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!asset) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
-    const latestCheck = db.select().from(contentQualityChecks).where(and(eq(contentQualityChecks.contentAssetId, id), eq(contentQualityChecks.workspaceId, request.auth.workspaceId))).orderBy(desc(contentQualityChecks.createdAt)).get()
+    const latestCheck = (await db.$first(db.select().from(contentQualityChecks).where(and(eq(contentQualityChecks.contentAssetId, id), eq(contentQualityChecks.workspaceId, request.auth.workspaceId))).orderBy(desc(contentQualityChecks.createdAt))))
     return { ...serializeAsset(asset), latestQualityCheck: latestCheck ? { ...latestCheck, findings: JSON.parse(latestCheck.findingsJson) as string[] } : null }
   })
 
@@ -161,7 +161,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = assetPatch.safeParse(request.body)
     if (!parsed.success || Object.keys(parsed.data).length === 0) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
-    const existing = db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
     const provided = pickProvided(request.body, parsed.data)
     const { changeNote, ...changes } = provided
@@ -176,46 +176,46 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     const versionNumber = contentChanged ? existing.currentVersion + 1 : existing.currentVersion
     const versionId = contentChanged ? createId('cvn') : null
     const quality = evaluateQuality(body, targetMarket, customerRole, customerSignal)
-    db.transaction(tx => {
-      tx.update(contentAssets).set({
-        ...changes, currentVersion: versionNumber, qualityScore: quality.overallScore,
-        customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore,
-        actionClarity: quality.actionClarity,
-        ...(changes.status === '已发布' ? { publishedAt: now, archivedAt: null } : {}),
-        ...(changes.status === '已归档' ? { archivedAt: now } : {}), updatedAt: now,
-      }).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).run()
-      if (versionId) tx.insert(contentVersions).values({ id: versionId, workspaceId: request.auth.workspaceId, contentAssetId: id, versionNumber, title, body, changeNote: changeNote ?? '保存内容', createdByUserId: request.auth.userId, createdAt: now }).run()
-      tx.insert(contentQualityChecks).values({ id: createId('cqc'), workspaceId: request.auth.workspaceId, contentAssetId: id, contentVersionId: versionId, overallScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now }).run()
-    })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.updated', id, { fields: Object.keys(changes), versionNumber })
-    return serializeAsset(db.select().from(contentAssets).where(eq(contentAssets.id, id)).get()!)
+    await db.transaction(async tx => {
+            await tx.update(contentAssets).set({
+                      ...changes, currentVersion: versionNumber, qualityScore: quality.overallScore,
+                      customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore,
+                      actionClarity: quality.actionClarity,
+                      ...(changes.status === '已发布' ? { publishedAt: now, archivedAt: null } : {}),
+                      ...(changes.status === '已归档' ? { archivedAt: now } : {}), updatedAt: now,
+                    }).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))
+            if (versionId) await tx.insert(contentVersions).values({ id: versionId, workspaceId: request.auth.workspaceId, contentAssetId: id, versionNumber, title, body, changeNote: changeNote ?? '保存内容', createdByUserId: request.auth.userId, createdAt: now })
+            await tx.insert(contentQualityChecks).values({ id: createId('cqc'), workspaceId: request.auth.workspaceId, contentAssetId: id, contentVersionId: versionId, overallScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now })
+          })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.updated', id, { fields: Object.keys(changes), versionNumber })
+    return serializeAsset((await db.$first(db.select().from(contentAssets).where(eq(contentAssets.id, id))))!)
   })
 
   app.post('/assets/:id/duplicate', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const existing = db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const existing = (await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
-    const duplicateId = createAsset(request.auth.workspaceId, request.auth.userId, { title: `${existing.title}（副本）`, contentType: existing.contentType, channel: existing.channel, status: '草稿', language: existing.language, body: existing.body, summary: existing.summary, targetMarket: existing.targetMarket, customerRole: existing.customerRole, buyingStage: existing.buyingStage, customerSignal: existing.customerSignal, sourceMethod: '复用资产' })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.duplicated', duplicateId, { sourceId: id })
-    return reply.code(201).send(serializeAsset(db.select().from(contentAssets).where(eq(contentAssets.id, duplicateId)).get()!))
+    const duplicateId = (await createAsset(request.auth.workspaceId, request.auth.userId, { title: `${existing.title}（副本）`, contentType: existing.contentType, channel: existing.channel, status: '草稿', language: existing.language, body: existing.body, summary: existing.summary, targetMarket: existing.targetMarket, customerRole: existing.customerRole, buyingStage: existing.buyingStage, customerSignal: existing.customerSignal, sourceMethod: '复用资产' }))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.duplicated', duplicateId, { sourceId: id })
+    return reply.code(201).send(serializeAsset((await db.$first(db.select().from(contentAssets).where(eq(contentAssets.id, duplicateId))))!))
   })
 
   app.get('/assets/:id/versions', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const exists = db.select({ id: contentAssets.id }).from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const exists = (await db.$first(db.select({ id: contentAssets.id }).from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!exists) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
-    return { items: db.select().from(contentVersions).where(and(eq(contentVersions.contentAssetId, id), eq(contentVersions.workspaceId, request.auth.workspaceId))).orderBy(desc(contentVersions.versionNumber)).all() }
+    return { items: (await db.select().from(contentVersions).where(and(eq(contentVersions.contentAssetId, id), eq(contentVersions.workspaceId, request.auth.workspaceId))).orderBy(desc(contentVersions.versionNumber))) }
   })
 
   app.post('/assets/:id/quality-check', async (request, reply) => {
     const id = (request.params as { id: string }).id
-    const asset = db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const asset = (await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!asset) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
     const quality = evaluateQuality(asset.body, asset.targetMarket, asset.customerRole, asset.customerSignal)
     const now = Date.now()
-    insertQuality(request.auth.workspaceId, id, null, quality, now)
-    db.update(contentAssets).set({ qualityScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, updatedAt: now }).where(eq(contentAssets.id, id)).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.quality_checked', id, { overallScore: quality.overallScore })
+    await insertQuality(request.auth.workspaceId, id, null, quality, now)
+    await db.update(contentAssets).set({ qualityScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, updatedAt: now }).where(eq(contentAssets.id, id))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.quality_checked', id, { overallScore: quality.overallScore })
     return quality
   })
 
@@ -223,24 +223,24 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const parsed = z.object({ campaignId: z.string().trim().min(1).max(120) }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '请选择营销活动。' })
-    const asset = db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).get()
+    const asset = (await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))))
     if (!asset) return reply.code(404).send({ error: 'NOT_FOUND', message: '内容资产不存在。' })
-    const campaign = db.select({ id: campaigns.id }).from(campaigns).where(and(eq(campaigns.id, parsed.data.campaignId), eq(campaigns.workspaceId, request.auth.workspaceId))).get()
+    const campaign = (await db.$first(db.select({ id: campaigns.id }).from(campaigns).where(and(eq(campaigns.id, parsed.data.campaignId), eq(campaigns.workspaceId, request.auth.workspaceId)))))
     if (!campaign) return reply.code(404).send({ error: 'CAMPAIGN_NOT_FOUND', message: '营销活动不存在。' })
     let ids: string[] = []
     try { ids = JSON.parse(asset.linkedCampaignIdsJson) as string[] } catch { ids = [] }
     ids = [...new Set([...ids, parsed.data.campaignId])]
-    const existingLink = db.select({ id: campaignContentLinks.id }).from(campaignContentLinks).where(and(eq(campaignContentLinks.campaignId, campaign.id), eq(campaignContentLinks.contentAssetId, id))).get()
+    const existingLink = (await db.$first(db.select({ id: campaignContentLinks.id }).from(campaignContentLinks).where(and(eq(campaignContentLinks.campaignId, campaign.id), eq(campaignContentLinks.contentAssetId, id)))))
     const now = Date.now()
-    db.transaction(tx => {
-      tx.update(contentAssets).set({ linkedCampaignIdsJson: JSON.stringify(ids), updatedAt: now }).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId))).run()
-      if (!existingLink) {
-        const position = (tx.select({ max: sql<number>`coalesce(max(${campaignContentLinks.position}), 0)` }).from(campaignContentLinks).where(eq(campaignContentLinks.campaignId, campaign.id)).get()?.max ?? 0) + 1
-        tx.insert(campaignContentLinks).values({ id: createId('ccl'), workspaceId: request.auth.workspaceId, campaignId: campaign.id, contentAssetId: id, position, purpose: '内容资产关联', createdAt: now }).run()
-      }
-    })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.campaign_linked', id, { campaignId: parsed.data.campaignId })
-    return serializeAsset(db.select().from(contentAssets).where(eq(contentAssets.id, id)).get()!)
+    await db.transaction(async tx => {
+            await tx.update(contentAssets).set({ linkedCampaignIdsJson: JSON.stringify(ids), updatedAt: now }).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))
+            if (!existingLink) {
+              const position = ((await db.$first(tx.select({ max: sql<number>`coalesce(max(${campaignContentLinks.position}), 0)` }).from(campaignContentLinks).where(eq(campaignContentLinks.campaignId, campaign.id))))?.max ?? 0) + 1
+              await tx.insert(campaignContentLinks).values({ id: createId('ccl'), workspaceId: request.auth.workspaceId, campaignId: campaign.id, contentAssetId: id, position, purpose: '内容资产关联', createdAt: now })
+            }
+          })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.campaign_linked', id, { campaignId: parsed.data.campaignId })
+    return serializeAsset((await db.$first(db.select().from(contentAssets).where(eq(contentAssets.id, id))))!)
   })
 
   app.post('/analyze', async (request, reply) => {
@@ -263,7 +263,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     tips.push({ label: compact.length >= 120 ? '篇幅合适' : '内容偏短', tone: compact.length >= 120 ? 'good' : 'warning', detail: compact.length >= 120 ? '正文长度足以说明场景、证据和下一步。' : '建议补充客户场景、依据或一个明确下一步。' })
     tips.push({ label: /如果|也许|可能/.test(input.body) ? '语气可更确定' : '语气直接', tone: /如果|也许|可能/.test(input.body) ? 'warning' : 'good', detail: /如果|也许|可能/.test(input.body) ? '减少条件式表达，能让行动请求更明确。' : '措辞克制且具备明确方向。' })
     tips.push({ label: /回复|联系|发送|预约|沟通|评估|确认|下一步/.test(input.body) ? '行动请求明确' : '缺少行动请求', tone: /回复|联系|发送|预约|沟通|评估|确认|下一步/.test(input.body) ? 'good' : 'warning', detail: '建议在结尾给出回复、会议或资料获取等低阻力下一步。' })
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.analyzed', input.title, { contentType: input.contentType, overallScore: quality.overallScore })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.analyzed', input.title, { contentType: input.contentType, overallScore: quality.overallScore })
     return { quality, tips }
   })
 
@@ -278,7 +278,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     let serviceName: string | null = null
     let model: string | null = null
     let fallbackReason: string | null = null
-    if (!hasAiConfiguration(request.auth.workspaceId)) {
+    if (!(await hasAiConfiguration(request.auth.workspaceId))) {
       generationMode = 'local-rules'
       fallbackReason = 'AI_NOT_CONFIGURED'
       body = localDraft(input)
@@ -305,11 +305,11 @@ export const contentRoutes: FastifyPluginAsync = async app => {
     const quality = evaluateQuality(body, input.targetMarket, input.customerRole, input.customerSignal)
     const completedAt = Date.now()
     let assetId: string | null = null
-    if (input.saveAsAsset) assetId = createAsset(request.auth.workspaceId, request.auth.userId, { ...input, body, summary: body.replace(/\s+/g, ' ').slice(0, 160), status: '草稿' })
-    db.insert(contentGenerationRuns).values({ id: runId, workspaceId: request.auth.workspaceId, contentAssetId: assetId, status: 'completed', generationMode, serviceName, model, inputJson: JSON.stringify(input), outputTitle: input.title, outputBody: body, error: fallbackReason, startedAt, completedAt, createdAt: startedAt }).run()
-    writeAudit(request.auth.workspaceId, request.auth.userId, 'content.generated', assetId ?? runId, { generationMode, saved: Boolean(assetId) })
+    if (input.saveAsAsset) assetId = (await createAsset(request.auth.workspaceId, request.auth.userId, { ...input, body, summary: body.replace(/\s+/g, ' ').slice(0, 160), status: '草稿' }))
+    await db.insert(contentGenerationRuns).values({ id: runId, workspaceId: request.auth.workspaceId, contentAssetId: assetId, status: 'completed', generationMode, serviceName, model, inputJson: JSON.stringify(input), outputTitle: input.title, outputBody: body, error: fallbackReason, startedAt, completedAt, createdAt: startedAt })
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'content.generated', assetId ?? runId, { generationMode, saved: Boolean(assetId) })
     return { id: runId, assetId, title: input.title, body, generationMode, serviceName, model, quality, fallbackReason }
   })
 
-  app.get('/generation-runs', async (request) => ({ items: db.select().from(contentGenerationRuns).where(eq(contentGenerationRuns.workspaceId, request.auth.workspaceId)).orderBy(desc(contentGenerationRuns.createdAt)).limit(50).all() }))
+  app.get('/generation-runs', async (request) => ({ items: (await db.select().from(contentGenerationRuns).where(eq(contentGenerationRuns.workspaceId, request.auth.workspaceId)).orderBy(desc(contentGenerationRuns.createdAt)).limit(50)) }))
 }

@@ -102,9 +102,13 @@ for (const path of files) {
     if (pattern.test(content)) findings.push(`${label} pattern found: ${path}`)
   }
 
-  const emailPattern = /[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/gi
-  for (const match of content.matchAll(emailPattern)) {
-    if (!allowedEmailDomain(match[1])) findings.push(`non-example email address found: ${path}`)
+  // Lockfiles may contain upstream package metadata (maintainer/deprecation text),
+  // which is third-party provenance rather than project or customer information.
+  if (!/(?:^|\/)(?:package-lock|npm-shrinkwrap)\.json$/i.test(path)) {
+    const emailPattern = /[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/gi
+    for (const match of content.matchAll(emailPattern)) {
+      if (!allowedEmailDomain(match[1])) findings.push(`non-example email address found: ${path}`)
+    }
   }
 
   if (path === '.env.example') {
