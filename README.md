@@ -105,14 +105,6 @@ npm run test:attribution      # 转化归因
 
 环境变量参考 [`.env.example`](./.env.example)。测试必须指向隔离的 PostgreSQL 数据库；E2E 会自动创建并销毁临时数据库。
 
-旧版 SQLite 数据可一次性迁移：
-
-```bash
-npm run db:migrate:sqlite -- --sqlite=./data/sondara.db --postgres=postgresql://user:password@host:5432/sondara
-```
-
-工具会在事务内迁移并逐表校验；成功后删除 SQLite、`-wal` 与 `-shm` 文件，失败则全部保留。需要人工归档时增加 `--keep-source`。
-
 准备公开仓库前必须运行：
 
 ```bash
@@ -154,7 +146,7 @@ server/
 
 ## 路线图
 
-- **0.1.x：稳定发布** — PostgreSQL 原生部署、SQLite 升级迁移、备份恢复、CI、E2E 和可访问性回归。
+- **0.1.x：稳定发布** — PostgreSQL 原生部署、备份恢复、CI、E2E 和可访问性回归。
 - **0.2.x：连接器生态** — 基于公开 API 或用户自建 Webhook 继续增加合规渠道适配器。
 - **0.3.x：团队与自动化** — 细化审批流、运营规则、可观测性面板和规模化运维能力。
 

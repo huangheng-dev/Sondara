@@ -22,7 +22,7 @@ Compose 项目固定命名为 `sondara`。Docker Desktop 中会看到：
 - `sondara_app-data`：主密钥与 worker 状态等本地运行数据。
 
 应用地址为 `http://localhost:4176`，启动时会自动应用数据库迁移。
-PostgreSQL 只绑定本机 `127.0.0.1:5433`，用于维护与旧数据迁移，不对局域网或公网开放。
+PostgreSQL 只绑定本机 `127.0.0.1:5433`，用于本地维护与备份，不对局域网或公网开放。
 
 公开部署前：
 
@@ -115,8 +115,6 @@ docker compose exec -T postgres pg_restore -U sondara -d sondara --clean --if-ex
 ```
 
 升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。
-
-旧版 SQLite 迁移见 [POSTGRES_MIGRATION.md](./POSTGRES_MIGRATION.md)。迁移成功并校验后工具默认删除 SQLite 源文件；失败则保留。
 
 ## 健康与可观测性
 
