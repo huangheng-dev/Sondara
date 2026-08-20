@@ -71,7 +71,7 @@ const filesystemFiles = () => {
 }
 
 const requiredIgnoreEntries = [
-  'data/', 'backups/', 'uploads/', 'exports/', 'private/', '.env.*', 'audit/', 'output/',
+  '/data/', '/backups/', '/uploads/', '/exports/', '/private/', '.env.*', 'audit/', 'output/',
   '.audit/', '.audits/', '.tmp/', '.workbuddy/', '.workbuddy-ai/', 'test-results/',
   'PROJECT_ANALYSIS.md', 'design-qa.md', 'docs/PROJECT_EXECUTION.md',
 ]

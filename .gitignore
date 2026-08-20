@@ -5,11 +5,11 @@ coverage/
 
 # Runtime and private business data. Keep the whole directory private: it may
 # contain customers, messages, encrypted secrets, backups and the master key.
-data/
-backups/
-uploads/
-exports/
-private/
+/data/
+/backups/
+/uploads/
+/exports/
+/private/
 *.db
 *.db-*
 *.sqlite
