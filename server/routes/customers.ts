@@ -89,7 +89,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     const tags = (await db.select().from(customerTags).where(eq(customerTags.workspaceId, request.auth.workspaceId)))
     const tagsByCustomer = new Map<string, Array<{ id: string; name: string; color: string }>>()
     tags.forEach(tag => tagsByCustomer.set(tag.customerId, [...(tagsByCustomer.get(tag.customerId) ?? []), { id: tag.id, name: tag.name, color: tag.color }]))
-    const items = (await db.select().from(customers).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize)).map(item => ({ ...item, ownerName: item.ownerUserId ? names.get(item.ownerUserId) ?? '未分配' : '未分配', tags: tagsByCustomer.get(item.id) ?? [] }))
+    const items = (await db.select().from(customers).where(where).orderBy(orderBy).limit(query.pageSize).offset((query.page - 1) * query.pageSize)).map(item => ({ ...item, ownerName: item.ownerUserId ? names.get(item.ownerUserId) ?? '未分配' : '未分配', scoreOverrideByName: item.scoreOverrideByUserId ? names.get(item.scoreOverrideByUserId) ?? null : null, tags: tagsByCustomer.get(item.id) ?? [] }))
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
@@ -216,7 +216,10 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     if (changes.ownerUserId && !(await db.$first(db.select({ userId: workspaceMembers.userId }).from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(workspaceMembers.userId, changes.ownerUserId)))))) return reply.code(400).send({ error: 'INVALID_OWNER', message: '负责人不是当前工作区成员。' })
     await db.update(customers).set({ ...changes, updatedAt: Date.now() }).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.updated', id, { fields: Object.keys(changes) })
-    return (await db.$first(db.select().from(customers).where(eq(customers.id, id))))
+    const updated = await db.$first(db.select().from(customers).where(eq(customers.id, id)))
+    if (!updated) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const allUsers = new Map((await db.select({ id: users.id, name: users.displayName }).from(users)).map(item => [item.id, item.name]))
+    return { ...updated, scoreOverrideByName: updated.scoreOverrideByUserId ? allUsers.get(updated.scoreOverrideByUserId) ?? null : null }
   })
 
   app.delete('/:id', async (request, reply) => {
@@ -238,6 +241,30 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     return { id, archivedAt }
   })
 
+  app.post('/:id/score-override', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const parsed = z.object({
+      scoreOverride: z.number().int().min(0).max(100).nullable(),
+      reason: z.string().trim().min(1).max(500).optional(),
+    }).safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const existing = await db.$first(db.select().from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const now = Date.now()
+    if (parsed.data.scoreOverride === null) {
+      await db.update(customers).set({ scoreOverride: null, scoreOverrideReason: null, scoreOverrideByUserId: null, scoreOverrideAt: null, updatedAt: now }).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
+      await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.score_override_cleared', id, { originalScore: existing.score })
+    } else {
+      if (!parsed.data.reason) return reply.code(400).send({ error: 'INVALID_INPUT', message: '修正评分时必须填写原因。' })
+      await db.update(customers).set({ scoreOverride: parsed.data.scoreOverride, scoreOverrideReason: parsed.data.reason, scoreOverrideByUserId: request.auth.userId, scoreOverrideAt: now, updatedAt: now }).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
+      await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.score_override', id, { originalScore: existing.score, overrideScore: parsed.data.scoreOverride, reason: parsed.data.reason })
+    }
+    const result = await db.$first(db.select().from(customers).where(eq(customers.id, id)))
+    if (!result) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const overrideNames = new Map((await db.select({ id: users.id, name: users.displayName }).from(users)).map(item => [item.id, item.name]))
+    return { ...result, scoreOverrideByName: result.scoreOverrideByUserId ? overrideNames.get(result.scoreOverrideByUserId) ?? null : null }
+  })
+
   app.post('/tags/bulk', async (request, reply) => {
     const parsed = z.object({ customerIds: z.array(z.string().min(1)).min(1).max(500), name: z.string().trim().min(1).max(50), color: z.enum(['blue', 'green', 'orange', 'gray']).default('blue') }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
@@ -253,7 +280,10 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     const id = (request.params as { id: string }).id
     const customer = (await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))))
     if (!customer) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
-    return { items: (await db.select().from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, id)))) }
+    const parsed = z.object({ verificationStatus: z.enum(['verified', 'unverified', 'invalid', 'all']).default('all') }).safeParse(request.query)
+    const conditions = [eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, id)]
+    if (parsed.success && parsed.data.verificationStatus !== 'all') conditions.push(eq(inboxContacts.verificationStatus, parsed.data.verificationStatus))
+    return { items: (await db.select().from(inboxContacts).where(and(...conditions)).orderBy(desc(inboxContacts.updatedAt))) }
   })
 
   app.post('/:id/contacts', async (request, reply) => {
@@ -263,7 +293,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     const parsed = z.object({ name: z.string().trim().min(1).max(100), jobTitle: z.string().trim().max(120).default('待补全'), email: z.string().trim().email().nullable().optional(), phone: z.string().trim().max(50).nullable().optional(), primaryChannel: z.string().trim().max(50).default('邮件') }).safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const now = Date.now()
-    const record = { id: createId('ict'), workspaceId: request.auth.workspaceId, customerId: id, name: parsed.data.name, company: customer.company, jobTitle: parsed.data.jobTitle, region: customer.region, source: '客户库手动添加', primaryChannel: parsed.data.primaryChannel, email: parsed.data.email ?? null, phone: parsed.data.phone ?? null, externalRef: null, createdAt: now, updatedAt: now }
+    const record = { id: createId('ict'), workspaceId: request.auth.workspaceId, customerId: id, name: parsed.data.name, company: customer.company, jobTitle: parsed.data.jobTitle, region: customer.region, source: '客户库手动添加', primaryChannel: parsed.data.primaryChannel, email: parsed.data.email ?? null, phone: parsed.data.phone ?? null, externalRef: null, verificationStatus: 'unverified' as const, verifiedAt: null, verificationSource: null, createdAt: now, updatedAt: now }
     try { await db.insert(inboxContacts).values(record) } catch { return reply.code(409).send({ error: 'CONTACT_EXISTS', message: '该客户已存在同名联系人。' }) }
     const counts = (await db.$first(db.select({ total: sql<number>`count(*)`, valid: sql<number>`sum(case when ${inboxContacts.email} is not null or ${inboxContacts.phone} is not null then 1 else 0 end)` }).from(inboxContacts).where(eq(inboxContacts.customerId, id))))
     await db.update(customers).set({ contacts: counts?.total ?? 0, validContacts: counts?.valid ?? 0, updatedAt: now }).where(eq(customers.id, id))
@@ -281,6 +311,30 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     const now = Date.now()
     await db.update(inboxContacts).set({ whatsappOptedInAt: parsed.data.optedIn ? now : null, whatsappOptInSource: parsed.data.optedIn ? parsed.data.source : null, updatedAt: now }).where(eq(inboxContacts.id, contactId))
     await writeAudit(request.auth.workspaceId, request.auth.userId, parsed.data.optedIn ? 'customer.whatsapp_opt_in' : 'customer.whatsapp_opt_out', contactId, { customerId, source: parsed.data.source })
+    return await db.$first(db.select().from(inboxContacts).where(eq(inboxContacts.id, contactId)))
+  })
+
+  app.post('/:id/contacts/:contactId/verify', async (request, reply) => {
+    const customerId = (request.params as { id: string }).id
+    const contactId = (request.params as { contactId: string }).contactId
+    const parsed = z.object({
+      status: z.enum(['verified', 'unverified', 'invalid']),
+      source: z.string().trim().min(2).max(120).default('人工确认'),
+    }).safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const contact = await db.$first(db.select().from(inboxContacts).where(and(eq(inboxContacts.id, contactId), eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, customerId))))
+    if (!contact) return reply.code(404).send({ error: 'NOT_FOUND', message: '联系人不存在。' })
+    const now = Date.now()
+    const isVerified = parsed.data.status === 'verified'
+    await db.update(inboxContacts).set({
+      verificationStatus: parsed.data.status,
+      verifiedAt: isVerified ? now : null,
+      verificationSource: isVerified ? parsed.data.source : null,
+      updatedAt: now,
+    }).where(eq(inboxContacts.id, contactId))
+    const counts = (await db.$first(db.select({ total: sql<number>`count(*)`, reachable: sql<number>`sum(case when ${inboxContacts.email} is not null or ${inboxContacts.phone} is not null then 1 else 0 end)` }).from(inboxContacts).where(eq(inboxContacts.customerId, customerId))))
+    await db.update(customers).set({ contacts: counts?.total ?? 0, validContacts: counts?.reachable ?? 0, updatedAt: now }).where(eq(customers.id, customerId))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.contact_verified', contactId, { customerId, status: parsed.data.status, source: parsed.data.source })
     return await db.$first(db.select().from(inboxContacts).where(eq(inboxContacts.id, contactId)))
   })
 }

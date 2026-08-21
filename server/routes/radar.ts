@@ -330,6 +330,10 @@ export const radarRoutes: FastifyPluginAsync = async app => {
                 ownerUserId: request.auth.userId,
                 dueAt: null,
                 archivedAt: null,
+                scoreOverride: null,
+                scoreOverrideReason: null,
+                scoreOverrideByUserId: null,
+                scoreOverrideAt: null,
                 createdAt: now,
                 updatedAt: now,
               }
@@ -357,6 +361,9 @@ export const radarRoutes: FastifyPluginAsync = async app => {
                               primaryChannel: '邮件',
                               email: bestContact.email,
                               phone: bestContact.phone,
+                              verificationStatus: bestContact.verificationStatus === 'verified' ? 'verified' : 'unverified',
+                              verifiedAt: bestContact.verificationStatus === 'verified' ? now : null,
+                              verificationSource: bestContact.verificationStatus === 'verified' ? 'AI 获客自动验证' : null,
                               createdAt: now,
                               updatedAt: now,
                             })

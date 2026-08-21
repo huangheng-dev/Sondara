@@ -21,6 +21,10 @@ export type CustomerRecord = {
   owner: string
   ownerUserId: string | null
   tags: string[]
+  scoreOverride?: number | null
+  scoreOverrideReason?: string | null
+  scoreOverrideByName?: string | null
+  scoreOverrideAt?: number | null
 }
 
 export type DealRecord = {

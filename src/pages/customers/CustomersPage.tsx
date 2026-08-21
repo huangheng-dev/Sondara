@@ -27,6 +27,9 @@ import {
   RefreshCw,
   Sprout,
   Star,
+  Pencil,
+  ShieldAlert,
+  TrendingUp,
   UserCheck,
   UsersRound,
   X,
@@ -75,6 +78,10 @@ const apiCustomerToRecord=(customer:CustomerApiRecord):CustomerRecord=>({
   owner:customer.ownerName??'未分配',
   ownerUserId:customer.ownerUserId,
   tags:(customer.tags??[]).map(tag=>tag.name),
+  scoreOverride:customer.scoreOverride ?? null,
+  scoreOverrideReason:customer.scoreOverrideReason ?? null,
+  scoreOverrideByName:customer.scoreOverrideByName ?? null,
+  scoreOverrideAt:customer.scoreOverrideAt ?? null,
 })
 const customerChangesToApi=(changes:Partial<CustomerRecord>):Partial<CustomerApiInput>=>{
   const input:Partial<CustomerApiInput>={}
@@ -200,7 +207,7 @@ export function CustomersPage() {
         rows={pagedRows.map(account=>({key:account.id,className:selected.has(account.id)?'selected':'',cells:[
           <span className="customer-check"><Checkbox aria-label={`选择 ${account.company}`} checked={selected.has(account.id)} onChange={e=>setSelected(value=>{const next=new Set(value);e.target.checked?next.add(account.id):next.delete(account.id);return next})}/></span>,
           <Button className="customer-company" onClick={()=>setDetail(account)}><i>{account.company.slice(0,1)}</i><span><strong title={account.company}>{account.company}</strong><small title={`${account.region} · ${account.industry}`}>{account.region.split(/[（(]/)[0]} · {account.industry}{account.tags.length?` · ${account.tags.join('、')}`:''}</small><em><UserCheck size={12}/>{account.valid}/{account.contacts} 位联系人有效</em></span></Button>,
-          <div className="customer-match"><header><strong>{account.score}</strong><span>{account.score>=90?'高度匹配':account.score>=85?'值得跟进':'继续培育'}</span></header><i><u style={{width:`${account.score}%`}}/></i><small>证据置信度 {account.confidence}%</small></div>,
+          <div className="customer-match"><header><strong>{account.scoreOverride??account.score}</strong><span>{(account.scoreOverride??account.score)>=90?'高度匹配':(account.scoreOverride??account.score)>=85?'值得跟进':'继续培育'}</span>{account.scoreOverride!=null?<span style={{marginLeft:4}}><Badge tone="orange"><Pencil size={9}/>修正</Badge></span>:null}</header><i><u style={{width:`${account.scoreOverride??account.score}%`}}/></i><small>证据置信度 {account.confidence}%</small></div>,
           <div className="customer-signal"><Badge tone={account.score>=90?'green':'blue'}>{account.signal}</Badge><strong>{account.source}</strong><small>最近互动 · {account.interaction}</small></div>,
           <div className="customer-relation"><span><Badge tone={account.stage==='有商机'?'green':account.stage==='重点跟进'?'orange':account.stage==='待补全'?'neutral':'blue'}>{account.stage}</Badge><small>负责人：{account.owner}</small></span><div><small>预计价值</small><strong className="money">{account.value}</strong></div></div>,
           <Button className="customer-next" aria-label={`安排下一步：${account.next}`} onClick={()=>{setActionCustomer(account);setAction('next')}}><i><CheckCircle2/></i><span><strong>{account.next}</strong><small className={account.due==='今天'?'urgent':''}><Clock3/>{account.due==='今天'?'今天截止':`截止 ${account.due}`}</small></span></Button>,
@@ -228,8 +235,118 @@ export function CustomersPage() {
 }
 
 function CustomerDetail({customer,onClose,onTask,onContact,onAddContact,onWhatsappOptIn}:{customer:CustomerRecord|null;onClose:()=>void;onTask:(customer:CustomerRecord)=>void;onContact:(customer:CustomerRecord)=>void;onAddContact:(customer:CustomerRecord)=>void;onWhatsappOptIn:(contact:Awaited<ReturnType<typeof customerApi.listContacts>>['items'][number])=>void}) {
-  const contactsQuery=useQuery({queryKey:['customer-contacts',customer?.id],queryFn:()=>customerApi.listContacts(customer!.id),enabled:Boolean(customer?.id),retry:1})
+  const queryClient=useQueryClient()
+  const showToast=useUiStore(s=>s.showToast)
+  const [contactFilter,setContactFilter]=useState<'all'|'verified'|'unverified'|'invalid'>('all')
+  const contactsQuery=useQuery({queryKey:['customer-contacts',customer?.id,contactFilter],queryFn:()=>customerApi.listContacts(customer!.id,{verificationStatus:contactFilter}),enabled:Boolean(customer?.id),retry:1})
+  const [overrideMode,setOverrideMode]=useState(false)
+  const [overrideScore,setOverrideScore]=useState(70)
+  const [overrideReason,setOverrideReason]=useState('')
+  const [submitting,setSubmitting]=useState(false)
+  const [verifying,setVerifying]=useState<string|null>(null)
   if(!customer)return null
   const contacts=contactsQuery.data?.items??[]
-  return <DetailDrawer className="customer-drawer" open title={customer.company} subtitle={`${customer.region} · ${customer.industry} · ${customer.size}`} onClose={onClose} footer={<><Button onClick={()=>onAddContact(customer)}><Plus size={15}/>添加联系人</Button><Button onClick={()=>onTask(customer)}><CheckCircle2 size={15}/>创建任务</Button><Button variant="primary" disabled={!contacts.length} onClick={()=>onContact(customer)}><Mail size={15}/>联系客户</Button></>}><div className="customer-drawer-body app-detail-drawer-body"><section className="customer-detail-overview"><div><small>客户匹配分</small><strong>{customer.score}</strong></div><div><small>预计价值</small><strong>{customer.value}</strong></div><div><small>关系阶段</small><Badge tone={customer.stage==='有商机'?'green':'orange'}>{customer.stage}</Badge></div></section><section><h3>客户联系人</h3><div className="customer-contact-list">{contacts.map(contact=><article key={contact.id}><i><CircleUserRound size={17}/></i><span><strong>{contact.name}</strong><small>{contact.jobTitle} · {contact.email||contact.phone||'等待补全联系方式'}</small></span><Badge tone={contact.email||contact.phone?'green':'orange'}>{contact.email||contact.phone?'有效':'待补全'}</Badge>{contact.phone&&<Button size="sm" onClick={()=>onWhatsappOptIn(contact)}>{contact.whatsappOptedInAt?'撤销 WhatsApp 授权':'记录 WhatsApp 授权'}</Button>}</article>)}{!contactsQuery.isLoading&&!contacts.length&&<EmptyState className="compact" title="暂无联系人" description="添加真实联系人后即可创建沟通。" icon={CircleUserRound}/>}</div></section><section><h3>最近动态</h3><div className="customer-timeline"><article><i/><span><strong>{customer.signal}</strong><small>{customer.source} · {customer.interaction}</small></span></article><article><i/><span><strong>客户已保存</strong><small>保留企业研究与来源证据</small></span></article></div></section><section className="customer-detail-action"><h3>下一步建议</h3><p>{customer.next}，建议在 {customer.due} 前完成。</p></section></div></DetailDrawer>
+  const verifyContact=async(contactId:string,status:'verified'|'unverified'|'invalid')=>{
+    setVerifying(contactId)
+    try{
+      await customerApi.verifyContact(customer!.id,contactId,status)
+      await Promise.all([queryClient.invalidateQueries({queryKey:['customer-contacts',customer!.id]}),queryClient.invalidateQueries({queryKey:['customers']})])
+      showToast(status==='verified'?'已标记为已验证':status==='invalid'?'已标记为无效':'已标记为待验证')
+    }catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}
+    finally{setVerifying(null)}
+  }
+  const effectiveScore=customer.scoreOverride??customer.score
+  const scoreTier=effectiveScore>=90?{label:'高度匹配',tone:'green' as const,desc:'行业、地区、规模、购买信号高度吻合，建议优先跟进。'}
+    :effectiveScore>=85?{label:'值得跟进',tone:'blue' as const,desc:'核心维度匹配，存在明确购买信号，安排主动触达。'}
+    :effectiveScore>=70?{label:'继续培育',tone:'orange' as const,desc:'部分维度匹配，需补充关键信息或等待更强信号。'}
+    :{label:'待验证',tone:'neutral' as const,desc:'资料不完整或匹配度低，先验证企业与联系人真实性。'}
+  const submitOverride=async()=>{
+    if(overrideScore<0||overrideScore>100)return showToast('评分必须在 0–100 之间')
+    if(!overrideReason.trim())return showToast('请填写修正原因')
+    setSubmitting(true)
+    try{
+      await customerApi.scoreOverride(customer.id,overrideScore,overrideReason.trim())
+      await queryClient.invalidateQueries({queryKey:['customers']})
+      setOverrideMode(false);setOverrideReason('')
+      showToast('评分已修正，审计记录已保存')
+    }catch(cause){showToast(cause instanceof Error?cause.message:'评分修正失败')}
+    finally{setSubmitting(false)}
+  }
+  const clearOverride=async()=>{
+    setSubmitting(true)
+    try{
+      await customerApi.scoreOverride(customer.id,null)
+      await queryClient.invalidateQueries({queryKey:['customers']})
+      setOverrideMode(false)
+      showToast('已恢复系统原始评分')
+    }catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}
+    finally{setSubmitting(false)}
+  }
+  return <DetailDrawer className="customer-drawer" open title={customer.company} subtitle={`${customer.region} · ${customer.industry} · ${customer.size}`} onClose={onClose} footer={<><Button onClick={()=>onAddContact(customer)}><Plus size={15}/>添加联系人</Button><Button onClick={()=>onTask(customer)}><CheckCircle2 size={15}/>创建任务</Button><Button variant="primary" disabled={!contacts.length} onClick={()=>onContact(customer)}><Mail size={15}/>联系客户</Button></>}><div className="customer-drawer-body app-detail-drawer-body">
+    <section className="customer-detail-overview">
+      <div><small>客户匹配分</small><strong style={{color:effectiveScore>=90?'var(--color-success, #16a34a)':effectiveScore>=85?'var(--color-info, #2563eb)':effectiveScore>=70?'var(--color-warning, #ea580c)':'var(--color-text-muted, #6b7280)'}}>{effectiveScore}{customer.scoreOverride!=null&&customer.scoreOverride!==customer.score?<small style={{fontSize:11,textDecoration:'line-through',opacity:0.6,marginLeft:6}}>{customer.score}</small>:null}</strong>{customer.scoreOverride!=null?<span className="override-badge-wrap"><Badge tone="orange"><Pencil size={11}/>人工修正</Badge></span>:null}</div>
+      <div><small>预计价值</small><strong>{customer.value}</strong></div>
+      <div><small>关系阶段</small><Badge tone={customer.stage==='有商机'?'green':'orange'}>{customer.stage}</Badge></div>
+    </section>
+
+    <section className="score-explanation-section">
+      <h3><Gauge size={15}/>评分分档说明</h3>
+      <div className="score-tier-grid">
+        {[
+          {range:'90–100',label:'高度匹配',tone:'green'},
+          {range:'85–89',label:'值得跟进',tone:'blue'},
+          {range:'70–84',label:'继续培育',tone:'orange'},
+          {range:'0–69',label:'待验证',tone:'neutral'},
+        ].map(tier=><article key={tier.range} className={effectiveScore>=Number(tier.range.split('–')[0])&&effectiveScore<=Number(tier.range.split('–')[1])?'active':''}>
+          <Badge tone={tier.tone as 'green'|'blue'|'orange'|'neutral'}>{tier.range}</Badge>
+          <strong>{tier.label}</strong>
+        </article>)}
+      </div>
+      <p className="score-tier-desc"><TrendingUp size={13}/>{scoreTier.desc}</p>
+      <div className="score-confidence-bar">
+        <div className="score-bar-track"><u style={{width:`${effectiveScore}%`}}/></div>
+        <small>证据置信度 {customer.confidence}%</small>
+      </div>
+    </section>
+
+    {customer.scoreOverride!=null?<section className="score-override-history">
+      <h3><ShieldAlert size={15}/>人工修正记录</h3>
+      <article>
+        <span><strong>{customer.scoreOverride} 分</strong><small>原系统评分 {customer.score} 分 · {customer.scoreOverrideByName??'未知成员'} · {customer.scoreOverrideAt?new Date(customer.scoreOverrideAt).toLocaleString('zh-CN'):''}</small></span>
+        <p>{customer.scoreOverrideReason}</p>
+        <Button size="sm" onClick={clearOverride} disabled={submitting}>恢复系统评分</Button>
+      </article>
+    </section>:null}
+
+    {!customer.scoreOverride&&!overrideMode?<section className="score-override-actions">
+      <Button size="sm" onClick={()=>{setOverrideScore(customer.score);setOverrideMode(true)}}><Pencil size={13}/>人工修正评分</Button>
+    </section>:null}
+
+    {overrideMode?<section className="score-override-form">
+      <h3><Pencil size={15}/>修正客户匹配分</h3>
+      <label>修正后分数（0–100）
+        <input type="number" min={0} max={100} value={overrideScore} onChange={e=>setOverrideScore(Number(e.target.value))}/>
+      </label>
+      <label>修正原因（必填，将记入审计日志）
+        <textarea rows={3} value={overrideReason} onChange={e=>setOverrideReason(e.target.value)} placeholder="例如：电话沟通后确认企业实际规模小于系统判断，下调至 70。" maxLength={500}/>
+      </label>
+      <div className="score-override-form-actions">
+        <Button size="sm" onClick={()=>setOverrideMode(false)} disabled={submitting}>取消</Button>
+        <Button size="sm" variant="primary" onClick={submitOverride} disabled={submitting}>{submitting?'保存中…':'保存修正'}</Button>
+      </div>
+    </section>:null}
+
+    <section><h3>客户联系人</h3><div className="contact-verification-filter">
+      {([['all','全部'],['verified','已验证'],['unverified','待验证'],['invalid','无效']] as const).map(([value,label])=><button key={value} type="button" className={contactFilter===value?'active':''} onClick={()=>setContactFilter(value)}>{label}</button>)}
+    </div><div className="customer-contact-list">{contacts.map(contact=>{
+      const vBadge=contact.verificationStatus==='verified'?{tone:'green' as const,text:'已验证'}:contact.verificationStatus==='invalid'?{tone:'red' as const,text:'无效'}:{tone:'orange' as const,text:'待验证'}
+      return <article key={contact.id}><i><CircleUserRound size={17}/></i><span><strong>{contact.name}</strong><small>{contact.jobTitle} · {contact.email||contact.phone||'等待补全联系方式'}{contact.verificationSource?<em> · {contact.verificationSource}</em>:null}</small></span><Badge tone={vBadge.tone}>{vBadge.text}</Badge><div className="contact-actions">
+        {contact.phone?<Button size="sm" onClick={()=>onWhatsappOptIn(contact)}>{contact.whatsappOptedInAt?'撤销 WhatsApp':'WhatsApp'}</Button>:null}
+        {contact.verificationStatus!=='verified'?<Button size="sm" variant="primary" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'verified')}>验证</Button>:null}
+        {contact.verificationStatus!=='invalid'?<Button size="sm" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'invalid')}>无效</Button>:null}
+      </div></article>
+    })}{!contactsQuery.isLoading&&!contacts.length&&<EmptyState className="compact" title={contactFilter==='all'?'暂无联系人':'该筛选下暂无联系人'} description={contactFilter==='all'?'添加真实联系人后即可创建沟通。':'切换筛选条件查看其他联系人。'} icon={CircleUserRound}/>}</div></section>
+    <section><h3>最近动态</h3><div className="customer-timeline"><article><i/><span><strong>{customer.signal}</strong><small>{customer.source} · {customer.interaction}</small></span></article><article><i/><span><strong>客户已保存</strong><small>保留企业研究与来源证据</small></span></article></div></section>
+    <section className="customer-detail-action"><h3>下一步建议</h3><p>{customer.next}，建议在 {customer.due} 前完成。</p></section>
+  </div></DetailDrawer>
 }

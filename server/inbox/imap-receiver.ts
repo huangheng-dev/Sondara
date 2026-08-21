@@ -297,6 +297,9 @@ const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
                   primaryChannel: "邮件",
                   email: fromAddress,
                   phone: null,
+                  verificationStatus: "verified",
+                  verifiedAt: now,
+                  verificationSource: "IMAP 实际收件",
                   createdAt: now,
                   updatedAt: now,
                 }));

@@ -235,6 +235,12 @@ export const customers = pgTable(
     nextAction: text("next_action").notNull().default("补全企业档案"),
     dueAt: bigint("due_at", { mode: "number" }),
     archivedAt: bigint("archived_at", { mode: "number" }),
+    scoreOverride: bigint("score_override", { mode: "number" }),
+    scoreOverrideReason: text("score_override_reason"),
+    scoreOverrideByUserId: text("score_override_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    scoreOverrideAt: bigint("score_override_at", { mode: "number" }),
     ownerUserId: text("owner_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -661,6 +667,9 @@ export const inboxContacts = pgTable(
     externalRef: text("external_ref"),
     whatsappOptedInAt: bigint("whatsapp_opted_in_at", { mode: "number" }),
     whatsappOptInSource: text("whatsapp_opt_in_source"),
+    verificationStatus: text("verification_status").notNull().default("unverified"),
+    verifiedAt: bigint("verified_at", { mode: "number" }),
+    verificationSource: text("verification_source"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },

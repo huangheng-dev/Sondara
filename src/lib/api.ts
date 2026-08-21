@@ -56,6 +56,11 @@ export type CustomerApiRecord = {
   ownerUserId: string | null;
   ownerName?: string;
   tags?: Array<{ id: string; name: string; color: string }>;
+  scoreOverride?: number | null;
+  scoreOverrideReason?: string | null;
+  scoreOverrideByUserId?: string | null;
+  scoreOverrideByName?: string | null;
+  scoreOverrideAt?: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -677,6 +682,9 @@ export type InboxContactApiRecord = {
   externalRef: string | null;
   whatsappOptedInAt: number | null;
   whatsappOptInSource: string | null;
+  verificationStatus: "verified" | "unverified" | "invalid";
+  verifiedAt: number | null;
+  verificationSource: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -910,11 +918,18 @@ export const customerApi = {
   archive: (id: string, archived = true) => request<{ id: string; archivedAt: number | null }>(`/customers/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
   addTags: (customerIds: string[], name: string, color: "blue" | "green" | "orange" | "gray") =>
     request<{ updated: number }>("/customers/tags/bulk", { method: "POST", body: JSON.stringify({ customerIds, name, color }) }),
-  listContacts: (customerId: string) =>
-    request<{ items: InboxContactApiRecord[] }>(`/customers/${encodeURIComponent(customerId)}/contacts`),
+  listContacts: (customerId: string, params?: { verificationStatus?: "verified" | "unverified" | "invalid" | "all" }) => {
+    const query = new URLSearchParams();
+    if (params?.verificationStatus && params.verificationStatus !== "all") query.set("verificationStatus", params.verificationStatus);
+    return request<{ items: InboxContactApiRecord[] }>(`/customers/${encodeURIComponent(customerId)}/contacts${query.size ? `?${query}` : ""}`);
+  },
   addContact: (customerId: string, input: { name: string; jobTitle?: string; email?: string | null; phone?: string | null; primaryChannel?: string }) =>
     request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts`, { method: "POST", body: JSON.stringify(input) }),
   setWhatsappOptIn: (customerId: string, contactId: string, optedIn: boolean, source = "人工确认") => request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/whatsapp-opt-in`, { method: "POST", body: JSON.stringify({ optedIn, source }) }),
+  verifyContact: (customerId: string, contactId: string, status: "verified" | "unverified" | "invalid", source = "人工确认") =>
+    request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/verify`, { method: "POST", body: JSON.stringify({ status, source }) }),
+  scoreOverride: (customerId: string, scoreOverride: number | null, reason?: string) =>
+    request<CustomerApiRecord>(`/customers/${encodeURIComponent(customerId)}/score-override`, { method: "POST", body: JSON.stringify({ scoreOverride, reason }) }),
 };
 
 export const leadSourceApi = {
