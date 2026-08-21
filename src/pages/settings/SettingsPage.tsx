@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -779,6 +780,13 @@ export function SettingsPage() {
     queryFn: systemApi.operations,
     enabled: tab === "数据与备份",
     retry: 1,
+  });
+  const connectorHealthQuery = useQuery({
+    queryKey: ["system-connector-health"],
+    queryFn: systemApi.connectorHealth,
+    enabled: tab === "数据与备份",
+    retry: 1,
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -1596,6 +1604,73 @@ export function SettingsPage() {
                 </span>
                 <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
               </div>}
+              {connectorHealthQuery.data && (() => {
+                const s = connectorHealthQuery.data.summary;
+                const totalIssues = s.radarErrors + s.outboxFailures + s.aiServiceDegraded + s.failedRadarTasks + s.failedRadarQueue;
+                if (totalIssues === 0) return (
+                  <div className="backup-reminder">
+                    <span>
+                      <strong>连接器健康</strong>
+                      <small>过去 7 天无连接器失败</small>
+                    </span>
+                    <Badge tone="green">全部正常</Badge>
+                  </div>
+                );
+                return (
+                  <div className="backup-reminder connector-health-panel">
+                    <span>
+                      <strong>连接器失败告警</strong>
+                      <small>过去 7 天共 {totalIssues} 项失败</small>
+                    </span>
+                    <div className="connector-health-summary">
+                      {s.failedRadarTasks > 0 && <Badge tone="red">雷达任务失败 {s.failedRadarTasks}</Badge>}
+                      {s.radarErrors > 0 && <Badge tone="red">雷达连接器错误 {s.radarErrors}</Badge>}
+                      {s.failedRadarQueue > 0 && <Badge tone="orange">研究队列失败 {s.failedRadarQueue}</Badge>}
+                      {s.outboxFailures > 0 && <Badge tone="red">外发失败 {s.outboxFailures}</Badge>}
+                      {s.aiServiceDegraded > 0 && <Badge tone="orange">AI 服务降级 {s.aiServiceDegraded}</Badge>}
+                    </div>
+                  </div>
+                );
+              })()}
+              {connectorHealthQuery.data && (() => {
+                const data = connectorHealthQuery.data;
+                const hasDetails = data.failedRadarTasks.length > 0 || data.outboxFailures.length > 0 || data.radarEvents.length > 0;
+                if (!hasDetails) return null;
+                return (
+                  <div className="connector-health-details">
+                    {data.failedRadarTasks.map(task => (
+                      <article key={task.id} className="connector-health-item">
+                        <AlertTriangle size={14} />
+                        <span>
+                          <strong>雷达任务失败 · {task.name}</strong>
+                          <small>{task.lastError ?? "未知错误"}</small>
+                          <small>{new Date(task.updatedAt).toLocaleString("zh-CN")}</small>
+                        </span>
+                      </article>
+                    ))}
+                    {data.outboxFailures.slice(0, 5).map(job => (
+                      <article key={job.id} className="connector-health-item">
+                        <AlertTriangle size={14} />
+                        <span>
+                          <strong>外发失败 · {job.channel}</strong>
+                          <small>{job.lastError ?? "未知错误"}</small>
+                          <small>重试 {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString("zh-CN")}</small>
+                        </span>
+                      </article>
+                    ))}
+                    {data.radarEvents.slice(0, 5).map(event => (
+                      <article key={event.id} className="connector-health-item">
+                        <AlertTriangle size={14} />
+                        <span>
+                          <strong>雷达连接器 · {event.eventType}</strong>
+                          <small>{event.message}</small>
+                          <small>{new Date(event.createdAt).toLocaleString("zh-CN")}</small>
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                );
+              })()}
             </section>
           </div>
         ) : (

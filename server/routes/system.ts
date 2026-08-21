@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { createReadStream } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db/client.js";
@@ -7,14 +7,49 @@ import { config } from "../config.js";
 import { requireAuth } from "../plugins/auth.js";
 import { audit } from "../lib/audit.js";
 import * as schema from "../db/schema.js";
+import { createId } from "../lib/ids.js";
 import { createDatabaseBackup, listDatabaseBackups, validateDatabaseBackup } from "../operations/backup-worker.js";
 
 export const systemRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", requireAuth);
 
   // Export all workspace-scoped business data as JSON
+  // Requires approval if the workspace has 500+ customers (bulk export gate)
   app.get("/export", async (request, reply) => {
     const ws = request.auth.workspaceId;
+
+    const customerCount = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.customers).where(eq(schema.customers.workspaceId, ws))))?.count ?? 0;
+    if (customerCount >= 500) {
+      const approvalAction = "system.bulk_export";
+      const approved = await db.$first(db.select({ id: schema.approvalRequests.id }).from(schema.approvalRequests).where(and(
+        eq(schema.approvalRequests.workspaceId, ws),
+        eq(schema.approvalRequests.entityType, "workspace"),
+        eq(schema.approvalRequests.entityId, ws),
+        eq(schema.approvalRequests.action, approvalAction),
+        eq(schema.approvalRequests.status, "approved"),
+      )));
+      if (!approved) {
+        const pending = await db.$first(db.select({ id: schema.approvalRequests.id }).from(schema.approvalRequests).where(and(
+          eq(schema.approvalRequests.workspaceId, ws),
+          eq(schema.approvalRequests.entityType, "workspace"),
+          eq(schema.approvalRequests.entityId, ws),
+          eq(schema.approvalRequests.action, approvalAction),
+          eq(schema.approvalRequests.status, "pending"),
+        )));
+        const approvalId = pending?.id ?? createId("apr");
+        if (!pending) {
+          const now = Date.now();
+          await db.insert(schema.approvalRequests).values({
+            id: approvalId, workspaceId: ws, entityType: "workspace", entityId: ws,
+            action: approvalAction, note: `批量数据导出：${customerCount} 家客户及全部业务数据。`,
+            requestedByUserId: request.auth.userId, status: "pending", createdAt: now, updatedAt: now,
+          });
+          await audit(ws, request.auth.userId, "approval.requested", "workspace", ws, { approvalId, action: approvalAction, customerCount });
+        }
+        return reply.code(409).send({ error: "APPROVAL_REQUIRED", message: `工作区有 ${customerCount} 家客户，批量导出需要审批。审批通过后请重新导出。`, approvalId });
+      }
+    }
+
     const now = new Date().toISOString().slice(0, 10);
 
     const exportData: Record<string, unknown> = {
@@ -139,6 +174,110 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
       request.log.warn({ err: error }, "Backup validation failed");
       return reply.code(400).send({ error: "BACKUP_INVALID", message: "备份校验失败，不能用于恢复。" });
     }
+  });
+
+  app.get("/connector-health", async (request) => {
+    const workspaceId = request.auth.workspaceId;
+    const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // last 7 days
+
+    const [failedRadarEvents, failedOutboxJobs, aiServiceStatuses, failedRadarTasks, failedRadarQueue] = await Promise.all([
+      db.select({
+        id: schema.radarJobEvents.id,
+        radarTaskId: schema.radarJobEvents.radarTaskId,
+        message: schema.radarJobEvents.message,
+        eventType: schema.radarJobEvents.eventType,
+        createdAt: schema.radarJobEvents.createdAt,
+      })
+        .from(schema.radarJobEvents)
+        .where(and(
+          eq(schema.radarJobEvents.workspaceId, workspaceId),
+          eq(schema.radarJobEvents.level, "error"),
+          gte(schema.radarJobEvents.createdAt, since),
+        ))
+        .orderBy(sql`${schema.radarJobEvents.createdAt} DESC`)
+        .limit(20),
+      db.select({
+        id: schema.outboxJobs.id,
+        channel: schema.outboxJobs.channel,
+        status: schema.outboxJobs.status,
+        lastError: schema.outboxJobs.lastError,
+        attempts: schema.outboxJobs.attempts,
+        maxAttempts: schema.outboxJobs.maxAttempts,
+        updatedAt: schema.outboxJobs.updatedAt,
+      })
+        .from(schema.outboxJobs)
+        .where(and(
+          eq(schema.outboxJobs.workspaceId, workspaceId),
+          eq(schema.outboxJobs.status, "failed"),
+          gte(schema.outboxJobs.updatedAt, since),
+        ))
+        .orderBy(sql`${schema.outboxJobs.updatedAt} DESC`)
+        .limit(20),
+      db.select({
+        id: schema.aiServices.id,
+        name: schema.aiServices.name,
+        provider: schema.aiServices.provider,
+        status: schema.aiServices.status,
+        lastLatencyMs: schema.aiServices.lastLatencyMs,
+        lastTestedAt: schema.aiServices.lastTestedAt,
+      })
+        .from(schema.aiServices)
+        .where(and(
+          eq(schema.aiServices.workspaceId, workspaceId),
+          eq(schema.aiServices.enabled, true),
+        )),
+      db.select({
+        id: schema.radarTasks.id,
+        name: schema.radarTasks.name,
+        status: schema.radarTasks.status,
+        lastError: schema.radarTasks.lastError,
+        updatedAt: schema.radarTasks.updatedAt,
+      })
+        .from(schema.radarTasks)
+        .where(and(
+          eq(schema.radarTasks.workspaceId, workspaceId),
+          eq(schema.radarTasks.status, "failed"),
+          gte(schema.radarTasks.updatedAt, since),
+        ))
+        .orderBy(sql`${schema.radarTasks.updatedAt} DESC`)
+        .limit(10),
+      db.select({
+        id: schema.radarQueueItems.id,
+        radarTaskId: schema.radarQueueItems.radarTaskId,
+        status: schema.radarQueueItems.status,
+        lastError: schema.radarQueueItems.lastError,
+        attempts: schema.radarQueueItems.attempts,
+        maxAttempts: schema.radarQueueItems.maxAttempts,
+        updatedAt: schema.radarQueueItems.updatedAt,
+      })
+        .from(schema.radarQueueItems)
+        .where(and(
+          eq(schema.radarQueueItems.workspaceId, workspaceId),
+          eq(schema.radarQueueItems.status, "failed"),
+          gte(schema.radarQueueItems.updatedAt, since),
+        ))
+        .orderBy(sql`${schema.radarQueueItems.updatedAt} DESC`)
+        .limit(10),
+    ]);
+
+    const failedAiServices = aiServiceStatuses.filter(s => s.status === "degraded" || s.status === "error");
+
+    return {
+      generatedAt: Date.now(),
+      since,
+      summary: {
+        radarErrors: failedRadarEvents.length,
+        outboxFailures: failedOutboxJobs.length,
+        aiServiceDegraded: failedAiServices.length,
+        failedRadarTasks: failedRadarTasks.length,
+        failedRadarQueue: failedRadarQueue.length,
+      },
+      radarEvents: failedRadarEvents,
+      outboxFailures: failedOutboxJobs,
+      aiServices: aiServiceStatuses,
+      failedRadarTasks,
+      failedRadarQueue,
+    };
   });
 
   app.get("/operations", {
