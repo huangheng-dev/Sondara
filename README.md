@@ -29,7 +29,7 @@ Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在�
 ## 技术栈
 
 - React 19 + TypeScript + Vite 7
-- React Router 7、TanStack Query/Table、Zustand
+- React Router 7、TanStack Query、Zustand
 - Ant Design 6、Lucide React
 - Fastify 5 + PostgreSQL 17 + Drizzle ORM
 - 多 AI 服务密钥池轮转、AES-256-GCM 密钥保险箱
@@ -37,7 +37,7 @@ Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在�
 
 ## 本地启动
 
-需要 Node.js 20 或更高版本（推荐 22 LTS）和 PostgreSQL 15+。先创建数据库，再运行：
+需要 Node.js 24 LTS 和 PostgreSQL 15+。先创建数据库，再运行：
 
 ```bash
 npm install
@@ -84,17 +84,22 @@ Docker Desktop 中会归组为 `sondara` 项目，包含 `sondara-app-1` 与 `so
 
 ## 测试
 
-全部 14 组本地集成验收（第三方服务均使用 mock，数据库使用 PostgreSQL）：
+全部 19 组本地集成验收（第三方服务均使用 mock，数据库使用 PostgreSQL）：
 
 ```bash
 npm run test:auth-2fa        # TOTP 双重验证、恢复码、登录验证
+npm run test:backup-worker    # PostgreSQL 备份验证与保留策略
 npm run test:ai-client        # AI 密钥池轮转与故障切换
+npm run test:approvals        # 审批请求、权限、审批门禁与执行
 npm run test:closed-loop      # 权限、审计、资料、会话与密钥生命周期
 npm run test:search-connector # 搜索发现连接器
+npm run test:team-invitations # 邀请链接、接受邀请与撤销
 npm run test:map-connector    # Google Places 连接器
 npm run test:contact-enrichment # 公开联系人补全
 npm run test:industry-source  # 行业名录/展会/招投标
+npm run test:lead-sources      # 官方线索 Webhook、幂等与令牌轮换
 npm run test:content-assets   # 内容资产 CRUD
+npm run test:customer-governance # 客户归档、恢复与重复合并
 npm run test:campaigns        # 营销活动
 npm run test:inbox            # 消息线程
 npm run test:outbox           # SMTP、多邮箱 IMAP 密钥、Webhook 渠道与回调
@@ -171,3 +176,5 @@ X-Sondara-Signature: <HMAC-SHA256(timestamp + "." + JSON body)>
 安全说明见 [SECURITY.md](./SECURITY.md)。
 
 欢迎提交 Issue 和 Pull Request。
+
+
