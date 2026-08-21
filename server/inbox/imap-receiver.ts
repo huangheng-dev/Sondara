@@ -14,6 +14,7 @@ import {
   outboundChannelConnections,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
+import { stopCampaignAudienceForCustomer } from "../campaigns/audience-lifecycle.js";
 import { decryptSecret } from "../lib/secret-vault.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
@@ -371,6 +372,7 @@ const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
         }
       });
   processedMessageIds.add(mail.messageId);
+  if (customerId) await stopCampaignAudienceForCustomer({ workspaceId: account.workspaceId, customerId, reason: "客户回复" });
   logger.info(
     { threadId: thread.id, from: fromAddress, subject: mail.subject },
     "IMAP inbound message ingested",

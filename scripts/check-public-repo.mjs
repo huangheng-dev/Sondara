@@ -10,7 +10,7 @@ const privatePathPatterns = [
   /^(?:audit|output|\.audit|\.audits|\.tmp|\.workbuddy|\.workbuddy-ai|test-results|playwright-report)\//i,
   /(?:^|\/)\.env(?:\.|$)(?!example$)/i,
   /(?:^|\/)(?:cookies[^/]*\.txt|[^/]*storage-state[^/]*\.json|[^/]*-auth\.json)$/i,
-  /\.(?:db|sqlite|sqlite3|pem|key|p12|pfx|crt|bak)(?:$|-)/i,
+  /\.(?:db|dump|sqlite|sqlite3|pem|key|p12|pfx|crt|bak)(?:$|-)/i,
 ]
 
 const ignoredDirectories = new Set([
@@ -22,7 +22,7 @@ const ignoredDirectories = new Set([
 
 const binaryExtensions = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz', '.woff',
-  '.woff2', '.ttf', '.eot', '.mp3', '.mp4', '.mov', '.avi', '.db', '.sqlite', '.sqlite3',
+  '.woff2', '.ttf', '.eot', '.mp3', '.mp4', '.mov', '.avi', '.db', '.dump', '.sqlite', '.sqlite3',
 ])
 
 const contentRules = [

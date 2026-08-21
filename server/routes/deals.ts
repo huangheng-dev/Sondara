@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
 import { auditLogs, customers, deals } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
 import { requireAuth } from '../plugins/auth.js'
+import { stopCampaignAudienceForCustomer } from '../campaigns/audience-lifecycle.js'
 
 const dealStages = ['线索确认', '需求确认', '方案评估', '商务谈判', '赢单'] as const
 const probabilityByStage: Record<(typeof dealStages)[number], number> = { 线索确认: 20, 需求确认: 40, 方案评估: 60, 商务谈判: 80, 赢单: 100 }
@@ -29,6 +30,8 @@ const listQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.enum(['updated_desc', 'value_desc', 'probability_desc', 'close_asc']).default('updated_desc'),
+  includeArchived: z.coerce.boolean().default(false),
+  archivedOnly: z.coerce.boolean().default(false),
 })
 
 const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {
@@ -43,6 +46,8 @@ export const dealRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_QUERY', message: parsed.error.issues[0]?.message })
     const query = parsed.data
     const conditions = [eq(deals.workspaceId, request.auth.workspaceId)]
+    if (query.archivedOnly) conditions.push(isNotNull(deals.archivedAt))
+    else if (!query.includeArchived) conditions.push(isNull(deals.archivedAt))
     if (query.q) conditions.push(or(like(deals.company, `%${query.q}%`), like(deals.nextAction, `%${query.q}%`), like(deals.risk, `%${query.q}%`))!)
     if (query.stage) conditions.push(eq(deals.stage, query.stage))
     const where = and(...conditions)
@@ -86,6 +91,7 @@ export const dealRoutes: FastifyPluginAsync = async app => {
                     })
           })
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'deal.created', dealId, { company: input.company, customerId })
+    await stopCampaignAudienceForCustomer({ workspaceId: request.auth.workspaceId, customerId, reason: '创建商机' })
     return reply.code(201).send((await db.$first(db.select().from(deals).where(eq(deals.id, dealId)))))
   })
 
@@ -113,5 +119,14 @@ export const dealRoutes: FastifyPluginAsync = async app => {
           })
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'deal.updated', id, { fields: Object.keys(changes) })
     return (await db.$first(db.select().from(deals).where(eq(deals.id, id))))
+  })
+
+  app.post('/:id/archive', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const existing = await db.$first(db.select({ id: deals.id }).from(deals).where(and(eq(deals.id, id), eq(deals.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '商机不存在。' })
+    const archivedAt = (request.body as { archived?: boolean } | undefined)?.archived === false ? null : Date.now()
+    await db.update(deals).set({ archivedAt, updatedAt: Date.now() }).where(eq(deals.id, id)); await writeAudit(request.auth.workspaceId, request.auth.userId, archivedAt ? 'deal.archived' : 'deal.unarchived', id)
+    return { id, archivedAt }
   })
 }

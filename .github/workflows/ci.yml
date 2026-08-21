@@ -33,10 +33,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm run qa:public-repo
       - run: npm run qa:ui-framework
       - run: npm run typecheck
       - run: npm run build
       - run: npm run qa:bundle-budget
+      - run: node scripts/run-e2e.mjs
+      - run: npm run smoke:production
       - run: npm run db:migrate
       - run: npm run test:all

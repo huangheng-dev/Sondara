@@ -2,7 +2,7 @@
 
 ## 系统要求
 
-- Docker Compose（推荐），或 Node.js 20+ 与 PostgreSQL 15+
+- Docker Compose（推荐），或 Node.js 24 LTS 与 PostgreSQL 15+
 - 内存建议 1 GB 以上
 - HTTPS 域名用于公开部署
 
@@ -100,7 +100,9 @@ server {
 
 ## 备份与恢复
 
-设置页“数据与备份”提供当前工作区脱敏 JSON 导出，以及工作区所有者可下载的 PostgreSQL custom-format 全库备份。镜像已包含 `pg_dump`。
+设置页“数据与备份”提供当前工作区脱敏 JSON 导出，以及工作区所有者可下载的 PostgreSQL custom-format 全库备份。镜像已包含 `pg_dump` 和 `pg_restore`。Docker 默认每日自动持久化备份一次、保留最近 7 份，并在每次生成后运行 `pg_restore --list` 校验；备份保存在 `sondara_app-data` 卷的 `backups/` 中。
+
+可用环境变量调整策略：`SONDARA_BACKUP_ENABLED`、`SONDARA_BACKUP_INTERVAL_MS`、`SONDARA_BACKUP_RETENTION_COUNT`、`SONDARA_BACKUP_DIRECTORY`。恢复操作仍必须由部署管理员手动执行，避免运行中的应用被意外覆盖。
 
 也可从数据库容器备份：
 
@@ -114,7 +116,7 @@ docker compose exec -T postgres pg_dump -U sondara -d sondara --format=custom --
 docker compose exec -T postgres pg_restore -U sondara -d sondara --clean --if-exists --no-owner --no-acl < sondara.dump
 ```
 
-升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。
+升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。完整步骤见 [UPGRADE.md](./UPGRADE.md)。
 
 ## 健康与可观测性
 

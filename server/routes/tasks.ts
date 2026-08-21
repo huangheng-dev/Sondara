@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
 import { auditLogs, customers, tasks } from '../db/schema.js'
@@ -22,6 +22,8 @@ const taskPatch = taskInput.partial().extend({ status: z.enum(['open', 'complete
 const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(['open', 'completed']).optional(),
+  includeArchived: z.coerce.boolean().default(false),
+  archivedOnly: z.coerce.boolean().default(false),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.enum(['created_desc', 'due_asc', 'priority_desc']).default('created_desc'),
@@ -39,6 +41,8 @@ export const taskRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_QUERY', message: parsed.error.issues[0]?.message })
     const query = parsed.data
     const conditions = [eq(tasks.workspaceId, request.auth.workspaceId)]
+    if (query.archivedOnly) conditions.push(isNotNull(tasks.archivedAt))
+    else if (!query.includeArchived) conditions.push(isNull(tasks.archivedAt))
     if (query.q) conditions.push(or(like(tasks.title, `%${query.q}%`), like(tasks.company, `%${query.q}%`), like(tasks.nextAction, `%${query.q}%`))!)
     if (query.status) conditions.push(eq(tasks.status, query.status))
     const where = and(...conditions)
@@ -77,5 +81,15 @@ export const taskRoutes: FastifyPluginAsync = async app => {
     await db.update(tasks).set({ ...changes, updatedAt: Date.now() }).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId)))
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'task.updated', id, { fields: Object.keys(changes) })
     return (await db.$first(db.select().from(tasks).where(eq(tasks.id, id))))
+  })
+
+  app.post('/:id/archive', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const existing = await db.$first(db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, id), eq(tasks.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '任务不存在。' })
+    const archivedAt = (request.body as { archived?: boolean } | undefined)?.archived === false ? null : Date.now()
+    await db.update(tasks).set({ archivedAt, updatedAt: Date.now() }).where(eq(tasks.id, id))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, archivedAt ? 'task.archived' : 'task.unarchived', id)
+    return { id, archivedAt }
   })
 }

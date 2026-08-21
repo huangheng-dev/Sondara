@@ -19,3 +19,17 @@ export const requireAdmin = async (request: FastifyRequest, reply: FastifyReply)
     return reply.code(403).send({ error: 'FORBIDDEN', message: '仅工作区所有者或管理员可执行此操作。' })
   }
 }
+
+export const permissions = {
+  owner: ['workspace.manage', 'members.manage', 'settings.manage', 'data.write', 'data.export', 'approvals.review'],
+  admin: ['members.manage', 'settings.manage', 'data.write', 'data.export', 'approvals.review'],
+  member: ['data.write', 'approvals.request'],
+  viewer: [],
+} as const
+
+export const requirePermission = (permission: string) => async (request: FastifyRequest, reply: FastifyReply) => {
+  await requireAuth(request, reply)
+  if (reply.sent) return
+  const allowed = (permissions[request.auth.role as keyof typeof permissions] as readonly string[]).includes(permission)
+  if (!allowed) return reply.code(403).send({ error: 'FORBIDDEN', message: '当前角色没有执行此操作的权限。' })
+}

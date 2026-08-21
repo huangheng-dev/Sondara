@@ -42,7 +42,12 @@
     "qa:e2e": "npm run build && node scripts/run-e2e.mjs",
     "qa:smoke": "npm run build && npm run smoke:production",
     "qa:all": "npm run qa:public-repo && npm run qa:ui-framework && npm run typecheck && npm run build && npm run qa:bundle-budget && node scripts/run-e2e.mjs && npm run smoke:production && npm run test:all",
-    "test:all": "node scripts/run-integration-tests.mjs"
+    "test:all": "node scripts/run-integration-tests.mjs",
+    "test:customer-governance": "tsx server/tests/customer-governance.integration.ts",
+    "test:approvals": "tsx server/tests/approvals.integration.ts",
+    "test:team-invitations": "tsx server/tests/team-invitations.integration.ts",
+    "test:lead-sources": "tsx server/tests/lead-sources.integration.ts",
+    "test:backup-worker": "tsx server/tests/backup-worker.integration.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -59,12 +64,14 @@
     "lucide-react": "1.31.0",
     "mailparser": "^3.9.15",
     "nodemailer": "^9.0.5",
+    "pdfjs-dist": "^5.4.624",
     "pg": "^8.16.3",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.2",
+    "read-excel-file": "^5.8.5",
     "zod": "4.1.5",
     "zustand": "5.0.15"
   },

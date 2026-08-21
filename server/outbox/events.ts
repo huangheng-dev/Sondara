@@ -12,6 +12,7 @@ import {
   outboxJobs,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
+import { stopCampaignAudienceForCustomer } from "../campaigns/audience-lifecycle.js";
 
 export type ChannelEventInput = {
   providerEventId: string;
@@ -311,6 +312,23 @@ export const processChannelEvent = async (
                 })
                 .where(eq(channelWebhookEvents.id, eventId));
       });
+  if (thread.customerId) {
+    const stopReason = input.type === "inbound_reply"
+      ? "客户回复"
+      : input.type === "unsubscribed"
+        ? "退订"
+        : input.type === "bounced"
+          ? "退信"
+          : input.type === "complained"
+            ? "投诉"
+            : null;
+    if (stopReason)
+      await stopCampaignAudienceForCustomer({
+        workspaceId: connection.workspaceId,
+        customerId: thread.customerId,
+        reason: stopReason,
+      });
+  }
   return {
     duplicate: false,
     status: "processed",

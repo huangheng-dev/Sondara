@@ -28,7 +28,7 @@ import { generateWebhookSecret } from "../outbox/webhook-signature.js";
 
 const connectionInput = z.object({
   name: z.string().trim().min(1).max(120),
-  provider: z.enum(["smtp", "sendgrid", "mailgun", "webhook"]).default("smtp"),
+  provider: z.enum(["smtp", "sendgrid", "mailgun", "webhook", "whatsapp-cloud"]).default("smtp"),
   host: z.string().trim().min(1).max(255),
   port: z.coerce.number().int().min(1).max(65535),
   secure: z.boolean().default(false),
