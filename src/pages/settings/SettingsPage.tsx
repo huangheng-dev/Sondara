@@ -165,6 +165,7 @@ const integrationGroups = [
   },
 ];
 const builtInIntegrations = new Set(["联系人补全 API", "行业与招投标数据"]);
+type ConfigurableIntegration = "搜索与网页 API" | "地图 API";
 const aiSortIcon = (active: boolean, descending = false) => (
   <span className="customer-sort-icon" aria-hidden="true">
     {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
@@ -226,7 +227,7 @@ function OutboundSettings() {
   });
   const current = editing === "new" ? null : editing;
   const save = async (values: Record<string, string>) => {
-    const providerMap = { SMTP: "smtp", SendGrid: "sendgrid", Mailgun: "mailgun", Webhook: "webhook" } as const;
+    const providerMap = { SMTP: "smtp", SendGrid: "sendgrid", Mailgun: "mailgun", Webhook: "webhook", "WhatsApp Cloud API": "whatsapp-cloud" } as const;
     const input = {
       name: values.name,
       provider: providerMap[values.provider as keyof typeof providerMap] ?? "smtp",
@@ -269,7 +270,7 @@ function OutboundSettings() {
         <span>
           <strong>消息发送、收件与队列</strong>
           <small>
-            支持 SMTP、SendGrid、Mailgun 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件
+            支持 SMTP、SendGrid、Mailgun、WhatsApp Cloud API 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件
           </small>
         </span>
         <div>
@@ -379,7 +380,7 @@ function OutboundSettings() {
           current
             ? {
                 name: current.name,
-                provider: current.provider === "smtp" ? "SMTP" : current.provider === "sendgrid" ? "SendGrid" : current.provider === "mailgun" ? "Mailgun" : "Webhook",
+                provider: current.provider === "smtp" ? "SMTP" : current.provider === "sendgrid" ? "SendGrid" : current.provider === "mailgun" ? "Mailgun" : current.provider === "whatsapp-cloud" ? "WhatsApp Cloud API" : "Webhook",
                 host: current.host,
                 port: String(current.port),
                 security: current.secure ? "SSL / TLS" : "STARTTLS",
@@ -413,7 +414,7 @@ function OutboundSettings() {
             required: true,
             placeholder: "例如：企业邮箱主服务",
           },
-          { name: "provider", label: "发送方式", type: "select", required: true, options: ["SMTP", "SendGrid", "Mailgun", "Webhook"] },
+          { name: "provider", label: "发送方式", type: "select", required: true, options: ["SMTP", "SendGrid", "Mailgun", "WhatsApp Cloud API", "Webhook"] },
           {
             name: "host",
             label: "SMTP 主机或 API 地址",
@@ -725,7 +726,7 @@ export function SettingsPage() {
   const [selectedAiServices, setSelectedAiServices] = useState<Set<string>>(
     new Set(),
   );
-  const [integration, setIntegration] = useState<string | null>(null);
+  const [integration, setIntegration] = useState<ConfigurableIntegration | null>(null);
   const [securityDialog, setSecurityDialog] = useState<
     "password" | "2fa" | null
   >(null);
@@ -765,6 +766,18 @@ export function SettingsPage() {
     queryKey: ["auth-sessions"],
     queryFn: authApi.listSessions,
     enabled: tab === "登录与安全",
+    retry: 1,
+  });
+  const backupsQuery = useQuery({
+    queryKey: ["system-backups"],
+    queryFn: systemApi.listBackups,
+    enabled: tab === "数据与备份",
+    retry: 1,
+  });
+  const operationsQuery = useQuery({
+    queryKey: ["system-operations"],
+    queryFn: systemApi.operations,
+    enabled: tab === "数据与备份",
     retry: 1,
   });
 
@@ -1026,11 +1039,8 @@ export function SettingsPage() {
     showToast("轮转与重试策略已保存并立即生效");
   };
   const saveIntegration = async (values: Record<string, string>) => {
+    if (!integration) return;
     const isSearch = integration === "搜索与网页 API";
-    const isMap = integration === "地图 API";
-    if (!isSearch && !isMap) {
-      throw new Error("该集成尚未提供可用的服务端连接器");
-    }
     const connection = isSearch ? searchConnection : mapConnection;
     const provider = isSearch
       ? values.provider === "Brave Search API"
@@ -1464,7 +1474,12 @@ export function SettingsPage() {
                                       document.querySelector(".outbound-settings-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
                                       return;
                                     }
-                                    setIntegration(service.name);
+                                    if (
+                                      service.name === "搜索与网页 API" ||
+                                      service.name === "地图 API"
+                                    ) {
+                                      setIntegration(service.name);
+                                    }
                                   }}
                                 >
                                   {isConnected ? "管理" : "配置"}
@@ -1562,10 +1577,25 @@ export function SettingsPage() {
               </div>
               <div className="backup-reminder">
                 <span>
-                  <strong>备份建议</strong>
-                  <small>建议在升级版本前下载一次完整数据库备份</small>
+                  <strong>{backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}</strong>
+                  <small>每份自动备份生成后均执行 pg_restore 目录校验；升级前仍建议额外下载一份。</small>
                 </span>
+                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15}/>刷新</Button>
               </div>
+              {(backupsQuery.data?.items ?? []).length > 0 && <div className="backup-reminder">
+                <span>
+                  <strong>最近持久化备份</strong>
+                  <small>{backupsQuery.data!.items.slice(0, 3).map(item=>`${new Date(item.createdAt).toLocaleString("zh-CN")} · ${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`).join("\n")}</small>
+                </span>
+                <Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button>
+              </div>}
+              {operationsQuery.data && <div className="backup-reminder">
+                <span>
+                  <strong>运行概览</strong>
+                  <small>{`客户 ${operationsQuery.data.counts.customers} · 任务 ${operationsQuery.data.counts.tasks} · 商机 ${operationsQuery.data.counts.deals} · 雷达任务 ${operationsQuery.data.counts.radarTasks} · 外发队列 ${operationsQuery.data.counts.queuedOutbound}`}</small>
+                </span>
+                <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
+              </div>}
             </section>
           </div>
         ) : (
@@ -1943,13 +1973,10 @@ export function SettingsPage() {
         description={
           integration === "搜索与网页 API"
             ? "支持 Tavily、SerpAPI、Brave 官方 API 和 SearXNG。凭据只在服务端加密保存。"
-            : integration === "地图 API"
-              ? "Google Places 适合全球地点发现；密钥仅在服务端加密保存。"
-              : "保存后，对应来源会进入触达或自动化流程。"
+            : "Google Places 适合全球地点发现；密钥仅在服务端加密保存。"
         }
         submitLabel={
-          (integration === "搜索与网页 API" && searchConnection) ||
-          (integration === "地图 API" && mapConnection)
+          (integration === "搜索与网页 API" ? searchConnection : mapConnection)
             ? "更新连接"
             : "保存连接"
         }
@@ -1976,7 +2003,7 @@ export function SettingsPage() {
                 key: "",
                 limit: String(searchConnection.config.resultLimit ?? 10),
               }
-            : integration === "地图 API" && mapConnection
+            : mapConnection
               ? {
                   name: mapConnection.name,
                   provider: "Google Places API",
@@ -1985,12 +2012,7 @@ export function SettingsPage() {
                   limit: String(mapConnection.config.resultLimit ?? 10),
                 }
               : {
-                  provider:
-                    integration === "搜索与网页 API"
-                      ? "Brave Search API"
-                      : integration === "地图 API"
-                        ? "Google Places API"
-                        : "",
+                  provider: integration === "搜索与网页 API" ? "Brave Search API" : "Google Places API",
                   limit: "10",
                 }
         }
@@ -2030,8 +2052,7 @@ export function SettingsPage() {
                   required: true,
                 },
               ]
-            : integration === "地图 API"
-              ? [
+            : [
                   {
                     name: "name",
                     label: "连接名称",
@@ -2064,36 +2085,6 @@ export function SettingsPage() {
                     label: "每次地点结果上限",
                     type: "number",
                     required: true,
-                  },
-                ]
-              : [
-                  {
-                    name: "provider",
-                    label: "服务商",
-                    type: "select",
-                    required: true,
-                    options: [
-                      ...(integrationServices.find(
-                        (service) => service.name === integration,
-                      )?.providers ?? ["官方 API", "自建服务", "兼容接口"]),
-                    ],
-                  },
-                  {
-                    name: "endpoint",
-                    label: "接口地址",
-                    placeholder: "https://api.example.com/v1",
-                  },
-                  {
-                    name: "key",
-                    label: "访问密钥",
-                    required: true,
-                    placeholder: "输入 API Key、Token 或 Webhook Secret",
-                  },
-                  {
-                    name: "quota",
-                    label: "每月调用上限",
-                    type: "number",
-                    placeholder: "例如：10000",
                   },
                 ]
         }

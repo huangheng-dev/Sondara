@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import {
   auditLogs,
+  approvalRequests,
   campaignAudienceMembers,
   campaignContentLinks,
   campaignExecutionEvents,
@@ -616,20 +617,45 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         error: "INVALID_STATUS",
         message: "该步骤已执行或已取消，不能重复入队。",
       });
+    const approvalAudience = await db.select({ id: campaignAudienceMembers.id }).from(campaignAudienceMembers).where(and(
+      eq(campaignAudienceMembers.campaignId, id),
+      eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
+      inArray(campaignAudienceMembers.status, ["pending", "sent"]),
+    ));
+    if (approvalAudience.length >= 100) {
+      const approvalAction = "campaign.bulk_execute";
+      const approved = await db.$first(db.select({ id: approvalRequests.id }).from(approvalRequests).where(and(
+        eq(approvalRequests.workspaceId, request.auth.workspaceId), eq(approvalRequests.entityType, "campaign_step"),
+        eq(approvalRequests.entityId, stepId), eq(approvalRequests.action, approvalAction), eq(approvalRequests.status, "approved"),
+      )));
+      if (!approved) {
+        const pending = await db.$first(db.select({ id: approvalRequests.id }).from(approvalRequests).where(and(
+          eq(approvalRequests.workspaceId, request.auth.workspaceId), eq(approvalRequests.entityType, "campaign_step"),
+          eq(approvalRequests.entityId, stepId), eq(approvalRequests.action, approvalAction), eq(approvalRequests.status, "pending"),
+        )));
+        const approvalId = pending?.id ?? createId("apr");
+        if (!pending) {
+          const now = Date.now();
+          await db.insert(approvalRequests).values({ id: approvalId, workspaceId: request.auth.workspaceId, entityType: "campaign_step", entityId: stepId, action: approvalAction, note: `活动「${campaign.name}」步骤「${step.name}」将触达 ${approvalAudience.length} 位客户。`, requestedByUserId: request.auth.userId, status: "pending", createdAt: now, updatedAt: now });
+          await writeAudit(request.auth.workspaceId, request.auth.userId, "approval.requested", id, { approvalId, action: approvalAction, stepId, recipientCount: approvalAudience.length });
+        }
+        return reply.code(409).send({ error: "APPROVAL_REQUIRED", message: `该步骤将触达 ${approvalAudience.length} 位客户，已提交审批。审批通过后请重新执行。`, approvalId });
+      }
+    }
     const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
     if (!emailChannel) {
       const audience = (await db.select().from(campaignAudienceMembers).where(and(
               eq(campaignAudienceMembers.campaignId, id),
               eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
-              eq(campaignAudienceMembers.status, "pending"),
+              inArray(campaignAudienceMembers.status, ["pending", "sent"]),
             ))).filter(member => Boolean(member.customerId));
       if (!audience.length) return reply.code(409).send({ error: "NO_ELIGIBLE_RECIPIENTS", message: "目标名单中没有可创建人工触达任务的客户。" });
       const now = Date.now();
       const createdTaskIds: string[] = [];
       await db.transaction(async tx => {
-                await Promise.all(audience.map(async member => {
+                for (const member of audience) {
                   const customer = (await db.$first(tx.select().from(customers).where(and(eq(customers.id, member.customerId!), eq(customers.workspaceId, request.auth.workspaceId)))));
-                  if (!customer) return;
+                  if (!customer) continue;
                   const taskId = createId("tsk");
                   createdTaskIds.push(taskId);
                   await tx.insert(tasks).values({
@@ -649,8 +675,8 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
                                 createdAt: now,
                                 updatedAt: now,
                               });
-                  await tx.update(campaignAudienceMembers).set({ status: "manual_task", lastEventAt: now, updatedAt: now }).where(eq(campaignAudienceMembers.id, member.id));
-                }));
+                  await tx.update(campaignAudienceMembers).set({ status: "sent", lastEventAt: now, updatedAt: now }).where(eq(campaignAudienceMembers.id, member.id));
+                }
                 await tx.update(campaignSteps).set({ status: "running", updatedAt: now }).where(eq(campaignSteps.id, stepId));
                 await tx.update(campaigns).set({ status: "运行中", nextAction: `完成 ${createdTaskIds.length} 项${step.channel}人工触达任务`, updatedAt: now }).where(eq(campaigns.id, id));
                 await tx.insert(campaignExecutionEvents).values({
@@ -685,7 +711,7 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
             and(
               eq(campaignAudienceMembers.campaignId, id),
               eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
-              eq(campaignAudienceMembers.status, "pending"),
+              inArray(campaignAudienceMembers.status, ["pending", "sent"]),
             ),
           ));
     const recipients = (await Promise.all(audience.map(async (member) => {

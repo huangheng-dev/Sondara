@@ -23,6 +23,7 @@ import { isDestinationSuppressed } from "./events.js";
 const emailChannels = new Set(["邮件", "邮件序列", "email", "Email", "EMAIL"]);
 const emailChannelList = [...emailChannels];
 const emailProviders = new Set(["smtp", "sendgrid", "mailgun"]);
+const whatsappChannels = new Set(["WhatsApp", "whatsapp", "WhatsApp 消息"]);
 const event = async (
   job: typeof outboxJobs.$inferSelect,
   eventType: string,
@@ -94,7 +95,9 @@ export const getAvailableConnection = async (workspaceId: string, channel = "邮
         );
   return connections.find(connection => emailChannels.has(channel)
     ? emailProviders.has(connection.provider)
-    : connection.provider === "webhook");
+    : whatsappChannels.has(channel)
+      ? connection.provider === "whatsapp-cloud"
+      : connection.provider === "webhook");
 };
 
 export const enqueueConfirmedMessage = async (input: {
@@ -128,8 +131,9 @@ export const enqueueConfirmedMessage = async (input: {
   const suppressed = Boolean(
     contact?.email && (await isDestinationSuppressed(input.workspaceId, contact.email)),
   );
+  const blockedByOptIn = whatsappChannels.has(input.channel) && !contact?.whatsappOptedInAt;
   const connection = await getAvailableConnection(input.workspaceId, input.channel);
-  const status = suppressed
+  const status = suppressed || blockedByOptIn
     ? "cancelled"
     : connection
       ? "queued"
@@ -140,14 +144,16 @@ export const enqueueConfirmedMessage = async (input: {
     messageId: input.messageId,
     threadId: input.threadId,
     channel: input.channel,
-    connectionId: suppressed ? null : (connection?.id ?? null),
+    connectionId: suppressed || blockedByOptIn ? null : (connection?.id ?? null),
     status,
     attempts: 0,
     maxAttempts: 3,
     scheduledAt: input.scheduledAt ?? now,
     startedAt: null,
     completedAt: null,
-    lastError: suppressed
+    lastError: blockedByOptIn
+      ? "联系人尚未记录 WhatsApp 授权，已阻止发送。"
+      : suppressed
       ? "收件地址位于抑制名单，已阻止发送。"
       : connection
         ? null
@@ -161,8 +167,9 @@ export const enqueueConfirmedMessage = async (input: {
   await db.insert(outboxJobs).values(job);
   await event(job as typeof outboxJobs.$inferSelect, "queued", status, {
     channel: input.channel,
-    connectionId: suppressed ? null : (connection?.id ?? null),
-    suppressed,
+    connectionId: suppressed || blockedByOptIn ? null : (connection?.id ?? null),
+    suppressed: suppressed || blockedByOptIn,
+    blockedByOptIn,
   });
   return job;
 };
@@ -182,7 +189,9 @@ export const testOutboundConnection = async (
   const startedAt = Date.now();
   if (connection.provider !== "smtp") {
     const secret = secretFor(connection);
-    const endpoint = connection.provider === "sendgrid"
+    const endpoint = connection.provider === "whatsapp-cloud"
+      ? `${apiBase(connection, "https://graph.facebook.com/v20.0")}/${encodeURIComponent(connection.username)}?fields=display_phone_number,verified_name`
+      : connection.provider === "sendgrid"
       ? `${apiBase(connection, "https://api.sendgrid.com/v3")}/user/profile`
       : connection.provider === "mailgun"
         ? `${apiBase(connection, "https://api.mailgun.net")}/v3/domains/${encodeURIComponent(connection.username)}`
@@ -284,6 +293,14 @@ const sendWithConnection = async (
     const result = await response.json().catch(() => ({})) as { id?: string };
     return { messageId: result.id ?? randomUUID() };
   }
+  if (connection.provider === "whatsapp-cloud") {
+    const endpoint = `${apiBase(connection, "https://graph.facebook.com/v20.0")}/${encodeURIComponent(connection.username)}/messages`;
+    await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "WhatsApp Cloud API 地址" });
+    const response = await fetch(endpoint, { method: "POST", signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" }, body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: input.to.replace(/[^0-9+]/g, ""), type: "text", text: { preview_url: false, body: input.body } }) });
+    if (!response.ok) throw new Error(`WhatsApp Cloud API 返回 HTTP ${response.status}。`);
+    const result = await response.json().catch(() => ({})) as { messages?: Array<{ id?: string }> };
+    return { messageId: result.messages?.[0]?.id ?? randomUUID() };
+  }
   const endpoint = apiBase(connection, connection.host);
   await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "Webhook 地址" });
   const response = await fetch(endpoint, {
@@ -310,8 +327,10 @@ export const activateWaitingJobs = async (
     )));
   if (!connection) return 0;
   const channelCondition = connection.provider === "webhook"
-    ? notInArray(outboxJobs.channel, emailChannelList)
-    : inArray(outboxJobs.channel, emailChannelList);
+    ? notInArray(outboxJobs.channel, [...emailChannelList, ...whatsappChannels])
+    : connection.provider === "whatsapp-cloud"
+      ? inArray(outboxJobs.channel, [...whatsappChannels])
+      : inArray(outboxJobs.channel, emailChannelList);
   return (await db
       .update(outboxJobs)
       .set({

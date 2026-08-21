@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, desc, eq, gte, inArray, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, like, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
 import { auditLogs, candidateContacts, candidateEvidence, customers, inboxContacts, radarCandidates, radarJobEvents, radarQueueItems, radarTasks } from '../db/schema.js'
@@ -11,7 +11,7 @@ import { hasSearchConfiguration } from '../integrations/search-client.js'
 import { hasMapConfiguration } from '../integrations/map-client.js'
 
 const taskStatus = z.enum(['queued', 'running', 'paused', 'completed', 'failed', 'cancelled'])
-const candidateStatus = z.enum(['candidate', 'review', 'saved', 'rejected'])
+const candidateStatus = z.enum(['candidate', 'review', 'saved', 'rejected', 'archived'])
 
 const taskInput = z.object({
   name: z.string().trim().min(1).max(160),
@@ -207,6 +207,7 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_QUERY', message: parsed.error.issues[0]?.message })
     const query = parsed.data
     const conditions = [eq(radarCandidates.workspaceId, request.auth.workspaceId)]
+    if (!query.status) conditions.push(isNull(radarCandidates.archivedAt))
     if (query.q) conditions.push(or(like(radarCandidates.company, `%${query.q}%`), like(radarCandidates.industry, `%${query.q}%`), like(radarCandidates.signal, `%${query.q}%`))!)
     if (query.status) conditions.push(eq(radarCandidates.status, query.status))
     if (query.taskId) conditions.push(eq(radarCandidates.radarTaskId, query.taskId))
@@ -270,6 +271,14 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     return (await db.$first(db.select().from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
   })
 
+  app.post('/candidates/:id/archive', async (request, reply) => {
+    const id = (request.params as { id: string }).id; const existing = await db.$first(db.select({ id: radarCandidates.id }).from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '候选客户不存在。' })
+    const archivedAt = (request.body as { archived?: boolean } | undefined)?.archived === false ? null : Date.now()
+    await db.update(radarCandidates).set({ archivedAt, updatedAt: Date.now(), status: archivedAt ? 'archived' : 'candidate' }).where(eq(radarCandidates.id, id)); await writeAudit(request.auth.workspaceId, request.auth.userId, archivedAt ? 'radar.candidate.archived' : 'radar.candidate.unarchived', 'radar_candidate', id)
+    return { id, archivedAt }
+  })
+
   app.post('/candidates/:id/enrich-contacts', async (request, reply) => {
     const id = (request.params as { id: string }).id
     const candidate = (await db.$first(db.select({ id: radarCandidates.id, company: radarCandidates.company }).from(radarCandidates).where(and(eq(radarCandidates.id, id), eq(radarCandidates.workspaceId, request.auth.workspaceId)))))
@@ -320,6 +329,7 @@ export const radarRoutes: FastifyPluginAsync = async app => {
                 nextAction: bestContact?.email ? '安排首次触达' : '补全联系人邮箱',
                 ownerUserId: request.auth.userId,
                 dueAt: null,
+                archivedAt: null,
                 createdAt: now,
                 updatedAt: now,
               }
@@ -328,7 +338,7 @@ export const radarRoutes: FastifyPluginAsync = async app => {
               catch { customer = (await db.$first(tx.select().from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), eq(customers.company, candidate.company)))))! }
             } else {
               await tx.update(customers).set({ contacts: Math.max(existingCustomer!.contacts, contacts.length), validContacts: Math.max(existingCustomer!.validContacts, validContacts), updatedAt: now }).where(eq(customers.id, existingCustomer!.id))
-              customer = (await db.$first(tx.select().from(customers).where(eq(customers.id, existingCustomer!.id))))
+              customer = (await db.$first(tx.select().from(customers).where(eq(customers.id, existingCustomer!.id)))) ?? existingCustomer
             }
 
             // Create an inbox contact (with verified email) so campaigns can actually send to this customer.

@@ -78,6 +78,11 @@ export type CustomerApiInput = {
   dueAt?: number | null;
   ownerUserId?: string | null;
 };
+export type CustomerImportRow = CustomerApiInput & { contactName?: string; contactTitle?: string; contactEmail?: string; contactPhone?: string; website?: string };
+export type CustomerImportResult = { total: number; created: number; duplicates: number; contactsCreated: number; invalid: number };
+export type CustomerImportHistory = { id: string; createdAt: number; sourceName: string; sourceType: string; sourceUrl: string | null; total: number; created: number; duplicates: number; contactsCreated: number };
+export type LeadSourceConnection = { id: string; provider: 'linkedin-lead-gen' | 'meta-lead-ads'; name: string; accountRef: string | null; formRef: string | null; clientId: string | null; enabled: boolean; status: string; hasAccessToken: boolean; accessTokenEnding: string | null; lastError: string | null; lastSyncedAt: number | null; createdAt: number; updatedAt: number; webhookPath: string };
+export type LeadSourceEvent = { id: string; workspaceId: string; connectionId: string; providerEventId: string; processingStatus: string; processingError: string | null; receivedAt: number; processedAt: number | null; payload: Record<string, unknown> };
 
 export type CustomerListResponse = {
   items: CustomerApiRecord[];
@@ -161,7 +166,8 @@ export type RadarCandidateStatus =
   | "candidate"
   | "review"
   | "saved"
-  | "rejected";
+  | "rejected"
+  | "archived";
 
 export type RadarTaskApiRecord = {
   id: string;
@@ -340,7 +346,7 @@ export type OutboundConnectionApiRecord = {
   id: string;
   workspaceId: string;
   name: string;
-  provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
+  provider: "smtp" | "sendgrid" | "mailgun" | "webhook" | "whatsapp-cloud";
   host: string;
   port: number;
   secure: boolean;
@@ -669,6 +675,8 @@ export type InboxContactApiRecord = {
   email: string | null;
   phone: string | null;
   externalRef: string | null;
+  whatsappOptedInAt: number | null;
+  whatsappOptInSource: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -832,6 +840,8 @@ export type AdminAuditLogApiRecord = {
   createdAt: number;
   result: "success";
 };
+export type AdminInvitationApiRecord = { id: string; email: string; displayName?: string; role: "admin" | "member" | "viewer"; expiresAt: number; acceptedAt: number | null; revokedAt: number | null; createdAt: number; inviteUrl?: string };
+export type ApprovalApiRecord = { id: string; workspaceId: string; entityType: string; entityId: string; action: string; requestedByUserId: string; requester?: string; status: "pending" | "approved" | "rejected" | "cancelled"; note?: string | null; createdAt: number; updatedAt: number; reviewedAt?: number | null };
 
 export const adminApi = {
   listMembers: () => request<{ items: AdminMemberApiRecord[] }>("/admin/members"),
@@ -842,6 +852,15 @@ export const adminApi = {
   removeMember: (id: string) => request<void>(`/admin/members/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listRoles: () => request<{ items: AdminRoleApiRecord[] }>("/admin/roles"),
   listAuditLogs: () => request<{ items: AdminAuditLogApiRecord[] }>("/admin/audit-logs"),
+  listInvitations: () => request<{ items: AdminInvitationApiRecord[] }>("/admin/invitations"),
+  createInvitation: (input: { displayName: string; email: string; role: "admin" | "member" | "viewer" }) => request<AdminInvitationApiRecord>("/admin/invitations", { method: "POST", body: JSON.stringify(input) }),
+  revokeInvitation: (id: string) => request<{ ok: boolean }>(`/admin/invitations/${encodeURIComponent(id)}/revoke`, { method: "POST" }),
+};
+
+export const approvalApi = {
+  list: () => request<{ items: ApprovalApiRecord[] }>("/approvals"),
+  create: (input: { entityType: string; entityId: string; action: string; note?: string }) => request<ApprovalApiRecord>("/approvals", { method: "POST", body: JSON.stringify(input) }),
+  review: (id: string, input: { status: "approved" | "rejected" | "cancelled"; note?: string }) => request<ApprovalApiRecord>(`/approvals/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
 };
 
 export const customerApi = {
@@ -851,6 +870,8 @@ export const customerApi = {
       region?: string;
       stage?: string;
       minScore?: number;
+      includeArchived?: boolean;
+      archivedOnly?: boolean;
       page?: number;
       pageSize?: number;
       sort?:
@@ -874,6 +895,11 @@ export const customerApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  import: (input: { sourceName: string; sourceType: "行业目录" | "展会名单" | "历史客户" | "其他"; sourceUrl?: string; rows: CustomerImportRow[] }) =>
+    request<CustomerImportResult>("/customers/import", { method: "POST", body: JSON.stringify(input) }),
+  listImports: () => request<{ items: CustomerImportHistory[] }>("/customers/imports"),
+  mergePreview: (primaryCustomerId: string, duplicateCustomerId: string) => request<{ primary: CustomerApiRecord; duplicate: CustomerApiRecord; contacts: { primary: number; duplicate: number; duplicateNames: string[] }; transfers: { tasks: number; deals: number; threads: number; campaignMembers: number } }>("/customers/merge-preview", { method: "POST", body: JSON.stringify({ primaryCustomerId, duplicateCustomerId }) }),
+  merge: (primaryCustomerId: string, duplicateCustomerId: string) => request<{ primaryCustomerId: string; archivedCustomerId: string; transferredContacts: number }>("/customers/merge", { method: "POST", body: JSON.stringify({ primaryCustomerId, duplicateCustomerId }) }),
   update: (id: string, input: Partial<CustomerApiInput>) =>
     request<CustomerApiRecord>(`/customers/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -881,12 +907,22 @@ export const customerApi = {
     }),
   remove: (id: string) =>
     request<void>(`/customers/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  archive: (id: string, archived = true) => request<{ id: string; archivedAt: number | null }>(`/customers/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
   addTags: (customerIds: string[], name: string, color: "blue" | "green" | "orange" | "gray") =>
     request<{ updated: number }>("/customers/tags/bulk", { method: "POST", body: JSON.stringify({ customerIds, name, color }) }),
   listContacts: (customerId: string) =>
     request<{ items: InboxContactApiRecord[] }>(`/customers/${encodeURIComponent(customerId)}/contacts`),
   addContact: (customerId: string, input: { name: string; jobTitle?: string; email?: string | null; phone?: string | null; primaryChannel?: string }) =>
     request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts`, { method: "POST", body: JSON.stringify(input) }),
+  setWhatsappOptIn: (customerId: string, contactId: string, optedIn: boolean, source = "人工确认") => request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/whatsapp-opt-in`, { method: "POST", body: JSON.stringify({ optedIn, source }) }),
+};
+
+export const leadSourceApi = {
+  listConnections: () => request<{ items: LeadSourceConnection[] }>('/lead-sources/connections'),
+  createConnection: (input: { name: string; provider: 'linkedin-lead-gen' | 'meta-lead-ads'; accountRef?: string; formRef?: string; clientId?: string; accessToken?: string; enabled?: boolean }) => request<LeadSourceConnection & { webhookUrl: string; webhookToken: string }>('/lead-sources/connections', { method: 'POST', body: JSON.stringify(input) }),
+  updateConnection: (id: string, input: Partial<{ name: string; provider: 'linkedin-lead-gen' | 'meta-lead-ads'; accountRef: string; formRef: string; clientId: string; accessToken: string; enabled: boolean }>) => request<LeadSourceConnection>(`/lead-sources/connections/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  regenerateWebhook: (id: string) => request<{ webhookUrl: string; webhookToken: string }>(`/lead-sources/connections/${encodeURIComponent(id)}/regenerate-webhook`, { method: 'POST' }),
+  listEvents: () => request<{ items: LeadSourceEvent[] }>('/lead-sources/events'),
 };
 
 export const taskApi = {
@@ -897,6 +933,8 @@ export const taskApi = {
       page?: number;
       pageSize?: number;
       sort?: "created_desc" | "due_asc" | "priority_desc";
+      includeArchived?: boolean;
+      archivedOnly?: boolean;
     } = {},
   ) => {
     const query = new URLSearchParams();
@@ -920,6 +958,7 @@ export const taskApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  archive: (id: string, archived = true) => request<{ id: string; archivedAt: number | null }>(`/tasks/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
 };
 
 export const dealApi = {
@@ -930,6 +969,8 @@ export const dealApi = {
       page?: number;
       pageSize?: number;
       sort?: "updated_desc" | "value_desc" | "probability_desc" | "close_asc";
+      includeArchived?: boolean;
+      archivedOnly?: boolean;
     } = {},
   ) => {
     const query = new URLSearchParams();
@@ -950,6 +991,7 @@ export const dealApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  archive: (id: string, archived = true) => request<{ id: string; archivedAt: number | null }>(`/deals/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
 };
 
 export const radarApi = {
@@ -1007,6 +1049,7 @@ export const radarApi = {
       `/radar/candidates/${encodeURIComponent(id)}`,
       { method: "PATCH", body: JSON.stringify({ status }) },
     ),
+  archiveCandidate: (id: string, archived = true) => request<{ id: string; archivedAt: number | null }>(`/radar/candidates/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({ archived }) }),
   promoteCandidate: (id: string) =>
     request<{
       customer: CustomerApiRecord;
@@ -1149,7 +1192,7 @@ export const outboxApi = {
     request<{ items: OutboundConnectionApiRecord[] }>("/outbox/connections"),
   createConnection: (input: {
     name: string;
-    provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
+    provider: "smtp" | "sendgrid" | "mailgun" | "webhook" | "whatsapp-cloud";
     host: string;
     port: number;
     secure: boolean;
@@ -1178,7 +1221,7 @@ export const outboxApi = {
     id: string,
     input: Partial<{
       name: string;
-      provider: "smtp" | "sendgrid" | "mailgun" | "webhook";
+      provider: "smtp" | "sendgrid" | "mailgun" | "webhook" | "whatsapp-cloud";
       host: string;
       port: number;
       secure: boolean;
@@ -1783,5 +1826,8 @@ const downloadFile = async (path: string, defaultFilename: string) => {
 
 export const systemApi = {
   exportData: () => downloadFile("/system/export", `sondara-export-${new Date().toISOString().slice(0, 10)}.json`),
-  backupDatabase: () => downloadFile("/system/backup", `sondara-backup-${new Date().toISOString().slice(0, 10)}.db`),
+  backupDatabase: () => downloadFile("/system/backup", `sondara-backup-${new Date().toISOString().slice(0, 10)}.dump`),
+  listBackups: () => request<{ items: Array<{ fileName: string; createdAt: number; size: number; verifiedAt: number | null }>; automatic: boolean; retentionCount: number }>("/system/backups"),
+  validateBackup: (fileName: string) => request<{ fileName: string; verifiedAt: number }>(`/system/backups/${encodeURIComponent(fileName)}/validate`, { method: "POST" }),
+  operations: () => request<{ generatedAt: number; workers: { backup: "enabled" | "disabled" }; counts: { customers: number; tasks: number; deals: number; radarTasks: number; queuedOutbound: number }; latestBackup: { fileName: string; createdAt: number; size: number; verifiedAt: number | null } | null }>("/system/operations"),
 };
