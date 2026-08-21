@@ -80,7 +80,7 @@ docker compose up -d --build
 
 Docker Desktop 中会归组为 `sondara` 项目，包含 `sondara-app-1` 与 `sondara-postgres-1`；PostgreSQL 数据保存在独立持久卷。公开部署前请复制 `.env.example` 为 `.env`，更换数据库密码、加密主密钥和站点域名。
 
-完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含 Docker、手动部署、systemd、Nginx 反代、备份恢复和升级流程。
+完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含 Docker、手动部署、systemd、Nginx 反代、备份恢复和升级流程；版本升级与数据库迁移见 [docs/UPGRADE.md](./docs/UPGRADE.md)。
 
 ## 测试
 
@@ -176,5 +176,3 @@ X-Sondara-Signature: <HMAC-SHA256(timestamp + "." + JSON body)>
 安全说明见 [SECURITY.md](./SECURITY.md)。
 
 欢迎提交 Issue 和 Pull Request。
-
-

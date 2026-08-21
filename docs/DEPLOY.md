@@ -116,7 +116,7 @@ docker compose exec -T postgres pg_dump -U sondara -d sondara --format=custom --
 docker compose exec -T postgres pg_restore -U sondara -d sondara --clean --if-exists --no-owner --no-acl < sondara.dump
 ```
 
-升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。
+升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。完整步骤见 [UPGRADE.md](./UPGRADE.md)。
 
 ## 健康与可观测性
 
