@@ -6,19 +6,24 @@ const npmCli = process.env.npm_execpath ?? require.resolve('npm/bin/npm-cli.js')
 
 const tests = [
   'ai-client',
+  'approvals',
   'attribution',
   'auth-2fa',
+  'backup-worker',
   'campaigns',
   'closed-loop',
   'contact-enrichment',
   'content-assets',
+  'customer-governance',
   'icp',
   'inbox',
   'industry-source',
+  'lead-sources',
   'map-connector',
   'outbox',
   'partial-updates',
   'search-connector',
+  'team-invitations',
 ]
 
 let index = 0
