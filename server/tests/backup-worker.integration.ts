@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, utimes, writeFile, readFile, readdir } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -12,19 +12,38 @@ const run = async () => {
   const root = await mkdtemp(join(tmpdir(), 'sondara-backup-'))
   const bin = join(root, 'bin')
   const backupDir = join(root, 'backups')
-  await Promise.all([
-    import('node:fs/promises').then(fs => fs.mkdir(bin, { recursive: true })),
-    import('node:fs/promises').then(fs => fs.mkdir(backupDir, { recursive: true })),
-  ])
+  await mkdir(bin, { recursive: true })
+  await mkdir(backupDir, { recursive: true })
 
-  const pgDumpSource = join(root, 'pg_dump.cs')
-  const pgRestoreSource = join(root, 'pg_restore.cs')
-  await writeProgram(pgDumpSource, `using System; using System.IO; class PgDump { static int Main(string[] args) { string file = null; foreach (string arg in args) { if (arg.StartsWith("--file=")) file = arg.Substring(7); } if (file == null) return 2; Directory.CreateDirectory(Path.GetDirectoryName(file)); File.WriteAllText(file, "PGDMP fake custom backup"); return 0; } }`)
-  await writeProgram(pgRestoreSource, `class PgRestore { static int Main(string[] args) { return 0; } }`)
-  const compileDump = spawnSync(csc, ['/nologo', '/target:exe', `/out:${join(bin, 'pg_dump.exe')}`, pgDumpSource], { encoding: 'utf8' })
-  assert.equal(compileDump.status, 0, compileDump.stderr || compileDump.stdout)
-  const compileRestore = spawnSync(csc, ['/nologo', '/target:exe', `/out:${join(bin, 'pg_restore.exe')}`, pgRestoreSource], { encoding: 'utf8' })
-  assert.equal(compileRestore.status, 0, compileRestore.stderr || compileRestore.stdout)
+  if (process.platform === 'win32') {
+    const pgDumpSource = join(root, 'pg_dump.cs')
+    const pgRestoreSource = join(root, 'pg_restore.cs')
+    await writeProgram(pgDumpSource, `using System; using System.IO; class PgDump { static int Main(string[] args) { string file = null; foreach (string arg in args) { if (arg.StartsWith("--file=")) file = arg.Substring(7); } if (file == null) return 2; Directory.CreateDirectory(Path.GetDirectoryName(file)); File.WriteAllText(file, "PGDMP fake custom backup"); return 0; } }`)
+    await writeProgram(pgRestoreSource, `class PgRestore { static int Main(string[] args) { return 0; } }`)
+    const compileDump = spawnSync(csc, ['/nologo', '/target:exe', `/out:${join(bin, 'pg_dump.exe')}`, pgDumpSource], { encoding: 'utf8' })
+    assert.equal(compileDump.status, 0, compileDump.stderr || compileDump.stdout)
+    const compileRestore = spawnSync(csc, ['/nologo', '/target:exe', `/out:${join(bin, 'pg_restore.exe')}`, pgRestoreSource], { encoding: 'utf8' })
+    assert.equal(compileRestore.status, 0, compileRestore.stderr || compileRestore.stdout)
+  } else {
+    const pgDumpScript = `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const arg = process.argv.find(a => a.startsWith('--file='));
+if (!arg) process.exit(2);
+const file = arg.slice(7);
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, 'PGDMP fake custom backup');
+`
+    const pgRestoreScript = `#!/usr/bin/env node
+process.exit(0);
+`
+    const pgDumpPath = join(bin, 'pg_dump')
+    const pgRestorePath = join(bin, 'pg_restore')
+    await writeFile(pgDumpPath, pgDumpScript, 'utf8')
+    await writeFile(pgRestorePath, pgRestoreScript, 'utf8')
+    await chmod(pgDumpPath, 0o755)
+    await chmod(pgRestorePath, 0o755)
+  }
 
   process.env.PATH = `${bin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}`
   process.env.SONDARA_BACKUP_DIRECTORY = backupDir
@@ -83,7 +102,3 @@ run().then(
     process.exit(1)
   },
 )
-
-
-
-
