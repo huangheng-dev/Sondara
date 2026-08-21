@@ -85,7 +85,7 @@
     "@types/react": "19.1.12",
     "@types/react-dom": "19.1.9",
     "@types/smtp-server": "^3.5.13",
-    "@vitejs/plugin-react": "5.2.0",
+    "@vitejs/plugin-react": "6.0.5",
     "concurrently": "^10.0.5",
     "drizzle-kit": "^0.31.10",
     "smtp-server": "^3.19.3",
