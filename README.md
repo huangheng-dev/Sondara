@@ -1,5 +1,7 @@
 # Sondara
 
+[![CI](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml)
+
 Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在本地单人运行，也可部署到云端供多个独立账号使用。
 
 它用于验证这条核心闭环：
@@ -31,13 +33,13 @@ Sondara 是一个免费开源的 AI 找客户与个人增长工作区，可在�
 - React 19 + TypeScript + Vite 7
 - React Router 7、TanStack Query、Zustand
 - Ant Design 6、Lucide React
-- Fastify 5 + PostgreSQL 17 + Drizzle ORM
+- Fastify 5 + PostgreSQL 15+（Docker/CI 使用 17）+ Drizzle ORM
 - 多 AI 服务密钥池轮转、AES-256-GCM 密钥保险箱
 - Docker 多阶段构建支持
 
 ## 本地启动
 
-需要 Node.js 24 LTS 和 PostgreSQL 15+。先创建数据库，再运行：
+需要 Node.js 24 LTS 和 PostgreSQL 15+（推荐 17）。非 Docker 环境若要使用数据库备份，还需要将与 PostgreSQL 版本兼容的 `pg_dump` / `pg_restore` 放入 PATH。先创建数据库，再运行：
 
 ```bash
 npm install
@@ -70,7 +72,7 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-生产模式下，API 在同一端口（默认 4176）同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。
+生产模式下，API 在同一端口（默认 4176）同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。裸机部署请确认运行服务的用户可以在 PATH 中找到 `pg_dump` 和 `pg_restore`；自动备份默认每日执行一次、保留最近 7 份，可通过 `SONDARA_BACKUP_INTERVAL_MS` 和 `SONDARA_BACKUP_RETENTION_COUNT` 调整。
 
 ### Docker
 
@@ -107,6 +109,8 @@ npm run test:partial-updates  # 局部更新保护
 npm run test:icp              # 业务资料与定位知识
 npm run test:attribution      # 转化归因
 ```
+
+一次运行全部集成测试：`npm run test:all`。发布前完整门禁使用：`npm run qa:all`。
 
 环境变量参考 [`.env.example`](./.env.example)。测试必须指向隔离的 PostgreSQL 数据库；E2E 会自动创建并销毁临时数据库。
 
@@ -146,6 +150,7 @@ server/
 ├─ integrations/ # 搜索、地图客户端
 ├─ routes/       # API 路由
 ├─ plugins/      # Fastify 插件（认证守卫等）
+├─ operations/   # 数据库备份等后台运维任务
 └─ lib/          # 密码、会话、密钥保险箱、ID 和审计
 ```
 
