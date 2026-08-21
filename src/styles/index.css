@@ -6304,6 +6304,29 @@ textarea:focus-visible {
   font-style: normal;
   color: #16a34a;
 }
+.stage-transition-section {
+  padding: 12px 0;
+  border-top: 1px solid #edf0f4;
+}
+.stage-transition-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.stage-transition-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.stage-hint {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
 .customer-contact-list article {
   display: flex;
   align-items: center;

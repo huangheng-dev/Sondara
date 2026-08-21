@@ -930,6 +930,8 @@ export const customerApi = {
     request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/verify`, { method: "POST", body: JSON.stringify({ status, source }) }),
   scoreOverride: (customerId: string, scoreOverride: number | null, reason?: string) =>
     request<CustomerApiRecord>(`/customers/${encodeURIComponent(customerId)}/score-override`, { method: "POST", body: JSON.stringify({ scoreOverride, reason }) }),
+  changeStage: (customerId: string, stage: string, nextAction?: string, reason?: string) =>
+    request<CustomerApiRecord>(`/customers/${encodeURIComponent(customerId)}/stage`, { method: "POST", body: JSON.stringify({ stage, nextAction, reason }) }),
 };
 
 export const leadSourceApi = {

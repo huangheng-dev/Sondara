@@ -36,6 +36,20 @@
       "when": 1787288700311,
       "tag": "0004_lumpy_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787337580232,
+      "tag": "0005_score_override",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787337580233,
+      "tag": "0006_contact_verification",
+      "breakpoints": true
     }
   ]
 }

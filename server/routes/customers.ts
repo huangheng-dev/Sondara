@@ -64,6 +64,31 @@ const requireMergeCustomers = async (workspaceId: string, input: z.infer<typeof 
   return { primary, duplicate }
 }
 
+const CUSTOMER_STAGES = ['待补全', '待验证', '培育中', '重点跟进', '有商机', '已成交', '停滞', '已流失'] as const
+type CustomerStage = typeof CUSTOMER_STAGES[number]
+
+const STAGE_NEXT_ACTION: Record<CustomerStage, string> = {
+  '待补全': '补全企业档案和联系人信息',
+  '待验证': '验证企业信息和联系人邮箱',
+  '培育中': '发送培育内容或行业洞察',
+  '重点跟进': '安排首次深度沟通或产品演示',
+  '有商机': '推进报价和合同流程',
+  '已成交': '启动交付并确认首单到账',
+  '停滞': '设定回访提醒，暂停主动触达',
+  '已流失': '记录流失原因，暂停触达',
+}
+
+const STAGE_TRANSITIONS: Record<CustomerStage, CustomerStage[]> = {
+  '待补全': ['待验证', '培育中'],
+  '待验证': ['培育中', '待补全', '已流失'],
+  '培育中': ['重点跟进', '停滞', '已流失'],
+  '重点跟进': ['有商机', '培育中', '停滞', '已流失'],
+  '有商机': ['已成交', '停滞', '已流失', '重点跟进'],
+  '已成交': ['重点跟进'],
+  '停滞': ['培育中', '重点跟进', '有商机', '已流失'],
+  '已流失': ['培育中', '重点跟进'],
+}
+
 export const customerRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
 
@@ -263,6 +288,27 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     if (!result) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
     const overrideNames = new Map((await db.select({ id: users.id, name: users.displayName }).from(users)).map(item => [item.id, item.name]))
     return { ...result, scoreOverrideByName: result.scoreOverrideByUserId ? overrideNames.get(result.scoreOverrideByUserId) ?? null : null }
+  })
+
+  app.post('/:id/stage', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const parsed = z.object({
+      stage: z.enum(CUSTOMER_STAGES),
+      nextAction: z.string().trim().max(200).optional(),
+      reason: z.string().trim().max(500).optional(),
+    }).safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const existing = await db.$first(db.select().from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const allowed = STAGE_TRANSITIONS[existing.stage as CustomerStage]
+    if (existing.stage !== parsed.data.stage && allowed && !allowed.includes(parsed.data.stage)) {
+      return reply.code(409).send({ error: 'INVALID_TRANSITION', message: `不允许从「${existing.stage}」直接变更为「${parsed.data.stage}」。允许的下一阶段：${allowed.join('、')}。` })
+    }
+    const now = Date.now()
+    const nextAction = parsed.data.nextAction ?? STAGE_NEXT_ACTION[parsed.data.stage]
+    await db.update(customers).set({ stage: parsed.data.stage, nextAction, interaction: `阶段变更为 ${parsed.data.stage}`, updatedAt: now }).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.stage_changed', id, { from: existing.stage, to: parsed.data.stage, reason: parsed.data.reason ?? null, nextAction })
+    return await db.$first(db.select().from(customers).where(eq(customers.id, id)))
   })
 
   app.post('/tags/bulk', async (request, reply) => {

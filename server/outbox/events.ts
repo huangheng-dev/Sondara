@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   campaignAudienceMembers,
@@ -6,6 +6,7 @@ import {
   campaigns,
   channelWebhookEvents,
   contactSuppressions,
+  inboxContacts,
   messageDeliveryEvents,
   messageEntries,
   messageThreads,
@@ -22,6 +23,7 @@ export type ChannelEventInput = {
     | "complained"
     | "unsubscribed"
     | "inbound_reply";
+  channel?: "email" | "whatsapp" | "webhook";
   externalMessageId?: string;
   sender?: string;
   recipient?: string;
@@ -32,6 +34,103 @@ export type ChannelEventInput = {
 };
 
 const normalizeDestination = (value: string) => value.trim().toLowerCase();
+const normalizePhone = (value: string) => value.replace(/[^\d+]/g, "");
+
+const isWhatsAppEvent = (channel?: string) =>
+  channel === "whatsapp";
+
+/**
+ * For an inbound event with no matching outbox job, try to find or create a
+ * contact and thread using the sender's phone number (WhatsApp) or email.
+ * Returns the thread id, or null if we cannot resolve one.
+ */
+const resolveOrCreateInboundThread = async (tx: typeof db, workspaceId: string, input: ChannelEventInput, now: number): Promise<string | null> => {
+  const channel = isWhatsAppEvent(input.channel) ? "WhatsApp" : "邮件";
+  const senderValue = input.sender?.trim();
+  if (!senderValue) return null;
+
+  // Find an existing contact by email or phone
+  const contactConditions = isWhatsAppEvent(input.channel)
+    ? [eq(inboxContacts.workspaceId, workspaceId), eq(inboxContacts.phone, normalizePhone(senderValue))]
+    : [eq(inboxContacts.workspaceId, workspaceId), eq(inboxContacts.email, senderValue.toLowerCase())];
+  let contact: typeof inboxContacts.$inferSelect | null = (await tx.$first(tx.select().from(inboxContacts).where(and(...contactConditions)))) ?? null;
+
+  // If no contact found and it's WhatsApp, try matching by last 10 digits of phone
+  if (!contact && isWhatsAppEvent(input.channel)) {
+    const digits = normalizePhone(senderValue).replace(/^\+/, "");
+    const tail = digits.slice(-10);
+    if (tail.length >= 8) {
+      const allContacts = await tx.select().from(inboxContacts).where(and(eq(inboxContacts.workspaceId, workspaceId), isNotNull(inboxContacts.phone)));
+      contact = allContacts.find(c => {
+        const cDigits = normalizePhone(c.phone ?? "").replace(/^\+/, "");
+        return cDigits.endsWith(tail);
+      }) ?? null;
+    }
+  }
+
+  if (!contact) {
+    // Auto-create a minimal contact from the inbound sender
+    const newContactId = createId("ict");
+    const company = isWhatsAppEvent(input.channel) ? senderValue : (senderValue.split("@")[1] ?? "未知企业");
+    await tx.insert(inboxContacts).values({
+      id: newContactId,
+      workspaceId,
+      customerId: null,
+      name: isWhatsAppEvent(input.channel) ? `WhatsApp ${senderValue.slice(-4)}` : senderValue,
+      company,
+      jobTitle: "待补全",
+      region: "待补全",
+      source: isWhatsAppEvent(input.channel) ? "WhatsApp 入站消息" : "邮件回复",
+      primaryChannel: channel,
+      email: isWhatsAppEvent(input.channel) ? null : senderValue.toLowerCase(),
+      phone: isWhatsAppEvent(input.channel) ? normalizePhone(senderValue) : null,
+      externalRef: null,
+      verificationStatus: "verified",
+      verifiedAt: now,
+      verificationSource: isWhatsAppEvent(input.channel) ? "WhatsApp 入站消息" : "邮件回复",
+      createdAt: now,
+      updatedAt: now,
+    });
+    contact = (await tx.$first(tx.select().from(inboxContacts).where(eq(inboxContacts.id, newContactId)))) ?? null;
+    if (!contact) return null;
+  } else {
+    // Mark contact as verified since we received an actual message
+    await tx.update(inboxContacts).set({
+      verificationStatus: "verified",
+      verifiedAt: now,
+      verificationSource: isWhatsAppEvent(input.channel) ? "WhatsApp 入站消息" : "邮件回复",
+      updatedAt: now,
+    }).where(eq(inboxContacts.id, contact.id));
+  }
+
+  // Find an existing open thread for this contact
+  const existingThread = await tx.$first(tx.select().from(messageThreads).where(and(
+    eq(messageThreads.workspaceId, workspaceId),
+    eq(messageThreads.contactId, contact.id),
+  )));
+  if (existingThread) return existingThread.id;
+
+  // Create a new thread
+  const threadId = createId("mth");
+  const subject = input.subject
+    ?? (isWhatsAppEvent(input.channel) ? `WhatsApp · ${contact.name}` : `回复 · ${contact.name}`);
+  await tx.insert(messageThreads).values({
+    id: threadId,
+    workspaceId,
+    customerId: contact.customerId,
+    contactId: contact.id,
+    subject,
+    channel,
+    lastMessagePreview: input.body ?? "",
+    lastMessageAt: input.occurredAt,
+    lastInboundAt: input.occurredAt,
+    unreadCount: 1,
+    campaignId: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return threadId;
+};
 
 export const isDestinationSuppressed = async (
   workspaceId: string,
@@ -56,6 +155,7 @@ export const isDestinationSuppressed = async (
 
 const suppress = async (input: {
   workspaceId: string;
+  channel: string;
   destination: string;
   reason: string;
   eventId: string;
@@ -66,7 +166,7 @@ const suppress = async (input: {
         .values({
           id: createId("sup"),
           workspaceId: input.workspaceId,
-          channel: "email",
+          channel: input.channel,
           destination: normalizeDestination(input.destination),
           reason: input.reason,
           source: "channel_event",
@@ -145,6 +245,49 @@ export const processChannelEvent = async (
               )))
     : null;
   if (!job) {
+    // For inbound replies with no matching outbox job, try to resolve or create
+    // a thread from the sender (WhatsApp inbound or unsolicited email reply).
+    if (input.type === "inbound_reply" && input.sender) {
+      let resolvedThreadId: string | null = null;
+      await db.transaction(async (tx) => {
+        resolvedThreadId = await resolveOrCreateInboundThread(tx as unknown as typeof db, connection.workspaceId, input, now);
+      });
+      if (resolvedThreadId) {
+        const resolvedThread = await db.$first(db.select().from(messageThreads).where(eq(messageThreads.id, resolvedThreadId)));
+        if (resolvedThread) {
+          const inboundId = createId("msg");
+          const channel = isWhatsAppEvent(input.channel) ? "WhatsApp" : "邮件";
+          await db.insert(messageEntries).values({
+            id: inboundId,
+            workspaceId: connection.workspaceId,
+            threadId: resolvedThread.id,
+            direction: "inbound",
+            messageType: "text",
+            body: input.body || "(空消息)",
+            status: "received",
+            channel,
+            senderLabel: input.sender,
+            externalId: input.providerEventId,
+            metadataJson: JSON.stringify({ source: "channel_webhook_unlinked", connectionId: connection.id }),
+            createdAt: input.occurredAt,
+            updatedAt: now,
+          });
+          await db.update(messageThreads).set({
+            lastMessagePreview: input.body || "(空消息)",
+            lastMessageAt: input.occurredAt,
+            lastInboundAt: input.occurredAt,
+            unreadCount: sql`${messageThreads.unreadCount} + 1`,
+            updatedAt: now,
+          }).where(eq(messageThreads.id, resolvedThread.id));
+          await db.update(channelWebhookEvents).set({
+            processingStatus: "processed",
+            processingError: null,
+            processedAt: now,
+          }).where(eq(channelWebhookEvents.id, eventId));
+          return { duplicate: false, status: "processed", eventId, threadId: resolvedThread.id, createdThread: true };
+        }
+      }
+    }
     await db.update(channelWebhookEvents)
             .set({
               processingStatus: "unlinked",
@@ -200,9 +343,11 @@ export const processChannelEvent = async (
         if (
           ["bounced", "complained", "unsubscribed"].includes(input.type) &&
           input.recipient
-        )
+        ) {
+          const suppressChannel = isWhatsAppEvent(input.channel) ? "whatsapp" : "email";
           await suppress({
             workspaceId: connection.workspaceId,
+            channel: suppressChannel,
             destination: input.recipient,
             reason:
               input.reason ||
@@ -214,9 +359,11 @@ export const processChannelEvent = async (
             eventId,
             now,
           });
+        }
 
         if (input.type === "inbound_reply") {
           const inboundId = createId("msg");
+          const replyChannel = isWhatsAppEvent(input.channel) ? "WhatsApp" : "邮件";
           await tx.insert(messageEntries)
                     .values({
                       id: inboundId,
@@ -226,7 +373,7 @@ export const processChannelEvent = async (
                       messageType: "text",
                       body: input.body || "（空回复）",
                       status: "received",
-                      channel: "邮件",
+                      channel: replyChannel,
                       senderLabel: input.sender || "客户回复",
                       externalId: input.providerEventId,
                       metadataJson: JSON.stringify({
