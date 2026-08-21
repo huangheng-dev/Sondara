@@ -170,6 +170,108 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     return { items: rows.map(row => ({ id: row.id, createdAt: row.createdAt, ...(JSON.parse(row.metadata) as { sourceName: string; sourceType: string; sourceUrl: string | null; total: number; created: number; duplicates: number; contactsCreated: number }) })) }
   })
 
+  app.get('/merge-suggestions', async request => {
+    const allCustomers = await db.select({
+      id: customers.id, company: customers.company, region: customers.region,
+      industry: customers.industry, score: customers.score, stage: customers.stage,
+      contacts: customers.contacts, validContacts: customers.validContacts,
+      source: customers.source, createdAt: customers.createdAt, updatedAt: customers.updatedAt,
+    }).from(customers).where(and(eq(customers.workspaceId, request.auth.workspaceId), isNull(customers.archivedAt)))
+
+    // Fetch all contacts for email/phone matching
+    const allContacts = await db.select({
+      customerId: inboxContacts.customerId, email: inboxContacts.email,
+      phone: inboxContacts.phone,
+    }).from(inboxContacts).where(eq(inboxContacts.workspaceId, request.auth.workspaceId))
+
+    const contactsByCustomer = new Map<string, Array<{ email: string | null; phone: string | null }>>()
+    for (const c of allContacts) {
+      if (!c.customerId) continue
+      const arr = contactsByCustomer.get(c.customerId) ?? []
+      arr.push({ email: c.email, phone: c.phone })
+      contactsByCustomer.set(c.customerId, arr)
+    }
+
+    const normalizeCompany = (name: string) => name
+      .toLowerCase()
+      .replace(/[（(【\[].*?[)）\]】]/g, '')
+      .replace(/\b(co[\.,]?\s*ltd|inc|llc|gmbh|co[\.,]?\s*kg|ag|sa|sarl|bv|nv|plc|limited|corp[\.,]?|corporation|company|technologies|technology|tech|group|holding[s]?)\b\.?/gi, '')
+      .replace(/[^a-z0-9\u4e00-\u9fa5]/g, '')
+      .trim()
+
+    const emailDomain = (email: string | null) => {
+      if (!email) return null
+      const parts = email.toLowerCase().split('@')
+      return parts[1] ? parts[1] : null
+    }
+
+    const phoneDigits = (phone: string | null) => phone ? phone.replace(/\D/g, '').slice(-10) : null
+
+    const suggestions: Array<{
+      primaryId: string; duplicateId: string;
+      primaryCompany: string; duplicateCompany: string;
+      reasons: string[]; confidence: 'high' | 'medium' | 'low';
+    }> = []
+
+    const seen = new Set<string>()
+    for (let i = 0; i < allCustomers.length; i++) {
+      for (let j = i + 1; j < allCustomers.length; j++) {
+        const a = allCustomers[i]
+        const b = allCustomers[j]
+        const key = [a.id, b.id].sort().join('-')
+        if (seen.has(key)) continue
+        const reasons: string[] = []
+
+        // 1. Normalized company name exact match
+        const na = normalizeCompany(a.company)
+        const nb = normalizeCompany(b.company)
+        if (na && nb && na === nb && a.company !== b.company) {
+          reasons.push('企业名称（去除后缀后）一致')
+        }
+
+        // 2. Same contact email domain
+        const aContacts = contactsByCustomer.get(a.id) ?? []
+        const bContacts = contactsByCustomer.get(b.id) ?? []
+        const aDomains = new Set(aContacts.map(c => emailDomain(c.email)).filter(Boolean))
+        const bDomains = new Set(bContacts.map(c => emailDomain(c.email)).filter(Boolean))
+        const sharedDomains = [...aDomains].filter(d => bDomains.has(d))
+        if (sharedDomains.length) reasons.push(`相同邮箱域名：${sharedDomains[0]}`)
+
+        // 3. Same phone (last 10 digits)
+        const aPhones = new Set(aContacts.map(c => phoneDigits(c.phone)).filter(Boolean))
+        const bPhones = new Set(bContacts.map(c => phoneDigits(c.phone)).filter(Boolean))
+        const sharedPhones = [...aPhones].filter(p => bPhones.has(p))
+        if (sharedPhones.length) reasons.push('相同联系电话')
+
+        if (reasons.length === 0) continue
+        seen.add(key)
+
+        const hasNameMatch = na && nb && na === nb && a.company !== b.company
+        const hasPhoneMatch = sharedPhones.length > 0
+        const confidence: 'high' | 'medium' | 'low' =
+          reasons.length >= 2 ? 'high' :
+          hasNameMatch || hasPhoneMatch ? 'high' :
+          'medium'
+        // Primary = higher score, then more contacts, then newer
+        const aScore = a.score * 100 + a.validContacts * 10 + (a.updatedAt > b.updatedAt ? 1 : 0)
+        const bScore = b.score * 100 + b.validContacts * 10 + (b.updatedAt > a.updatedAt ? 1 : 0)
+        const [primary, duplicate] = aScore >= bScore ? [a, b] : [b, a]
+        suggestions.push({
+          primaryId: primary.id, duplicateId: duplicate.id,
+          primaryCompany: primary.company, duplicateCompany: duplicate.company,
+          reasons, confidence,
+        })
+      }
+    }
+
+    suggestions.sort((a, b) => {
+      const order = { high: 0, medium: 1, low: 2 }
+      return order[a.confidence] - order[b.confidence]
+    })
+
+    return { items: suggestions.slice(0, 100), scanned: allCustomers.length }
+  })
+
   app.post('/merge-preview', async (request, reply) => {
     const parsed = mergeInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })

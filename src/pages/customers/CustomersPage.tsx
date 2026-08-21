@@ -53,7 +53,7 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { usePagination } from '@/hooks/usePagination'
 import { authApi, customerApi, inboxApi, taskApi, type CustomerApiInput, type CustomerApiRecord } from '@/lib/api'
 import { CUSTOMER_STAGES, getStageTone, type CustomerStage } from '@/lib/customer-stages'
-import { Checkbox } from 'antd'
+import { Checkbox, Input, InputNumber } from 'antd'
 
 type CustomerView = '全部客户' | CustomerStage | '已归档'
 type CustomerSort = '最近更新' | '最早更新' | '企业名称 A–Z' | '企业名称 Z–A' | '匹配分最高' | '匹配分最低' | '预计价值最高' | '预计价值最低' | '联系人最多' | '联系人最少' | '截止时间最近' | '截止时间最远'
@@ -120,6 +120,8 @@ export function CustomersPage() {
   const [importing,setImporting]=useState(false)
   const [importHistoryOpen,setImportHistoryOpen]=useState(false)
   const [mergePreview,setMergePreview]=useState<Awaited<ReturnType<typeof customerApi.mergePreview>>|null>(null)
+  const [mergeSuggestionsOpen,setMergeSuggestionsOpen]=useState(false)
+  const mergeSuggestionsQuery=useQuery({queryKey:['customer-merge-suggestions'],queryFn:customerApi.mergeSuggestions,enabled:mergeSuggestionsOpen,retry:1})
   const showToast=useUiStore(s=>s.showToast)
   const queryClient=useQueryClient()
   const replaceCustomers=useBusinessStore(s=>s.replaceCustomers)
@@ -175,12 +177,13 @@ export function CustomersPage() {
   ]
   const clear=()=>{setQuery('');setRegion('全部市场');setScore('全部匹配分');setSource('全部来源');setView('全部客户');setSort('最近更新')}
   const sortIcon=(active:boolean,descending:boolean)=><span className="customer-sort-icon" aria-hidden="true">{active?(descending?<ArrowDown/>:<ArrowUp/>):<ArrowUpDown/>}</span>
-  const openMergePreview=async()=>{const [primaryCustomerId,duplicateCustomerId]=[...selected];if(!primaryCustomerId||!duplicateCustomerId)return;try{setMergePreview(await customerApi.mergePreview(primaryCustomerId,duplicateCustomerId))}catch(cause){showToast(cause instanceof Error?cause.message:'无法读取合并预览')}}
+  const openMergePreview=async(primaryCustomerId?:string,duplicateCustomerId?:string)=>{const [primaryId,duplicateId]=primaryCustomerId&&duplicateCustomerId?[primaryCustomerId,duplicateCustomerId]:[...selected];if(!primaryId||!duplicateId)return;try{setMergeSuggestionsOpen(false);setMergePreview(await customerApi.mergePreview(primaryId,duplicateId))}catch(cause){showToast(cause instanceof Error?cause.message:'无法读取合并预览')}}
   const archiveCustomers=async(ids:string[], archived:boolean)=>{try{await Promise.all(ids.map(id=>customerApi.archive(id,archived)));await customerQuery.refetch();setSelected(new Set());showToast(archived?`已归档 ${ids.length} 家客户`:`已恢复 ${ids.length} 家客户`)}catch(cause){showToast(cause instanceof Error?cause.message:'归档操作失败')}}
 
   return <div className="page-content customers-page">
     <PageHeader title="客户库" description="管理已确认的客户资产、联系人关系、互动记录和下一步跟进。" actions={<>
       <Button onClick={()=>setImportHistoryOpen(true)}><Clock3 size={16}/>导入记录</Button>
+      <Button onClick={()=>setMergeSuggestionsOpen(true)}><GitMerge size={16}/>合并建议</Button>
       <Button onClick={()=>setDialog('import')}><Import size={16}/>导入</Button>
       <Button onClick={()=>{downloadCsv('sondara-customers.csv',[['企业','地区','行业','客户匹配分','阶段','预计价值'],...rows.map(r=>[r.company,r.region,r.industry,r.score,r.stage,r.value])]);showToast(`已导出 ${rows.length} 家客户`)}}><Download size={16}/>导出</Button>
       <Button variant="primary" onClick={()=>setDialog('customer')}><Plus size={16}/>新建客户</Button>
@@ -198,7 +201,7 @@ export function CustomersPage() {
           <Button className="customer-refresh" disabled={customerQuery.isFetching} onClick={async()=>{await customerQuery.refetch();showToast('客户列表已刷新')}}><RefreshCw className={customerQuery.isFetching?'is-spinning':undefined} size={14}/>刷新</Button>
           <Button className="customer-clear module-clear" onClick={clear} disabled={!query&&view==='全部客户'&&region==='全部市场'&&score==='全部匹配分'&&source==='全部来源'&&sort==='最近更新'}>清除筛选</Button>
         </div>
-        <div className={`customer-selection-tools${selected.size>0?' has-selection':' is-empty'}`} aria-hidden={selected.size===0}><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>家</small></span><div><Button onClick={()=>{setActionCustomer(null);setAction('task')}}>创建任务</Button><Button onClick={()=>setAction('tag')}>添加标签</Button><Button onClick={()=>{setActionCustomer(null);setAction('bulk')}}>批量更新</Button><Button disabled={selected.size!==2||view==='已归档'} onClick={openMergePreview}><GitMerge/>合并重复项</Button><Button onClick={()=>archiveCustomers([...selected],view!=='已归档')}>{view==='已归档'?'恢复所选':'归档所选'}</Button><Button onClick={()=>{const chosen=customerRows.filter(customer=>selected.has(customer.id));downloadCsv('sondara-selected-customers.csv',[['企业','地区','行业','客户匹配分','阶段','负责人','预计价值'],...chosen.map(customer=>[customer.company,customer.region,customer.industry,customer.score,customer.stage,customer.owner,customer.value])]);showToast(`已导出 ${chosen.length} 家所选客户`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div></div>
+        <div className={`customer-selection-tools${selected.size>0?' has-selection':' is-empty'}`} aria-hidden={selected.size===0}><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>家</small></span><div><Button onClick={()=>{setActionCustomer(null);setAction('task')}}>创建任务</Button><Button onClick={()=>setAction('tag')}>添加标签</Button><Button onClick={()=>{setActionCustomer(null);setAction('bulk')}}>批量更新</Button><Button disabled={selected.size!==2||view==='已归档'} onClick={()=>openMergePreview()}><GitMerge/>合并重复项</Button><Button onClick={()=>archiveCustomers([...selected],view!=='已归档')}>{view==='已归档'?'恢复所选':'归档所选'}</Button><Button onClick={()=>{const chosen=customerRows.filter(customer=>selected.has(customer.id));downloadCsv('sondara-selected-customers.csv',[['企业','地区','行业','客户匹配分','阶段','负责人','预计价值'],...chosen.map(customer=>[customer.company,customer.region,customer.industry,customer.score,customer.stage,customer.owner,customer.value])]);showToast(`已导出 ${chosen.length} 家所选客户`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div></div>
       </div>
       {customerQuery.isPending?<div className="customer-data-state" role="status"><RefreshCw className="is-spinning"/><strong>正在加载客户数据</strong><span>正在从当前工作空间读取客户资产…</span></div>:customerQuery.isError?<div className="customer-data-state customer-data-error" role="alert"><FileQuestion/><strong>客户数据加载失败</strong><span>{customerQuery.error instanceof Error?customerQuery.error.message:'请确认 API 服务可用。'}</span><Button onClick={()=>customerQuery.refetch()}>重新加载</Button></div>:rows.length?<><DataTable
         className="customer-table customer-table-pro customer-library-table"
@@ -237,6 +240,18 @@ export function CustomersPage() {
     <Modal open={importHistoryOpen} title="客户名单导入记录" description="保留行业目录、展会名单和历史客户的入库来源。" onClose={()=>setImportHistoryOpen(false)} footer={<Button onClick={()=>setImportHistoryOpen(false)}>关闭</Button>}>{importHistoryQuery.isLoading?<EmptyState className="compact" title="正在读取导入记录" icon={RefreshCw}/>:importHistoryQuery.data?.items.length?<DataTable className="customer-table customer-table-pro" columns={[{key:'source',title:'来源'},{key:'result',title:'入库结果'},{key:'time',title:'导入时间'}]} rows={importHistoryQuery.data.items.map(item=>({key:item.id,cells:[<div className="standard-cell-stack"><strong>{item.sourceName}</strong><small>{item.sourceType}{item.sourceUrl?` · ${item.sourceUrl}`:''}</small></div>,<div className="standard-cell-stack"><strong>新增 {item.created} 家 · 联系人 {item.contactsCreated} 位</strong><small>共 {item.total} 条，重复/合并 {item.duplicates} 条</small></div>,<span>{new Date(item.createdAt).toLocaleString('zh-CN')}</span>]}))}/>:<EmptyState className="compact" title="暂无导入记录" description="首次导入行业目录、展会或历史客户后会显示在这里。" icon={Import}/>}</Modal>
     <Modal open={Boolean(mergePreview)} title="合并重复客户" description="合并后保留主客户档案，另一条记录会归档；联系人、任务、商机、会话和活动受众会安全迁移。" onClose={()=>setMergePreview(null)} footer={<><Button onClick={()=>setMergePreview(null)}>取消</Button><Button onClick={async()=>{if(!mergePreview)return;setMergePreview(await customerApi.mergePreview(mergePreview.duplicate.id,mergePreview.primary.id))}}>切换主记录</Button><Button variant="primary" onClick={async()=>{if(!mergePreview)return;try{await customerApi.merge(mergePreview.primary.id,mergePreview.duplicate.id);await customerQuery.refetch();setSelected(new Set());setMergePreview(null);showToast('重复客户已合并，原记录已归档')}catch(cause){showToast(cause instanceof Error?cause.message:'客户合并失败')}}}>确认合并</Button></>}>
       {mergePreview&&<div className="status-detail-list"><article><span><strong>保留主客户</strong><small>保留较完整的企业档案与后续关系</small></span><Badge tone="green">{mergePreview.primary.company}</Badge></article><article><span><strong>归档重复记录</strong><small>仍会留在审计记录中，可追溯本次合并</small></span><Badge tone="orange">{mergePreview.duplicate.company}</Badge></article><article><span><strong>迁移数据</strong><small>联系人 {mergePreview.contacts.duplicate} 位、任务 {mergePreview.transfers.tasks} 项、商机 {mergePreview.transfers.deals} 个、会话 {mergePreview.transfers.threads} 条</small></span><Badge tone="blue">安全迁移</Badge></article>{mergePreview.contacts.duplicateNames.length?<article><span><strong>同名联系人</strong><small>{mergePreview.contacts.duplicateNames.join('、')} 会合并联系方式，避免重复创建</small></span><Badge tone="orange">去重</Badge></article>:null}</div>}
+    </Modal>
+    <Modal open={mergeSuggestionsOpen} title="重复客户合并建议" description={`扫描 ${mergeSuggestionsQuery.data?.scanned ?? 0} 家未归档客户，按企业名称、邮箱域名、电话号码等规则识别潜在重复。合并前请人工确认。`} onClose={()=>setMergeSuggestionsOpen(false)} footer={<><Button onClick={()=>setMergeSuggestionsOpen(false)}>关闭</Button><Button variant="primary" onClick={()=>mergeSuggestionsQuery.refetch()} disabled={mergeSuggestionsQuery.isFetching}>{mergeSuggestionsQuery.isFetching?'重新扫描…':'重新扫描'}</Button></>}>
+      {mergeSuggestionsQuery.isLoading?<EmptyState className="compact" title="正在扫描重复客户" icon={RefreshCw}/>:mergeSuggestionsQuery.isError?<EmptyState className="compact" title="扫描失败" description={mergeSuggestionsQuery.error instanceof Error?mergeSuggestionsQuery.error.message:'请稍后重试'} icon={ShieldAlert}/>:mergeSuggestionsQuery.data?.items.length?<div className="merge-suggestions-list">{mergeSuggestionsQuery.data.items.map((item,index)=><article key={`${item.primaryId}-${item.duplicateId}-${index}`}>
+        <div className="merge-suggestion-pair">
+          <Badge tone={item.confidence==='high'?'green':item.confidence==='medium'?'orange':'neutral'}>{item.confidence==='high'?'高置信度':item.confidence==='medium'?'中置信度':'低置信度'}</Badge>
+          <span><strong title={item.primaryCompany}>{item.primaryCompany}</strong><small>保留为主客户</small></span>
+          <ChevronRight size={14}/>
+          <span><strong title={item.duplicateCompany}>{item.duplicateCompany}</strong><small>将被归档</small></span>
+        </div>
+        <div className="merge-suggestion-reasons">{item.reasons.map(reason=><Badge key={reason} tone="blue">{reason}</Badge>)}</div>
+        <div className="merge-suggestion-actions"><Button size="sm" onClick={()=>openMergePreview(item.primaryId,item.duplicateId)}>预览合并</Button></div>
+      </article>)}</div>:<EmptyState className="compact" title="未发现潜在重复" description="当前工作区未归档客户之间没有检测到明显重复。" icon={CheckCircle2}/>}
     </Modal>
     <Modal open={action==='more'} title={`${actionCustomer?.company??''} · 更多操作`} onClose={()=>setAction(null)}><div className="action-sheet-list"><Button onClick={()=>{if(actionCustomer)setDetail(actionCustomer);setAction(null)}}><CircleUserRound/><span><strong>打开客户档案</strong><small>查看联系人、信号和最近动态</small></span><ChevronRight/></Button><Button onClick={()=>setAction('edit')}><Building2/><span><strong>编辑客户资料</strong><small>修改企业、地区、阶段和负责人</small></span><ChevronRight/></Button><Button onClick={()=>{setAction('contact')}}><Mail/><span><strong>联系客户</strong><small>创建邮件、电话或社交沟通记录</small></span><ChevronRight/></Button><Button onClick={()=>{setAction('next')}}><CheckCircle2/><span><strong>创建任务</strong><small>安排下一步动作和截止时间</small></span><ChevronRight/></Button><Button onClick={async()=>{if(!actionCustomer)return;await archiveCustomers([actionCustomer.id],view!=='已归档');setAction(null)}}><Layers3/><span><strong>{view==='已归档'?'恢复客户':'归档客户'}</strong><small>{view==='已归档'?'恢复到正常客户列表':'不删除数据，可随时恢复'}</small></span><ChevronRight/></Button></div></Modal>
   </div>
@@ -354,10 +369,10 @@ function CustomerDetail({customer,onClose,onTask,onContact,onAddContact,onWhatsa
     {overrideMode?<section className="score-override-form">
       <h3><Pencil size={15}/>修正客户匹配分</h3>
       <label>修正后分数（0–100）
-        <input type="number" min={0} max={100} value={overrideScore} onChange={e=>setOverrideScore(Number(e.target.value))}/>
+        <InputNumber min={0} max={100} value={overrideScore} onChange={value=>setOverrideScore(Number(value)??0)} style={{width:'100%'}}/>
       </label>
       <label>修正原因（必填，将记入审计日志）
-        <textarea rows={3} value={overrideReason} onChange={e=>setOverrideReason(e.target.value)} placeholder="例如：电话沟通后确认企业实际规模小于系统判断，下调至 70。" maxLength={500}/>
+        <Input.TextArea rows={3} value={overrideReason} onChange={e=>setOverrideReason(e.target.value)} placeholder="例如：电话沟通后确认企业实际规模小于系统判断，下调至 70。" maxLength={500} showCount/>
       </label>
       <div className="score-override-form-actions">
         <Button size="sm" onClick={()=>setOverrideMode(false)} disabled={submitting}>取消</Button>
@@ -366,7 +381,7 @@ function CustomerDetail({customer,onClose,onTask,onContact,onAddContact,onWhatsa
     </section>:null}
 
     <section><h3>客户联系人</h3><div className="contact-verification-filter">
-      {([['all','全部'],['verified','已验证'],['unverified','待验证'],['invalid','无效']] as const).map(([value,label])=><button key={value} type="button" className={contactFilter===value?'active':''} onClick={()=>setContactFilter(value)}>{label}</button>)}
+      {([['all','全部'],['verified','已验证'],['unverified','待验证'],['invalid','无效']] as const).map(([value,label])=><Button key={value} size="sm" variant={contactFilter===value?'primary':'secondary'} onClick={()=>setContactFilter(value)}>{label}</Button>)}
     </div><div className="customer-contact-list">{contacts.map(contact=>{
       const vBadge=contact.verificationStatus==='verified'?{tone:'green' as const,text:'已验证'}:contact.verificationStatus==='invalid'?{tone:'red' as const,text:'无效'}:{tone:'orange' as const,text:'待验证'}
       return <article key={contact.id}><i><CircleUserRound size={17}/></i><span><strong>{contact.name}</strong><small>{contact.jobTitle} · {contact.email||contact.phone||'等待补全联系方式'}{contact.verificationSource?<em> · {contact.verificationSource}</em>:null}</small></span><Badge tone={vBadge.tone}>{vBadge.text}</Badge><div className="contact-actions">

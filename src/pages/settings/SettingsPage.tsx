@@ -1606,12 +1606,12 @@ export function SettingsPage() {
               </div>}
               {connectorHealthQuery.data && (() => {
                 const s = connectorHealthQuery.data.summary;
-                const totalIssues = s.radarErrors + s.outboxFailures + s.aiServiceDegraded + s.failedRadarTasks + s.failedRadarQueue;
+                const totalIssues = s.totalIssues;
                 if (totalIssues === 0) return (
                   <div className="backup-reminder">
                     <span>
                       <strong>连接器健康</strong>
-                      <small>过去 7 天无连接器失败</small>
+                      <small>所有连接器正常，过去 7 天无失败</small>
                     </span>
                     <Badge tone="green">全部正常</Badge>
                   </div>
@@ -1620,24 +1620,52 @@ export function SettingsPage() {
                   <div className="backup-reminder connector-health-panel">
                     <span>
                       <strong>连接器失败告警</strong>
-                      <small>过去 7 天共 {totalIssues} 项失败</small>
+                      <small>过去 7 天共 {totalIssues} 项异常</small>
                     </span>
                     <div className="connector-health-summary">
-                      {s.failedRadarTasks > 0 && <Badge tone="red">雷达任务失败 {s.failedRadarTasks}</Badge>}
-                      {s.radarErrors > 0 && <Badge tone="red">雷达连接器错误 {s.radarErrors}</Badge>}
-                      {s.failedRadarQueue > 0 && <Badge tone="orange">研究队列失败 {s.failedRadarQueue}</Badge>}
+                      {s.outboundUnhealthy > 0 && <Badge tone="red">外发渠道 {s.outboundUnhealthy}</Badge>}
+                      {s.integrationUnhealthy > 0 && <Badge tone="red">数据源 {s.integrationUnhealthy}</Badge>}
+                      {s.leadSourceUnhealthy > 0 && <Badge tone="orange">官方线索 {s.leadSourceUnhealthy}</Badge>}
+                      {s.failedRadarTasks > 0 && <Badge tone="red">雷达任务 {s.failedRadarTasks}</Badge>}
+                      {s.radarErrors > 0 && <Badge tone="red">雷达错误 {s.radarErrors}</Badge>}
+                      {s.failedRadarQueue > 0 && <Badge tone="orange">研究队列 {s.failedRadarQueue}</Badge>}
                       {s.outboxFailures > 0 && <Badge tone="red">外发失败 {s.outboxFailures}</Badge>}
-                      {s.aiServiceDegraded > 0 && <Badge tone="orange">AI 服务降级 {s.aiServiceDegraded}</Badge>}
+                      {s.aiServiceDegraded > 0 && <Badge tone="orange">AI 服务 {s.aiServiceDegraded}</Badge>}
                     </div>
                   </div>
                 );
               })()}
               {connectorHealthQuery.data && (() => {
                 const data = connectorHealthQuery.data;
-                const hasDetails = data.failedRadarTasks.length > 0 || data.outboxFailures.length > 0 || data.radarEvents.length > 0;
-                if (!hasDetails) return null;
+                const allConnections = [
+                  ...data.connections.outbound.map(c => ({ type: "外发渠道" as const, name: c.name, provider: c.provider, enabled: c.enabled, status: c.status, detail: c.imapEnabled ? "SMTP+IMAP" : "SMTP", lastError: c.lastError, lastTestedAt: c.lastTestedAt, lastLatencyMs: c.lastLatencyMs })),
+                  ...data.connections.integrations.map(c => ({ type: c.category === "search" ? "搜索数据源" as const : "地图数据源" as const, name: c.name, provider: c.provider, enabled: c.enabled, status: c.status, detail: c.enabled ? "已启用" : "已禁用", lastError: c.lastError, lastTestedAt: c.lastTestedAt, lastLatencyMs: c.lastLatencyMs })),
+                  ...data.connections.leadSources.map(c => ({ type: "官方线索" as const, name: c.name, provider: c.provider, enabled: c.enabled, status: c.hasAccessToken ? c.status : "no_token", detail: c.hasAccessToken ? "已授权" : "未授权", lastError: c.lastError, lastTestedAt: c.lastSyncedAt, lastLatencyMs: null as number | null })),
+                ];
+                if (!allConnections.length && !data.failedRadarTasks.length && !data.outboxFailures.length && !data.radarEvents.length) return null;
+                const connStatusTone = (c: { enabled: boolean; status: string; lastError: string | null }) => {
+                  if (!c.enabled) return "neutral" as const;
+                  if (c.status === "error" || c.status === "failed") return "red" as const;
+                  if (c.status === "degraded" || c.status === "no_token" || c.lastError) return "orange" as const;
+                  if (c.status === "ok" || c.status === "connected" || c.status === "active" || c.status === "tested") return "green" as const;
+                  return "blue" as const;
+                };
                 return (
                   <div className="connector-health-details">
+                    {allConnections.map(c => {
+                      const tone = connStatusTone(c);
+                      return (
+                        <article key={`${c.type}-${c.name}`} className="connector-health-item">
+                          <span className={`connector-dot connector-dot-${tone}`} />
+                          <span>
+                            <strong>{c.type} · {c.name}</strong>
+                            <small>{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</small>
+                            {c.lastError && <small className="connector-error-text">{c.lastError}</small>}
+                          </span>
+                          <Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>
+                        </article>
+                      );
+                    })}
                     {data.failedRadarTasks.map(task => (
                       <article key={task.id} className="connector-health-item">
                         <AlertTriangle size={14} />

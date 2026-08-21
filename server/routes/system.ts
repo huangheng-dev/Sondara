@@ -180,7 +180,7 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
     const workspaceId = request.auth.workspaceId;
     const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // last 7 days
 
-    const [failedRadarEvents, failedOutboxJobs, aiServiceStatuses, failedRadarTasks, failedRadarQueue] = await Promise.all([
+    const [failedRadarEvents, failedOutboxJobs, aiServiceStatuses, failedRadarTasks, failedRadarQueue, outboundConns, integrationConns, leadSourceConns] = await Promise.all([
       db.select({
         id: schema.radarJobEvents.id,
         radarTaskId: schema.radarJobEvents.radarTaskId,
@@ -258,9 +258,50 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
         ))
         .orderBy(sql`${schema.radarQueueItems.updatedAt} DESC`)
         .limit(10),
+      db.select({
+        id: schema.outboundChannelConnections.id,
+        name: schema.outboundChannelConnections.name,
+        provider: schema.outboundChannelConnections.provider,
+        enabled: schema.outboundChannelConnections.enabled,
+        status: schema.outboundChannelConnections.status,
+        imapEnabled: schema.outboundChannelConnections.imapEnabled,
+        lastError: schema.outboundChannelConnections.lastError,
+        lastLatencyMs: schema.outboundChannelConnections.lastLatencyMs,
+        lastTestedAt: schema.outboundChannelConnections.lastTestedAt,
+      })
+        .from(schema.outboundChannelConnections)
+        .where(eq(schema.outboundChannelConnections.workspaceId, workspaceId)),
+      db.select({
+        id: schema.integrationConnections.id,
+        name: schema.integrationConnections.name,
+        provider: schema.integrationConnections.provider,
+        category: schema.integrationConnections.category,
+        enabled: schema.integrationConnections.enabled,
+        status: schema.integrationConnections.status,
+        lastError: schema.integrationConnections.lastError,
+        lastLatencyMs: schema.integrationConnections.lastLatencyMs,
+        lastTestedAt: schema.integrationConnections.lastTestedAt,
+      })
+        .from(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.workspaceId, workspaceId)),
+      db.select({
+        id: schema.leadSourceConnections.id,
+        name: schema.leadSourceConnections.name,
+        provider: schema.leadSourceConnections.provider,
+        enabled: schema.leadSourceConnections.enabled,
+        status: schema.leadSourceConnections.status,
+        hasAccessToken: sql<boolean>`${schema.leadSourceConnections.accessTokenCiphertext} IS NOT NULL`,
+        lastError: schema.leadSourceConnections.lastError,
+        lastSyncedAt: schema.leadSourceConnections.lastSyncedAt,
+      })
+        .from(schema.leadSourceConnections)
+        .where(eq(schema.leadSourceConnections.workspaceId, workspaceId)),
     ]);
 
     const failedAiServices = aiServiceStatuses.filter(s => s.status === "degraded" || s.status === "error");
+    const unhealthyOutbound = outboundConns.filter(c => !c.enabled || c.status === "error" || c.status === "failed");
+    const unhealthyIntegrations = integrationConns.filter(c => !c.enabled || c.status === "error" || c.status === "failed");
+    const unhealthyLeadSources = leadSourceConns.filter(c => !c.enabled || c.status === "error" || c.status === "failed" || (c.enabled && !c.hasAccessToken));
 
     return {
       generatedAt: Date.now(),
@@ -271,6 +312,15 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
         aiServiceDegraded: failedAiServices.length,
         failedRadarTasks: failedRadarTasks.length,
         failedRadarQueue: failedRadarQueue.length,
+        outboundUnhealthy: unhealthyOutbound.length,
+        integrationUnhealthy: unhealthyIntegrations.length,
+        leadSourceUnhealthy: unhealthyLeadSources.length,
+        totalIssues: failedRadarEvents.length + failedOutboxJobs.length + failedAiServices.length + failedRadarTasks.length + failedRadarQueue.length + unhealthyOutbound.length + unhealthyIntegrations.length + unhealthyLeadSources.length,
+      },
+      connections: {
+        outbound: outboundConns,
+        integrations: integrationConns,
+        leadSources: leadSourceConns,
       },
       radarEvents: failedRadarEvents,
       outboxFailures: failedOutboxJobs,

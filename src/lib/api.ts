@@ -908,6 +908,14 @@ export const customerApi = {
   listImports: () => request<{ items: CustomerImportHistory[] }>("/customers/imports"),
   mergePreview: (primaryCustomerId: string, duplicateCustomerId: string) => request<{ primary: CustomerApiRecord; duplicate: CustomerApiRecord; contacts: { primary: number; duplicate: number; duplicateNames: string[] }; transfers: { tasks: number; deals: number; threads: number; campaignMembers: number } }>("/customers/merge-preview", { method: "POST", body: JSON.stringify({ primaryCustomerId, duplicateCustomerId }) }),
   merge: (primaryCustomerId: string, duplicateCustomerId: string) => request<{ primaryCustomerId: string; archivedCustomerId: string; transferredContacts: number }>("/customers/merge", { method: "POST", body: JSON.stringify({ primaryCustomerId, duplicateCustomerId }) }),
+  mergeSuggestions: () => request<{
+    items: Array<{
+      primaryId: string; duplicateId: string;
+      primaryCompany: string; duplicateCompany: string;
+      reasons: string[]; confidence: "high" | "medium" | "low";
+    }>;
+    scanned: number;
+  }>("/customers/merge-suggestions"),
   update: (id: string, input: Partial<CustomerApiInput>) =>
     request<CustomerApiRecord>(`/customers/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -1850,7 +1858,22 @@ export const systemApi = {
   connectorHealth: () => request<{
     generatedAt: number;
     since: number;
-    summary: { radarErrors: number; outboxFailures: number; aiServiceDegraded: number; failedRadarTasks: number; failedRadarQueue: number };
+    summary: {
+      radarErrors: number;
+      outboxFailures: number;
+      aiServiceDegraded: number;
+      failedRadarTasks: number;
+      failedRadarQueue: number;
+      outboundUnhealthy: number;
+      integrationUnhealthy: number;
+      leadSourceUnhealthy: number;
+      totalIssues: number;
+    };
+    connections: {
+      outbound: Array<{ id: string; name: string; provider: string; enabled: boolean; status: string; imapEnabled: boolean; lastError: string | null; lastLatencyMs: number | null; lastTestedAt: number | null }>;
+      integrations: Array<{ id: string; name: string; provider: string; category: string; enabled: boolean; status: string; lastError: string | null; lastLatencyMs: number | null; lastTestedAt: number | null }>;
+      leadSources: Array<{ id: string; name: string; provider: string; enabled: boolean; status: string; hasAccessToken: boolean; lastError: string | null; lastSyncedAt: number | null }>;
+    };
     radarEvents: Array<{ id: string; radarTaskId: string; message: string; eventType: string; createdAt: number }>;
     outboxFailures: Array<{ id: string; channel: string; status: string; lastError: string | null; attempts: number; maxAttempts: number; updatedAt: number }>;
     aiServices: Array<{ id: string; name: string; provider: string; status: string; lastLatencyMs: number | null; lastTestedAt: number | null }>;

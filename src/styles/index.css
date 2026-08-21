@@ -6275,21 +6275,16 @@ textarea:focus-visible {
   border-bottom: 1px solid #edf0f4;
   padding-bottom: 8px;
 }
-.contact-verification-filter button {
-  padding: 4px 10px;
-  font-size: 11px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+.contact-verification-filter .app-button {
+  padding: 2px 12px;
+  font-size: 12px;
   border-radius: 12px;
-  cursor: pointer;
+  height: auto;
+}
+.contact-verification-filter .app-button-secondary {
   color: #475569;
-  transition: all 0.15s;
 }
-.contact-verification-filter button:hover {
-  border-color: #2563eb;
-  color: #2563eb;
-}
-.contact-verification-filter button.active {
+.contact-verification-filter .app-button-primary {
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
@@ -6326,6 +6321,72 @@ textarea:focus-visible {
   font-size: 11px;
   color: #94a3b8;
   line-height: 1.5;
+}
+.connector-health-panel {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connector-health-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.connector-health-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.connector-health-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #edf0f4;
+  border-radius: 6px;
+  background: #fff;
+}
+.connector-health-item > span:not(.connector-dot) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.connector-health-item strong {
+  font-size: 12px;
+}
+.connector-health-item small {
+  font-size: 11px;
+  color: #64748b;
+}
+.connector-error-text {
+  color: #dc2626 !important;
+}
+.connector-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.connector-dot-green {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+.connector-dot-blue {
+  background: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.connector-dot-orange {
+  background: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.15);
+}
+.connector-dot-red {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+.connector-dot-neutral {
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.15);
 }
 .customer-contact-list article {
   display: flex;
@@ -20422,4 +20483,56 @@ input[type="radio"]:focus-visible {
   font-size: 8px;
   color:#5f6b7a;
   margin-top: 4px;
+}
+.merge-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.merge-suggestions-list > article {
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.merge-suggestion-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.merge-suggestion-pair > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.merge-suggestion-pair > span strong {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.merge-suggestion-pair > span small {
+  font-size: 11px;
+  color: #64748b;
+}
+.merge-suggestion-pair svg {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+.merge-suggestion-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.merge-suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
 }
