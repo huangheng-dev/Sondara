@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { z } from 'zod'
 import { db } from '../db/client.js'
-import { authChallenges, outboundChannelConnections, passwordResetTokens, sessions, users, workspaceMembers, workspaces } from '../db/schema.js'
+import { authChallenges, outboundChannelConnections, passwordResetTokens, sessions, users, workspaceInvitations, workspaceMembers, workspaces } from '../db/schema.js'
 import { requireAuth } from '../plugins/auth.js'
 import { createId } from '../lib/ids.js'
 import { hashPassword, verifyPassword } from '../lib/password.js'
@@ -109,6 +109,23 @@ export const authRoutes: FastifyPluginAsync = async app => {
     const session = (await createSession(userId, undefined, sessionMetadata(request)))
     setSessionCookie(reply, session.token, session.expiresAt)
     return reply.code(201).send({ user: { id: userId, email, displayName }, workspace: { id: workspaceId, name: `${displayName}的工作区`, role: 'owner' } })
+  })
+
+  app.post('/accept-invite', { config: { rateLimit: { max: 8, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const parsed = z.object({ token: z.string().min(20).max(200), password: z.string().min(8).max(128), displayName: z.string().trim().min(2).max(50).optional() }).safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const invitation = await db.$first(db.select().from(workspaceInvitations).where(and(eq(workspaceInvitations.tokenHash, hashSessionToken(parsed.data.token)), isNull(workspaceInvitations.acceptedAt), isNull(workspaceInvitations.revokedAt), gt(workspaceInvitations.expiresAt, Date.now()))))
+    if (!invitation) return reply.code(410).send({ error: 'INVITE_EXPIRED', message: '邀请链接已失效或已被撤销。' })
+    if (await db.$first(db.select({ id: users.id }).from(users).where(eq(users.email, invitation.email)))) return reply.code(409).send({ error: 'EMAIL_EXISTS', message: '该邮箱已注册，请直接登录后联系管理员添加工作区。' })
+    const now = Date.now(); const userId = createId('usr')
+    await db.transaction(async tx => {
+      await tx.insert(users).values({ id: userId, email: invitation.email, passwordHash: await hashPassword(parsed.data.password), displayName: parsed.data.displayName ?? invitation.displayName, createdAt: now, updatedAt: now })
+      await tx.insert(workspaceMembers).values({ workspaceId: invitation.workspaceId, userId, role: invitation.role, createdAt: now })
+      await tx.update(workspaceInvitations).set({ acceptedAt: now }).where(eq(workspaceInvitations.id, invitation.id))
+    })
+    const session = await createSession(userId, undefined, sessionMetadata(request)); setSessionCookie(reply, session.token, session.expiresAt)
+    const workspace = await db.$first(db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(eq(workspaces.id, invitation.workspaceId)))
+    return reply.code(201).send({ user: { id: userId, email: invitation.email, displayName: parsed.data.displayName ?? invitation.displayName }, workspace: { id: workspace?.id, name: workspace?.name, role: invitation.role } })
   })
 
   app.post('/login', { config: { rateLimit: { max: 12, timeWindow: '15 minutes' } } }, async (request, reply) => {

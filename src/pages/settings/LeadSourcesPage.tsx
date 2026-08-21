@@ -1,0 +1,34 @@
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Copy, Link2, Plus, RefreshCw, Webhook } from 'lucide-react'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Panel } from '@/components/ui/Panel'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { CreateDialog } from '@/components/ui/CreateDialog'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Modal } from '@/components/ui/Modal'
+import { DataTable } from '@/components/ui/DataTable'
+import { leadSourceApi, type LeadSourceConnection } from '@/lib/api'
+import { useUiStore } from '@/stores/ui-store'
+
+const providerLabel: Record<LeadSourceConnection['provider'], string> = { 'linkedin-lead-gen': 'LinkedIn Lead Gen', 'meta-lead-ads': 'Meta Lead Ads' }
+
+export function LeadSourcesPage() {
+  const client = useQueryClient(); const showToast = useUiStore(state => state.showToast)
+  const [createOpen, setCreateOpen] = useState(false); const [webhook, setWebhook] = useState<{ name: string; url: string; token: string } | null>(null)
+  const connections = useQuery({ queryKey: ['lead-source-connections'], queryFn: leadSourceApi.listConnections, retry: 1 })
+  const events = useQuery({ queryKey: ['lead-source-events'], queryFn: leadSourceApi.listEvents, retry: 1 })
+  const refresh = async () => { await Promise.all([connections.refetch(), events.refetch()]); showToast('官方线索渠道状态已刷新') }
+  const rotateWebhook = async (item: LeadSourceConnection) => {
+    try { const result = await leadSourceApi.regenerateWebhook(item.id); setWebhook({ name: item.name, url: result.webhookUrl, token: result.webhookToken }); showToast('已生成新的 Webhook Token，旧地址立即失效') }
+    catch (error) { showToast(error instanceof Error ? error.message : '无法生成 Webhook 地址') }
+  }
+  return <div className="page-content settings-page">
+    <PageHeader title="官方线索渠道" description="接收 LinkedIn Lead Gen 和 Meta Lead Ads 的官方表单线索；仅支持获得平台授权的账户。" actions={<><Button onClick={refresh}><RefreshCw/>刷新</Button><Button variant="primary" onClick={() => setCreateOpen(true)}><Plus/>添加渠道</Button></>}/>
+    <Panel className="customer-workspace"><div className="outbound-settings-section"><header><span><strong>官方线索连接</strong><small>配置后复制 Webhook 地址到平台；平台回调会先进入待处理事件，不会直接自动外发。</small></span></header>{connections.isLoading ? <EmptyState className="compact" title="正在读取渠道连接" icon={RefreshCw}/> : connections.data?.items.length ? <DataTable className="customer-table customer-table-pro" columns={[{ key: 'name', title: '渠道' }, { key: 'target', title: '账户与表单' }, { key: 'token', title: '凭据' }, { key: 'status', title: '状态' }, { key: 'action', title: 'Webhook' }]} rows={connections.data.items.map(item => ({ key: item.id, cells: [<div className="standard-cell-stack"><strong>{item.name}</strong><small>{providerLabel[item.provider]}</small></div>, <div className="standard-cell-stack"><strong>{item.accountRef ?? '待填写广告账户/Page ID'}</strong><small>{item.formRef ?? '未限定表单'}</small></div>, <Badge tone={item.hasAccessToken ? 'green' : 'orange'}>{item.hasAccessToken ? `Token · •••• ${item.accessTokenEnding}` : '待配置 Token'}</Badge>, <Badge tone={item.status === 'webhook_received' ? 'green' : item.status === 'ready_for_authorization' ? 'blue' : 'orange'}>{item.status === 'webhook_received' ? '已收到事件' : item.status === 'ready_for_authorization' ? '待平台授权' : '待配置'}</Badge>, <Button size="sm" onClick={() => void rotateWebhook(item)}><Webhook/>重置地址</Button>] }))}/> : <EmptyState className="list-empty-state" title="尚未接入官方线索渠道" description="先添加 LinkedIn Lead Gen 或 Meta Lead Ads，保存平台凭据后再到对应平台订阅 Webhook。" icon={Link2}/>}</div></Panel>
+    <Panel className="customer-workspace"><div className="outbound-settings-section"><header><span><strong>最近收到的线索事件</strong><small>平台事件已去重保存；填写官方访问凭据后将用于拉取完整表单字段并入库。</small></span></header>{events.data?.items.length ? <DataTable className="customer-table customer-table-pro" columns={[{ key: 'event', title: '事件' }, { key: 'status', title: '状态' }, { key: 'time', title: '接收时间' }]} rows={events.data.items.slice(0, 20).map(item => ({ key: item.id, cells: [<div className="standard-cell-stack"><strong>{item.providerEventId}</strong><small>{item.connectionId}</small></div>, <Badge tone={item.processingStatus === 'received' ? 'blue' : 'orange'}>{item.processingStatus === 'received' ? '待拉取线索详情' : item.processingStatus}</Badge>, <span>{new Date(item.receivedAt).toLocaleString('zh-CN')}</span>] }))}/> : <EmptyState className="compact" title="尚未收到平台事件" description="完成平台 Webhook 订阅后，新的表单提交会显示在这里。" icon={Webhook}/>}</div></Panel>
+    <CreateDialog open={createOpen} title="添加官方线索渠道" description="Token 和客户凭据会在服务端加密保存。LinkedIn Lead Sync 需要单独申请权限；Meta 需要你的 Page/广告账户授权。" submitLabel="创建连接" successMessage="渠道连接已创建，请复制 Webhook 地址到平台" onClose={() => setCreateOpen(false)} onSubmit={async values => { const result = await leadSourceApi.createConnection({ name: values.name, provider: values.provider === 'LinkedIn Lead Gen' ? 'linkedin-lead-gen' : 'meta-lead-ads', accountRef: values.accountRef || undefined, formRef: values.formRef || undefined, clientId: values.clientId || undefined, accessToken: values.accessToken || undefined }); setWebhook({ name: result.name, url: result.webhookUrl, token: result.webhookToken }); await client.invalidateQueries({ queryKey: ['lead-source-connections'] }) }} fields={[{ name: 'name', label: '连接名称', required: true, placeholder: '例如：德国市场 Meta 表单' }, { name: 'provider', label: '官方渠道', type: 'select', required: true, options: ['LinkedIn Lead Gen', 'Meta Lead Ads'] }, { name: 'accountRef', label: '广告账户或 Page ID', placeholder: '可稍后填写' }, { name: 'formRef', label: 'Lead Form ID', placeholder: '可选；留空接收账户下全部授权表单' }, { name: 'clientId', label: '应用 Client / App ID', placeholder: '平台应用 ID' }, { name: 'accessToken', label: '访问 Token', type: 'password', placeholder: '可稍后填写；服务端加密保存' }]}/>
+    <Modal open={Boolean(webhook)} title={`${webhook?.name ?? ''} · Webhook 配置`} description="将完整地址配置到对应官方平台；Token 仅在生成时显示，请立即保存。" onClose={() => setWebhook(null)} footer={<Button onClick={() => setWebhook(null)}>完成</Button>}>{webhook && <div className="status-detail-list"><article><span><strong>Webhook 地址</strong><small>{webhook.url}</small></span><Button size="sm" onClick={() => { navigator.clipboard?.writeText(webhook.url); showToast('Webhook 地址已复制') }}><Copy/>复制</Button></article><article><span><strong>验证 Token</strong><small>{webhook.token}</small></span><Button size="sm" onClick={() => { navigator.clipboard?.writeText(webhook.token); showToast('验证 Token 已复制') }}><Copy/>复制</Button></article></div>}</Modal>
+  </div>
+}

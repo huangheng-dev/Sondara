@@ -1,15 +1,13 @@
 import type { FastifyPluginAsync } from "fastify";
-import { eq } from "drizzle-orm";
-import { createReadStream, mkdirSync, rmSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { eq, sql } from "drizzle-orm";
+import { createReadStream } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
 import { config } from "../config.js";
 import { requireAuth } from "../plugins/auth.js";
 import { audit } from "../lib/audit.js";
 import * as schema from "../db/schema.js";
+import { createDatabaseBackup, listDatabaseBackups, validateDatabaseBackup } from "../operations/backup-worker.js";
 
 export const systemRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", requireAuth);
@@ -105,37 +103,66 @@ export const systemRoutes: FastifyPluginAsync = async (app) => {
       }
     },
   }, async (request, reply) => {
-    const ws = request.auth.workspaceId;
-    const backupDir = join(tmpdir(), "sondara-backups");
-    mkdirSync(backupDir, { recursive: true });
-
-    const extension = "dump";
-    const fileName = `sondara-backup-${randomUUID()}.${extension}`;
-    const filePath = join(backupDir, fileName);
-
     try {
-      const dump = spawnSync("pg_dump", [
-        "--format=custom", "--no-owner", "--no-acl", `--file=${filePath}`, config.databaseUrl,
-      ], { encoding: "utf8", timeout: 120_000, windowsHide: true });
-      if (dump.error) throw new Error(`无法启动 pg_dump：${dump.error.message}`);
-      if (dump.status !== 0) throw new Error(dump.stderr || `pg_dump 退出码 ${dump.status}`);
+      const backup = await createDatabaseBackup();
+      const filePath = join(config.backupDirectory, backup.fileName);
 
-      await audit(ws, request.auth.userId, "data.backup", "workspace", ws, { fileName });
+      await audit(request.auth.workspaceId, request.auth.userId, "data.backup", "workspace", request.auth.workspaceId, { fileName: backup.fileName, verifiedAt: backup.verifiedAt });
 
       const stream = createReadStream(filePath);
       reply
         .header("Content-Type", "application/octet-stream")
-        .header("Content-Disposition", `attachment; filename="sondara-backup-${new Date().toISOString().slice(0, 10)}.${extension}"`)
+        .header("Content-Disposition", `attachment; filename="${backup.fileName}"`)
         .send(stream);
-
-      // Clean up after stream finishes
-      stream.on("close", () => {
-        try { rmSync(filePath, { force: true }); } catch { /* best effort */ }
-      });
     } catch (error) {
-      try { rmSync(filePath, { force: true }); } catch { /* best effort */ }
       request.log.error({ err: error }, "Backup failed");
       return reply.code(500).send({ error: "BACKUP_FAILED", message: "数据库备份失败。" });
     }
+  });
+
+  app.get("/backups", {
+    preHandler: async (request, reply) => {
+      if (request.auth.role !== "owner") return reply.code(403).send({ error: "FORBIDDEN", message: "只有工作区所有者可以查看数据库备份。" });
+    },
+  }, async () => ({ items: await listDatabaseBackups(), automatic: config.backupEnabled, retentionCount: config.backupRetentionCount }));
+
+  app.post("/backups/:fileName/validate", {
+    preHandler: async (request, reply) => {
+      if (request.auth.role !== "owner") return reply.code(403).send({ error: "FORBIDDEN", message: "只有工作区所有者可以验证数据库备份。" });
+    },
+  }, async (request, reply) => {
+    try {
+      const result = await validateDatabaseBackup((request.params as { fileName: string }).fileName);
+      await audit(request.auth.workspaceId, request.auth.userId, "data.backup.validated", "workspace", request.auth.workspaceId, result);
+      return result;
+    } catch (error) {
+      request.log.warn({ err: error }, "Backup validation failed");
+      return reply.code(400).send({ error: "BACKUP_INVALID", message: "备份校验失败，不能用于恢复。" });
+    }
+  });
+
+  app.get("/operations", {
+    preHandler: async (request, reply) => {
+      if (request.auth.role !== "owner") return reply.code(403).send({ error: "FORBIDDEN", message: "只有工作区所有者可以查看运维状态。" });
+    },
+  }, async request => {
+    const workspaceId = request.auth.workspaceId;
+    const [customers, tasks, deals, radarTasks, queuedOutbound] = await Promise.all([
+      db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.customers).where(eq(schema.customers.workspaceId, workspaceId))),
+      db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.tasks).where(eq(schema.tasks.workspaceId, workspaceId))),
+      db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.deals).where(eq(schema.deals.workspaceId, workspaceId))),
+      db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.radarTasks).where(eq(schema.radarTasks.workspaceId, workspaceId))),
+      db.$first(db.select({ count: sql<number>`count(*)` }).from(schema.outboxJobs).where(eq(schema.outboxJobs.workspaceId, workspaceId))),
+    ]);
+    const backups = await listDatabaseBackups();
+    return {
+      generatedAt: Date.now(),
+      workers: { backup: config.backupEnabled ? "enabled" : "disabled" },
+      counts: {
+        customers: customers?.count ?? 0, tasks: tasks?.count ?? 0, deals: deals?.count ?? 0,
+        radarTasks: radarTasks?.count ?? 0, queuedOutbound: queuedOutbound?.count ?? 0,
+      },
+      latestBackup: backups[0] ?? null,
+    };
   });
 };

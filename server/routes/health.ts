@@ -30,6 +30,7 @@ export const healthRoutes: FastifyPluginAsync = async app => {
         workers: {
           radar: config.radarWorkerEnabled ? 'enabled' : 'disabled',
           outbox: config.outboxWorkerEnabled ? 'enabled' : 'disabled',
+          backup: config.backupEnabled ? 'enabled' : 'disabled',
         },
       }
     } catch (error) {

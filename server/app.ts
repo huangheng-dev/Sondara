@@ -27,6 +27,8 @@ import { taskRoutes } from "./routes/tasks.js";
 import { systemRoutes } from "./routes/system.js";
 import { staticRoutes } from "./routes/static.js";
 import { adminRoutes } from "./routes/admin.js";
+import { approvalRoutes } from "./routes/approvals.js";
+import { leadSourceRoutes } from "./routes/lead-sources.js";
 import { captureObservabilityException } from "./lib/observability.js";
 
 export const buildApp = async () => {
@@ -79,6 +81,8 @@ export const buildApp = async () => {
   await app.register(attributionRoutes, { prefix: "/api/attribution" });
   await app.register(systemRoutes, { prefix: "/api/system" });
   await app.register(adminRoutes, { prefix: "/api/admin" });
+  await app.register(approvalRoutes, { prefix: "/api/approvals" });
+  await app.register(leadSourceRoutes, { prefix: "/api/lead-sources" });
 
   // Serve built frontend in production (when dist/ exists)
   const distDir = resolve(process.cwd(), "dist");

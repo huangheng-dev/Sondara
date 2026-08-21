@@ -121,6 +121,97 @@ export const passwordResetTokens = pgTable(
   ],
 );
 
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    displayName: text("display_name").notNull(),
+    role: text("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull(),
+    invitedByUserId: text("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    acceptedAt: bigint("accepted_at", { mode: "number" }),
+    revokedAt: bigint("revoked_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("workspace_invitations_token_hash_unique").on(table.tokenHash),
+    index("workspace_invitations_workspace_idx").on(table.workspaceId, table.createdAt),
+    index("workspace_invitations_email_idx").on(table.workspaceId, table.email),
+  ],
+);
+
+export const approvalRequests = pgTable(
+  "approval_requests",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    action: text("action").notNull(),
+    requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: bigint("reviewed_at", { mode: "number" }),
+    note: text("note"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("approval_requests_workspace_status_idx").on(table.workspaceId, table.status, table.createdAt),
+    index("approval_requests_entity_idx").on(table.entityType, table.entityId),
+  ],
+);
+
+export const leadSourceConnections = pgTable(
+  "lead_source_connections",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    name: text("name").notNull(),
+    accountRef: text("account_ref"),
+    formRef: text("form_ref"),
+    clientId: text("client_id"),
+    accessTokenCiphertext: text("access_token_ciphertext"),
+    accessTokenIv: text("access_token_iv"),
+    accessTokenTag: text("access_token_tag"),
+    accessTokenEnding: text("access_token_ending"),
+    webhookTokenHash: text("webhook_token_hash").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    status: text("status").notNull().default("not_configured"),
+    lastError: text("last_error"),
+    lastSyncedAt: bigint("last_synced_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lead_source_connections_workspace_name_unique").on(table.workspaceId, table.name),
+    index("lead_source_connections_workspace_provider_idx").on(table.workspaceId, table.provider, table.enabled),
+  ],
+);
+
+export const leadSourceEvents = pgTable(
+  "lead_source_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").notNull().references(() => leadSourceConnections.id, { onDelete: "cascade" }),
+    providerEventId: text("provider_event_id").notNull(),
+    payloadJson: text("payload_json").notNull().default("{}"),
+    processingStatus: text("processing_status").notNull().default("received"),
+    processingError: text("processing_error"),
+    receivedAt: bigint("received_at", { mode: "number" }).notNull(),
+    processedAt: bigint("processed_at", { mode: "number" }),
+  },
+  (table) => [
+    uniqueIndex("lead_source_events_connection_event_unique").on(table.connectionId, table.providerEventId),
+    index("lead_source_events_workspace_received_idx").on(table.workspaceId, table.receivedAt),
+  ],
+);
+
 export const customers = pgTable(
   "customers",
   {
@@ -143,6 +234,7 @@ export const customers = pgTable(
     interaction: text("interaction").notNull().default("尚无互动"),
     nextAction: text("next_action").notNull().default("补全企业档案"),
     dueAt: bigint("due_at", { mode: "number" }),
+    archivedAt: bigint("archived_at", { mode: "number" }),
     ownerUserId: text("owner_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -179,6 +271,7 @@ export const tasks = pgTable(
     impact: text("impact").notNull().default("待评估"),
     source: text("source").notNull().default("客户"),
     status: text("status").notNull().default("open"),
+    archivedAt: bigint("archived_at", { mode: "number" }),
     ownerUserId: text("owner_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -213,6 +306,7 @@ export const deals = pgTable(
     risk: text("risk").notNull().default("等待首次复核"),
     source: text("source").notNull().default("商机跟进"),
     stageEnteredAt: bigint("stage_entered_at", { mode: "number" }).notNull(),
+    archivedAt: bigint("archived_at", { mode: "number" }),
     ownerUserId: text("owner_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -565,6 +659,8 @@ export const inboxContacts = pgTable(
     email: text("email"),
     phone: text("phone"),
     externalRef: text("external_ref"),
+    whatsappOptedInAt: bigint("whatsapp_opted_in_at", { mode: "number" }),
+    whatsappOptInSource: text("whatsapp_opt_in_source"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
@@ -959,6 +1055,7 @@ export const radarCandidates = pgTable(
     currency: text("currency").notNull().default("CNY"),
     confidence: bigint("confidence", { mode: "number" }).notNull().default(0),
     status: text("status").notNull().default("candidate"),
+    archivedAt: bigint("archived_at", { mode: "number" }),
     reason: text("reason").notNull().default("等待补充研究结论"),
     dimensionsJson: text("dimensions_json").notNull().default("[]"),
     committeeJson: text("committee_json").notNull().default("[]"),

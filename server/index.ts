@@ -5,6 +5,7 @@ import { databaseRuntime } from "./db/client.js";
 import { createRadarWorker } from "./radar/worker.js";
 import { createOutboxWorker } from "./outbox/worker.js";
 import { createImapReceiver } from "./inbox/imap-receiver.js";
+import { createBackupWorker } from "./operations/backup-worker.js";
 import { requireAuth } from "./plugins/auth.js";
 import { captureObservabilityException, shutdownObservability } from "./lib/observability.js";
 
@@ -12,6 +13,7 @@ const app = await buildApp();
 const radarWorker = createRadarWorker(config.radarWorkerIntervalMs);
 const outboxWorker = createOutboxWorker(config.outboxWorkerIntervalMs);
 const imapReceiver = createImapReceiver(config.imapPollIntervalMs);
+const backupWorker = createBackupWorker();
 
 let shuttingDown = false;
 
@@ -22,6 +24,7 @@ const shutdown = async (signal: string) => {
   radarWorker.stop();
   outboxWorker.stop();
   imapReceiver.stop();
+  backupWorker.stop();
   const forceTimer = setTimeout(async () => {
     app.log.error("Forced shutdown after 10s timeout");
     await databaseRuntime.close();
@@ -61,6 +64,7 @@ await app.listen({ host: config.host, port: config.port });
 if (config.radarWorkerEnabled) radarWorker.start();
 if (config.outboxWorkerEnabled) outboxWorker.start();
 if (config.imapEnabled) imapReceiver.start();
+if (config.backupEnabled) backupWorker.start();
 app.log.info(
   {
     host: config.host,

@@ -25,7 +25,7 @@ const logLevel = process.env.SONDARA_LOG_LEVEL ??
   (process.env.NODE_ENV === "production" ? "info" : "warn");
 
 const databaseUrl = process.env.SONDARA_DATABASE_URL?.trim()
-  ?? "postgresql://sondara:sondara@127.0.0.1:5432/sondara";
+  ?? "postgresql://sondara:sondara@127.0.0.1:5433/sondara";
 if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
   throw new Error("SONDARA_DATABASE_URL 必须是 PostgreSQL 连接地址。");
 }
@@ -48,6 +48,10 @@ export const config = {
     process.env.SONDARA_OUTBOX_WORKER_INTERVAL_MS,
     5000,
   ),
+  backupEnabled: booleanFromEnv(process.env.SONDARA_BACKUP_ENABLED),
+  backupIntervalMs: numberFromEnv(process.env.SONDARA_BACKUP_INTERVAL_MS, 86_400_000),
+  backupRetentionCount: numberFromEnv(process.env.SONDARA_BACKUP_RETENTION_COUNT, 7),
+  backupDirectory: process.env.SONDARA_BACKUP_DIRECTORY?.trim() ?? resolve(process.cwd(), "data", "backups"),
   imapEnabled: booleanFromEnv(process.env.SONDARA_IMAP_ENABLED, true),
   imapHost: process.env.SONDARA_IMAP_HOST?.trim() ?? "",
   imapPort: numberFromEnv(process.env.SONDARA_IMAP_PORT, 993),
