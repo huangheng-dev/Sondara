@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
 import { CreateDialog } from '@/components/ui/CreateDialog'
@@ -175,7 +176,7 @@ export function IcpPage() {
   }
 
   if (profileQuery.isLoading) {
-    return <div className="page-content icp-page"><Panel title="客户定位" subtitle="正在读取业务资料…"> </Panel></div>
+    return <div className="page-content icp-page"><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState className="compact" title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
   }
   if (profileQuery.isError || !profile) {
     return <div className="page-content icp-page">

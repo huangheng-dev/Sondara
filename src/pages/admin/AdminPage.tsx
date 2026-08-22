@@ -90,11 +90,11 @@ export function AdminPage() {
     <PageHeader title={meta.label} description={`管理中心 · ${meta.description}`} actions={section === "users" ? <><Button onClick={() => setInviteDialog(true)}><UsersRound/>邀请成员</Button><Button variant="primary" onClick={() => setMemberDialog(true)}><Plus/>直接创建</Button></> : undefined}/>
     <section className="admin-workspace"><div className="admin-main">
       {section === "users" && <UsersSection items={membersQuery.data?.items ?? []} loading={membersQuery.isLoading} error={membersQuery.error} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} onOpen={setSelectedUser}/>}
-      {section === "users" && <InvitationsSection items={invitationsQuery.data?.items ?? []} loading={invitationsQuery.isLoading} onRevoke={async id => { await adminApi.revokeInvitation(id); await queryClient.invalidateQueries({ queryKey: ["admin-invitations"] }); showToast("邀请已撤销"); }}/>}
+      {section === "users" && <InvitationsSection items={invitationsQuery.data?.items ?? []} loading={invitationsQuery.isLoading} onRevoke={async id => { try { await adminApi.revokeInvitation(id); await queryClient.invalidateQueries({ queryKey: ["admin-invitations"] }); showToast("邀请已撤销"); } catch (cause) { showToast(cause instanceof Error ? cause.message : "撤销邀请失败"); } }}/>}
       {section === "roles" && <RolesSection items={rolesQuery.data?.items ?? []} loading={rolesQuery.isLoading} error={rolesQuery.error} onRefresh={refresh} onOpen={setSelectedRole}/>}
       {section === "audit-logs" && <AuditSection items={logsQuery.data?.items ?? []} loading={logsQuery.isLoading} error={logsQuery.error} query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onRefresh={refresh} onOpen={setSelectedLog}/>}
       {section === "approvals" && (
-        <ApprovalsSection items={approvalsQuery.data?.items ?? []} loading={approvalsQuery.isLoading} error={approvalsQuery.error} onRefresh={refresh} onReview={async (id, status) => { await approvalApi.review(id, { status }); await queryClient.invalidateQueries({ queryKey: ["approvals"] }); showToast(status === "approved" ? "审批已通过" : "审批已处理"); }}/>
+        <ApprovalsSection items={approvalsQuery.data?.items ?? []} loading={approvalsQuery.isLoading} error={approvalsQuery.error} onRefresh={refresh} onReview={async (id, status) => { try { await approvalApi.review(id, { status }); await queryClient.invalidateQueries({ queryKey: ["approvals"] }); showToast(status === "approved" ? "审批已通过" : "审批已处理"); } catch (cause) { showToast(cause instanceof Error ? cause.message : "审批操作失败"); } }}/>
       )}
     </div></section>
 
@@ -130,7 +130,7 @@ function InvitationsSection({ items, loading, onRevoke }: { items: AdminInvitati
   const pending = items.filter(item => !item.acceptedAt && !item.revokedAt && item.expiresAt > Date.now());
   return (
     <Panel className="admin-invitations-panel" title="待接受邀请" subtitle="邀请链接不会自动发送；复制链接并通过你的既有沟通渠道发送即可。">
-      {loading ? <EmptyState className="compact" title="正在读取邀请记录" icon={RefreshCw}/> : pending.length ? <div className="campaign-content-dialog">{pending.map(item => <article key={item.id}><i><UsersRound/></i><span><strong>{item.displayName || item.email}</strong><small>{item.email} · {item.role === "admin" ? "管理员" : item.role === "viewer" ? "只读成员" : "成员"} · 截止 {formatDate(item.expiresAt, true)}</small></span><Button size="sm" variant="danger" onClick={() => onRevoke(item.id)}>撤销</Button></article>)}</div> : <EmptyState className="compact" title="暂无待接受邀请" description="生成邀请链接后会显示在这里。" icon={UsersRound}/>}<span hidden />
+      {loading ? <EmptyState className="compact" title="正在读取邀请记录" icon={RefreshCw}/> : pending.length ? <div className="campaign-content-dialog">{pending.map(item => <article key={item.id}><i><UsersRound/></i><span><strong>{item.displayName || item.email}</strong><small>{item.email} · {item.role === "admin" ? "管理员" : item.role === "viewer" ? "只读成员" : "成员"} · 截止 {formatDate(item.expiresAt, true)}</small></span><Button size="sm" variant="danger" onClick={() => onRevoke(item.id)}>撤销</Button></article>)}</div> : <EmptyState className="compact" title="暂无待接受邀请" description="生成邀请链接后会显示在这里。" icon={UsersRound}/>}
     </Panel>
   );
 }

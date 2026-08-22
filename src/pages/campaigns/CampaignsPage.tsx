@@ -14,9 +14,9 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Search,
   Sparkles,
   Target,
+  X,
 } from "lucide-react";
 import { outreachChannels } from "@/data/channels";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -32,9 +32,10 @@ import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { CustomSelect } from "@/components/ui/CustomSelect";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { downloadCsv } from "@/utils/download";
 import { campaignApi, contentApi, customerApi, taskApi, type CampaignApiRecord } from "@/lib/api";
-import { Checkbox, Input } from 'antd'
+import { Checkbox } from 'antd'
 
 type CampaignRecord = CampaignApiRecord & { sent:number; replies:number; opportunities:number; revenue:string }
 
@@ -168,15 +169,7 @@ export function CampaignsPage() {
       <Panel className="campaign-workspace standard-list-panel">
         <div className="campaign-toolbar customer-toolbar module-toolbar standard-list-toolbar">
           <div className="customer-filter-controls">
-            <label className="campaign-search customer-search module-search">
-              <Search />
-              <Input
-                aria-label="搜索活动"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜索活动或目标市场"
-              />
-            </label>
+            <SearchInput className="campaign-search customer-search module-search" ariaLabel="搜索活动" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索活动或目标市场"/>
             <CustomSelect
               className="campaign-status-select"
               ariaLabel="筛选活动状态"
@@ -290,12 +283,12 @@ export function CampaignsPage() {
                 title="取消选择"
                 onClick={() => setChecked(new Set())}
               >
-                ×
+                <X size={16}/>
               </Button>
             </div>
           </div>
         </div>
-        {campaignQuery.isLoading&&<div className="standard-list-state"><RefreshCw/><strong>正在载入营销活动</strong><span>从当前工作区读取活动、执行节点与关联内容。</span></div>}
+        {campaignQuery.isLoading&&<div className="standard-list-state"><RefreshCw className="is-spinning"/><strong>正在载入营销活动</strong><span>从当前工作区读取活动、执行节点与关联内容。</span></div>}
         {campaignQuery.isError&&<div className="standard-list-state"><Target/><strong>营销活动载入失败</strong><span>{campaignQuery.error instanceof Error?campaignQuery.error.message:"请稍后重试。"}</span><Button onClick={()=>campaignQuery.refetch()}>重新加载</Button></div>}
         {!campaignQuery.isLoading&&!campaignQuery.isError&&visible.length===0&&<EmptyState className="list-empty-state" title="暂无营销活动" description="创建活动后，可以把客户、内容和执行节奏放进同一条工作流。" icon={Mail} action={<Button variant="primary" onClick={()=>setDialog("campaign")}><Plus/>新建活动</Button>}/>}
         {visible.length>0&&(
@@ -459,17 +452,24 @@ export function CampaignsPage() {
               variant="primary"
               onClick={async () => {
                 const actionable=recommendations.filter(item=>item.actionable);
-                await Promise.all(actionable.map(item=>taskApi.create({
-                  title:`活动优化：${item.title}`,
-                  priority:item.priority,
-                  dueAt:Date.now()+(item.priority==="高"?4*60*60*1000:24*60*60*1000),
-                  company:item.campaignName,
-                  nextAction:item.detail,
-                  impact:"提升活动回复率与商机转化",
-                  source:"营销活动优化",
-                })));
-                setUtility(null);
-                showToast(actionable.length?`已创建 ${actionable.length} 个活动优化任务`:"暂无可应用的优化任务");
+                if(!actionable.length){showToast('暂无可应用的优化任务');return}
+                try {
+                  const results=await Promise.allSettled(actionable.map(item=>taskApi.create({
+                    title:`活动优化：${item.title}`,
+                    priority:item.priority,
+                    dueAt:Date.now()+(item.priority==="高"?4*60*60*1000:24*60*60*1000),
+                    company:item.campaignName,
+                    nextAction:item.detail,
+                    impact:"提升活动回复率与商机转化",
+                    source:"营销活动优化",
+                  })));
+                  const succeeded=results.filter(r=>r.status==='fulfilled').length;
+                  const failed=results.length-succeeded;
+                  setUtility(null);
+                  showToast(failed?`已创建 ${succeeded} 个任务，${failed} 个失败`:`已创建 ${succeeded} 个活动优化任务`);
+                } catch(cause) {
+                  showToast(cause instanceof Error?cause.message:'创建优化任务失败');
+                }
               }}
             >
               应用为草稿

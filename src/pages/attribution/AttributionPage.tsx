@@ -99,7 +99,7 @@ export function AttributionPage(){
     <Panel className="conversion-flow-panel conversion-overview-panel" title="整体转化链路" subtitle={`${period}客户从发现到成交的完整路径`} action={<Button className="conversion-quality-compact" onClick={()=>setDialog('quality')}><Database/><span>数据完整度</span><strong>{avgQuality!==null?`${avgQuality}%`:'—'}</strong><ArrowUpRight/></Button>}>
       <div className="conversion-flow" aria-label={`${period}客户转化链路`}>
         {isLoading ? (
-          <div style={{padding:'2rem',color:'var(--text-muted)'}}>正在加载转化数据…</div>
+          <EmptyState className="compact" title="正在加载转化数据…" icon={RefreshCw}/>
         ) : stages.map((stage,index)=>{const Icon=stage.icon;const rate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const loss=stage.next===null?null:stage.value-stage.next;return <Fragment key={stage.key}><article className={index===stages.length-1?'complete':''}><header><i><Icon/></i><span><small>阶段 {index+1}</small><strong>{stage.label}</strong></span></header><b>{stage.value.toLocaleString()}</b>{stage.next===null?<footer><Badge tone="green">总转化率 {rate}%</Badge></footer>:<footer><span><strong>{rate}%</strong><small>进入下一阶段</small></span><em>流失 {loss?.toLocaleString()}</em></footer>}</article>{index<stages.length-1&&<i className="conversion-stage-arrow" aria-hidden="true"><ArrowRight/></i>}</Fragment>})}
       </div>
     </Panel>
@@ -118,7 +118,7 @@ export function AttributionPage(){
         <div className={`customer-selection-tools${selected.size>0?' has-selection':' is-empty'}`}><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>个</small></span>{selected.size>0&&<div><Button onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div>}</div>
       </div>
       {isLoading ? (
-        <div style={{padding:'2rem',color:'var(--text-muted)'}}>正在加载渠道数据…</div>
+        <EmptyState className="compact" title="正在加载渠道数据…" icon={RefreshCw}/>
       ) : rows.length?<><DataTable
         className="customer-table customer-table-pro standard-data-table attribution-channel-table"
         columns={[
@@ -150,7 +150,7 @@ export function AttributionPage(){
 
     <Modal open={dialog==='quality'} title="转化数据质量" description="影响转化率判断的关联与来源完整度。" onClose={()=>setDialog(null)}>
       <div className="status-detail-list">
-        {qualityQuery.isLoading ? <div style={{padding:'1rem',color:'var(--text-muted)'}}>正在计算…</div> :
+        {qualityQuery.isLoading ? <EmptyState className="compact" title="正在计算…" icon={RefreshCw}/> :
         (qualityItems??[]).map(item=><article key={item.label}>
           <span><strong>{item.label}</strong><small>{item.detail}</small></span>
           <Badge tone={item.pct>=80?'green':'orange'}>{item.pct}%</Badge>
@@ -164,7 +164,7 @@ export function AttributionPage(){
           <span><strong>{ch.name} · {ch.bottleneck}</strong><small>{ch.action}</small></span>
           <Badge tone={ch.won===0?'orange':'blue'}>{ch.won===0?'高影响':`转化率 ${ch.conversionRate}%`}</Badge>
         </article>)}
-        {selectedChannels.length===0 && <div style={{padding:'1rem',color:'var(--text-muted)'}}>请先选择至少一个渠道。</div>}
+        {selectedChannels.length===0 && <EmptyState className="compact" title="请先选择至少一个渠道。" icon={CircleAlert}/>}
       </div>
     </Modal>
     <Modal open={dialog==='channel'} title={`${selectedChannel?.name??''} · 转化详情`} description={`${period}完整转化链路`} onClose={()=>setDialog(null)}>

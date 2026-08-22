@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   Plus,
   Radar,
+  RefreshCw,
   Sparkles,
   Target,
   TrendingUp,
@@ -29,7 +30,6 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
 import { useUiStore } from '@/stores/ui-store'
 import { authApi, customerApi, dealApi, taskApi } from '@/lib/api'
-import { Input } from 'antd'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -93,7 +93,7 @@ export function DashboardPage() {
     return <div className="page-content dashboard-page">
       <PageHeader title="经营总览" description="聚焦经营结果、增长进度与今天真正需要处理的行动。" />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400, color: 'var(--color-text-secondary, #667085)' }}>
-        <CheckCircle2 size={20} style={{ marginRight: 8, animation: 'spin 1s linear infinite' }} />
+        <RefreshCw size={20} className="is-spinning" style={{ marginRight: 8 }} />
         正在加载经营数据…
       </div>
     </div>
@@ -149,7 +149,7 @@ export function DashboardPage() {
     <CreateDialog open={dialog === 'plan'} title="新建增长计划" description="选择市场与目标，创建一条可跟踪的增长主线。" successMessage="增长计划已创建" onClose={()=>setDialog(null)} onSubmit={async values=>{await taskApi.create({priority:'中',title:`启动计划：${values.name}`,dueAt:values.due?Date.parse(values.due):null,dueLabel:values.due||'待安排',company:values.market,nextAction:values.goal,impact:'待评估',source:'经营计划'});await taskQuery.refetch();setPlanCount(count=>count+1)}} fields={[{name:'name',label:'计划名称',required:true,placeholder:'例如：德国经销商拓展'},{name:'market',label:'目标市场',type:'select',required:true,options:['德国食品设备','华东制药装备','北美阀门经销']},{name:'goal',label:'目标',type:'select',required:true,options:['发现目标客户','获得有效回复','创建销售商机']},{name:'due',label:'目标日期',type:'date'}]} />
     <CreateDialog open={dialog === 'calendar'} title="新建日程" description="安排个人跟进和复盘。" submitLabel="添加日程" successMessage="日程已添加" onClose={()=>setDialog(null)} onSubmit={async values=>{await taskApi.create({priority:'中',title:values.title,dueAt:Date.parse(values.date),dueLabel:values.date,company:'个人日程',nextAction:values.note||'按计划执行',impact:'—',source:'日程'});await taskQuery.refetch()}} fields={[{name:'title',label:'日程标题',required:true},{name:'date',label:'日期',type:'date',required:true},{name:'note',label:'备注',type:'textarea'}]} />
     <Modal open={details==='tasks'} title={taskArchiveView?'已归档经营事项':'全部经营事项'} description="按时间、优先级和预计收入影响排序。" onClose={()=>setDetails(null)}><div className="dashboard-task-dialog">{taskItems.length ? taskItems.map(t=><Button key={t[6]} onClick={()=>{setActiveTask(t);setDetails('task')}}><CheckCircle2 className={completed.has(t[1])?'done':''}/><span><strong>{t[1]}</strong><small>{t[2]} · {t[3]} · {t[4]}</small></span><b>{t[5]}</b><ArrowRight/></Button>) : <EmptyState className="list-empty-state compact dashboard-task-dialog-empty" icon={ClipboardList} title="暂无经营事项" />}</div></Modal>
-    <Modal open={details==='task'} title={activeTask?.[1]??'任务详情'} description={`${activeTask?.[3]??''} · ${activeTask?.[2]??''}`} onClose={()=>setDetails(null)} footer={<><Button onClick={()=>setDetails(null)}>关闭</Button>{activeTask&&<Button onClick={async()=>{try{await taskApi.archive(activeTask[6],!taskArchiveView);await Promise.all([taskQuery.refetch(),archivedTaskQuery.refetch()]);setDetails(null);showToast(taskArchiveView?'任务已恢复':'任务已归档')}catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}}}><Layers3/>{taskArchiveView?'恢复任务':'归档任务'}</Button>}<Button variant="primary" disabled={taskArchiveView} onClick={async()=>{if(activeTask){try{await markComplete(activeTask[6]);setDetails(null);showToast('任务已完成')}catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}}}}>标记完成</Button></>}><div className="task-detail-dialog"><span><small>下一步动作</small><strong>{activeTask?.[4]}</strong></span><span><small>预计收入影响</small><strong>{activeTask?.[5]}</strong></span><label>执行备注<Input.TextArea defaultValue="与客户确认需求、决策链和下一沟通时间。"/></label></div></Modal>
+    <Modal open={details==='task'} title={activeTask?.[1]??'任务详情'} description={`${activeTask?.[3]??''} · ${activeTask?.[2]??''}`} onClose={()=>setDetails(null)} footer={<><Button onClick={()=>setDetails(null)}>关闭</Button>{activeTask&&<Button onClick={async()=>{try{await taskApi.archive(activeTask[6],!taskArchiveView);await Promise.all([taskQuery.refetch(),archivedTaskQuery.refetch()]);setDetails(null);showToast(taskArchiveView?'任务已恢复':'任务已归档')}catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}}}><Layers3/>{taskArchiveView?'恢复任务':'归档任务'}</Button>}<Button variant="primary" disabled={taskArchiveView} onClick={async()=>{if(activeTask){try{await markComplete(activeTask[6]);setDetails(null);showToast('任务已完成')}catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}}}}>标记完成</Button></>}><div className="task-detail-dialog"><span><small>下一步动作</small><strong>{activeTask?.[4]}</strong></span><span><small>预计收入影响</small><strong>{activeTask?.[5]}</strong></span></div></Modal>
     <Modal open={details==='suggestion'} title={`${focusCompany} 跟进建议`} description="根据客户阶段、联系人完整度和下一步动作生成。" onClose={()=>setDetails(null)} footer={<><Button onClick={()=>setDetails(null)}>稍后处理</Button><Button variant="primary" disabled={!focusCustomer} onClick={async()=>{if(!focusCustomer)return;try{await taskApi.create({customerId:focusCustomer.id,priority:'高',title:`${focusCompany} 建议跟进`,dueLabel:'今天',company:focusCompany,nextAction:focusAction,impact:focusCustomer.estimatedValue?`¥${focusCustomer.estimatedValue.toLocaleString('zh-CN')}`:'待评估',source:'经营建议'});await taskQuery.refetch();setDetails(null);showToast(`${focusCompany} 跟进任务已创建`)}catch(cause){showToast(cause instanceof Error?cause.message:'任务创建失败')}}}>创建跟进任务</Button></>}><div className="suggestion-dialog"><Sparkles/><p>{focusCustomer?`建议先执行“${focusAction}”，沟通后及时更新客户阶段、有效联系人和下一次跟进时间。`:'暂无可生成建议的客户，请先从 AI 获客保存候选。'}</p></div></Modal>
   </div>
 }
