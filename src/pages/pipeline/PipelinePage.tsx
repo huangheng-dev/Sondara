@@ -60,7 +60,7 @@ export function PipelinePage() {
     {value:'阶段停留最短',label:'阶段停留最短',icon:<Clock3/>},
   ]
   const clear=()=>{setQuery('');setOwner('全部负责人');setStageFilter('全部阶段');setRiskFilter('全部风险');setSort('阶段概率最高')}
-  return <div className="page-content pipeline-page"><PageHeader title="商机跟进" description="聚焦成交概率、风险和下一步动作，把商机从线索稳定推进到成交。" actions={<><Button onClick={()=>setArchiveView(value=>!value)}><Layers3/>{archiveView?'返回进行中':'已归档'}</Button><Button onClick={()=>setForecastOpen(true)}><TrendingUp/>查看预测</Button><Button variant="primary" onClick={()=>setNewOpen(true)}><Plus/>新建商机</Button></>}/>
+  return <div className="page-content pipeline-page"><PageHeader title="商机跟进" description="聚焦成交概率、风险和下一步动作，把商机从线索稳定推进到成交。" actions={<><Button onClick={()=>setArchiveView(value=>!value)}><Layers3 size={16}/>{archiveView?'返回进行中':'已归档'}</Button><Button onClick={()=>setForecastOpen(true)}><TrendingUp size={16}/>查看预测</Button><Button variant="primary" onClick={()=>setNewOpen(true)}><Plus size={16}/>新建商机</Button></>}/>
     <Panel className="pipeline-workspace pipeline-list-panel standard-list-panel">
       <div className="pipeline-toolbar customer-toolbar module-toolbar standard-list-toolbar">
         <div className="customer-filter-controls">

@@ -333,10 +333,10 @@ export const GrowthKnowledge = forwardRef<
                 { value: "references_desc", label: "引用最多", icon: <ArrowUpDown /> },
                 { value: "references_asc", label: "引用最少", icon: <ArrowUpDown /> },
               ]} />
-              <Button className="customer-refresh" onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
-                <RefreshCw />刷新
+              <Button className="customer-refresh" disabled={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
+                <RefreshCw className={listQuery.isFetching ? "is-spinning" : undefined} />刷新
               </Button>
-              <Button className="module-clear"
+              <Button className="customer-clear module-clear"
                 disabled={!query && type === "全部类型" && status === "全部状态" && sort === "updated_desc"}
                 onClick={() => { setQuery(""); setType("全部类型"); setStatus("全部状态"); setSort("updated_desc"); }}>
                 清除筛选
@@ -383,7 +383,7 @@ export const GrowthKnowledge = forwardRef<
               />
             </>
           ) : listQuery.isLoading ? (
-            <EmptyState title="正在加载定位资料" description="从工作区读取中…" />
+            <EmptyState spinning title="正在加载定位资料" description="从工作区读取中…" icon={RefreshCw} />
           ) : (
             <EmptyState className="list-empty-state" title="暂无定位资料" icon={BookOpenText} />
           )}

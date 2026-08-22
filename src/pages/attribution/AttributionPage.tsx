@@ -91,7 +91,7 @@ export function AttributionPage(){
   const selectedChannels=allRows.filter(row=>selected.has(row.name))
 
   return <div className="page-content conversion-page conversion-page-rebuilt">
-    <PageHeader title="转化分析" description="定位客户从发现到成交的流失环节，并比较不同获客渠道的真实转化能力。" actions={<div className="conversion-header-actions">{periodTabs}<Button onClick={()=>overviewQuery.refetch()} disabled={isLoading}><RefreshCw/>刷新</Button><Button onClick={()=>{exportRows(rows);showToast(`已导出 ${rows.length} 个渠道的转化数据`)}}><Download/>导出分析</Button></div>}/>
+    <PageHeader title="转化分析" description="定位客户从发现到成交的流失环节，并比较不同获客渠道的真实转化能力。" actions={<div className="conversion-header-actions">{periodTabs}<Button onClick={()=>overviewQuery.refetch()} disabled={isLoading}><RefreshCw size={16} className={isLoading?'is-spinning':undefined}/>刷新</Button><Button onClick={()=>{exportRows(rows);showToast(`已导出 ${rows.length} 个渠道的转化数据`)}}><Download size={16}/>导出分析</Button></div>}/>
 
     {isError ? (
       <Panel title="整体转化链路"><div><EmptyState title="数据加载失败" description="无法获取转化数据，请检查网络连接后重试。"/><div style={{textAlign:'center',marginTop:'1rem'}}><Button variant="primary" onClick={()=>overviewQuery.refetch()}>重新加载</Button></div></div></Panel>
@@ -99,7 +99,7 @@ export function AttributionPage(){
     <Panel className="conversion-flow-panel conversion-overview-panel" title="整体转化链路" subtitle={`${period}客户从发现到成交的完整路径`} action={<Button className="conversion-quality-compact" onClick={()=>setDialog('quality')}><Database/><span>数据完整度</span><strong>{avgQuality!==null?`${avgQuality}%`:'—'}</strong><ArrowUpRight/></Button>}>
       <div className="conversion-flow" aria-label={`${period}客户转化链路`}>
         {isLoading ? (
-          <EmptyState className="compact" title="正在加载转化数据…" icon={RefreshCw}/>
+          <EmptyState className="compact" spinning title="正在加载转化数据…" icon={RefreshCw}/>
         ) : stages.map((stage,index)=>{const Icon=stage.icon;const rate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const loss=stage.next===null?null:stage.value-stage.next;return <Fragment key={stage.key}><article className={index===stages.length-1?'complete':''}><header><i><Icon/></i><span><small>阶段 {index+1}</small><strong>{stage.label}</strong></span></header><b>{stage.value.toLocaleString()}</b>{stage.next===null?<footer><Badge tone="green">总转化率 {rate}%</Badge></footer>:<footer><span><strong>{rate}%</strong><small>进入下一阶段</small></span><em>流失 {loss?.toLocaleString()}</em></footer>}</article>{index<stages.length-1&&<i className="conversion-stage-arrow" aria-hidden="true"><ArrowRight/></i>}</Fragment>})}
       </div>
     </Panel>
@@ -118,7 +118,7 @@ export function AttributionPage(){
         <div className={`customer-selection-tools${selected.size>0?' has-selection':' is-empty'}`}><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>个</small></span>{selected.size>0&&<div><Button onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div>}</div>
       </div>
       {isLoading ? (
-        <EmptyState className="compact" title="正在加载渠道数据…" icon={RefreshCw}/>
+        <EmptyState className="compact" spinning title="正在加载渠道数据…" icon={RefreshCw}/>
       ) : rows.length?<><DataTable
         className="customer-table customer-table-pro standard-data-table attribution-channel-table"
         columns={[
@@ -150,7 +150,7 @@ export function AttributionPage(){
 
     <Modal open={dialog==='quality'} title="转化数据质量" description="影响转化率判断的关联与来源完整度。" onClose={()=>setDialog(null)}>
       <div className="status-detail-list">
-        {qualityQuery.isLoading ? <EmptyState className="compact" title="正在计算…" icon={RefreshCw}/> :
+        {qualityQuery.isLoading ? <EmptyState className="compact" spinning title="正在计算…" icon={RefreshCw}/> :
         (qualityItems??[]).map(item=><article key={item.label}>
           <span><strong>{item.label}</strong><small>{item.detail}</small></span>
           <Badge tone={item.pct>=80?'green':'orange'}>{item.pct}%</Badge>

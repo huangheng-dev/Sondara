@@ -116,7 +116,7 @@ export function InboxPage() {
   const tone = activeThread?.intent === '高意向' ? 'green' : activeThread?.intent === '待跟进' ? 'orange' : 'blue'
 
   return <div className="page-content inbox-page">
-    <PageHeader title="客户消息" description="统一处理客户回复、判断意向，并把确认后的对话转成明确的跟进动作。" actions={<Button disabled={!threadMeta?.unreadTotal || markAllMutation.isPending} onClick={() => markAllMutation.mutate()}><CheckCircle2 />{markAllMutation.isPending ? '正在处理…' : `全部已读${threadMeta?.unreadTotal ? ` · ${threadMeta.unreadTotal}` : ''}`}</Button>} />
+    <PageHeader title="客户消息" description="统一处理客户回复、判断意向，并把确认后的对话转成明确的跟进动作。" actions={<Button disabled={!threadMeta?.unreadTotal || markAllMutation.isPending} onClick={() => markAllMutation.mutate()}><CheckCircle2 size={16} />{markAllMutation.isPending ? '正在处理…' : `全部已读${threadMeta?.unreadTotal ? ` · ${threadMeta.unreadTotal}` : ''}`}</Button>} />
     <div className={`inbox-pro-shell ${mobileConversation ? 'show-conversation' : ''} ${detailsOpen ? 'show-details' : ''}`}>
       <aside className="inbox-list">
         <header>
@@ -140,8 +140,8 @@ export function InboxPage() {
       {activeThread ? <section className="inbox-conversation">
         <header><Button className="conversation-back" onClick={() => setMobileConversation(false)} aria-label="返回消息列表"><ArrowLeft /></Button><i>{activeThread.contact.name[0]}</i><span><h2>{activeThread.contact.name}</h2><p>{activeThread.contact.company} · {activeThread.channel} · 最近活跃 {formatTime(activeThread.lastMessageAt)}</p></span><Badge tone={tone}>{activeThread.intent}</Badge><Button className="inbox-detail-toggle" aria-label="查看客户详情" onClick={() => setDetailsOpen(true)}><UserRound /></Button></header>
         <div className="inbox-thread" ref={threadBodyRef}>
-          {messagesQuery.hasNextPage && <Button className="inbox-load-older" disabled={messagesQuery.isFetchingNextPage} onClick={() => messagesQuery.fetchNextPage()}>{messagesQuery.isFetchingNextPage ? <><LoaderCircle />正在加载…</> : '加载更早消息'}</Button>}
-          {messagesQuery.isLoading && <div className="inbox-thread-state"><LoaderCircle />正在加载对话…</div>}
+          {messagesQuery.hasNextPage && <Button className="inbox-load-older" disabled={messagesQuery.isFetchingNextPage} onClick={() => messagesQuery.fetchNextPage()}>{messagesQuery.isFetchingNextPage ? <><LoaderCircle className="is-spinning"/>正在加载…</> : '加载更早消息'}</Button>}
+          {messagesQuery.isLoading && <div className="inbox-thread-state"><LoaderCircle className="is-spinning"/>正在加载对话…</div>}
           {messagesQuery.isError && <div className="inbox-thread-state error"><AlertCircle />对话加载失败 <Button onClick={() => messagesQuery.refetch()}>重试</Button></div>}
           {threadMessages.map(message => <article className={message.direction === 'outbound' ? 'outgoing' : 'incoming'} key={message.id}><p>{message.body}</p><small>{formatTime(message.createdAt)} · {messageStatus(message)}</small></article>)}
           {!messagesQuery.isLoading && !threadMessages.length && <EmptyState className="list-empty-state compact" title="线程暂无消息" icon={MessageCircle} />}

@@ -176,7 +176,7 @@ export function IcpPage() {
   }
 
   if (profileQuery.isLoading) {
-    return <div className="page-content icp-page"><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState className="compact" title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
+    return <div className="page-content icp-page"><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState className="compact" spinning title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
   }
   if (profileQuery.isError || !profile) {
     return <div className="page-content icp-page">
@@ -265,7 +265,7 @@ export function IcpPage() {
       { name: 'exclusions', label: '不希望开发的客户', type: 'textarea', placeholder: '系统会自动将这些企业排除' },
     ]} />
 
-    <Modal open={knowledgeOpen} width={1360} title="客户定位资料" description="管理供客户定位、AI 获客和客户研究引用的产品、案例、市场与判断规则。" onClose={() => setKnowledgeOpen(false)} actions={<><Button onClick={() => knowledgeManagerRef.current?.openFile()}><Import />导入资料</Button><Button onClick={() => knowledgeManagerRef.current?.openUrl()}><Link2 />添加网页</Button><Button variant="primary" onClick={() => knowledgeManagerRef.current?.openNew()}><Plus />新增资料</Button></>}><GrowthKnowledge ref={knowledgeManagerRef} showToast={showToast} modal /></Modal>
+    <Modal open={knowledgeOpen} width={1360} title="客户定位资料" description="管理供客户定位、AI 获客和客户研究引用的产品、案例、市场与判断规则。" onClose={() => setKnowledgeOpen(false)} actions={<><Button onClick={() => knowledgeManagerRef.current?.openFile()}><Import size={16} />导入资料</Button><Button onClick={() => knowledgeManagerRef.current?.openUrl()}><Link2 size={16} />添加网页</Button><Button variant="primary" onClick={() => knowledgeManagerRef.current?.openNew()}><Plus size={16} />新增资料</Button></>}><GrowthKnowledge ref={knowledgeManagerRef} showToast={showToast} modal /></Modal>
 
     <Modal open={Boolean(marketDetail)} title={`${marketDetail?.name ?? ''} · 理想客户画像`} description="以下结论由你的业务资料自动生成，AI 获客会据此判断匹配度。" onClose={() => setMarketDetail(null)} footer={<><Button onClick={() => setMarketDetail(null)}>关闭</Button><Button variant="primary" onClick={() => marketDetail && startRadar(marketDetail)}>按此画像找客户</Button></>}><div className="icp-profile-dialog"><section><span><small>定位置信度</small><strong>{marketDetail?.score}</strong></span><span><small>潜在企业</small><strong>{marketDetail?.companies}</strong></span><span><small>市场规模</small><strong>{marketDetail?.tam}</strong></span></section><div><h3>企业特征</h3>{marketDetail?.profile.map(x => <Badge key={x} tone="blue">{x}</Badge>)}</div><dl><div><dt>重点信号</dt><dd>{analysis?.signals?.join('、') || '扩产、新建项目、技术升级、经销网络调整'}</dd></div><div><dt>优先联系人</dt><dd>采购负责人、技术负责人、工厂负责人</dd></div><div><dt>排除条件</dt><dd>{profile.exclusions || '无官网、业务范围不匹配、近 12 个月停止经营'}</dd></div></dl></div></Modal>
   </div>

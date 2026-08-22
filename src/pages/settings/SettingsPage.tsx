@@ -500,8 +500,8 @@ function OutboundSettings() {
                 { label: "失败", value: "failed" },
               ]}
             />
-            <Button size="sm" onClick={() => jobs.refetch()}>
-              <RefreshCw size={14} />
+            <Button size="sm" disabled={jobs.isFetching} onClick={() => jobs.refetch()}>
+              <RefreshCw size={14} className={jobs.isFetching?"is-spinning":undefined} />
               刷新
             </Button>
             <span>共 {jobs.data?.total ?? 0} 个任务</span>
@@ -558,8 +558,8 @@ function OutboundSettings() {
                     { label: "全部状态", value: "all" },
                   ]}
                 />
-                <Button size="sm" onClick={() => suppressions.refetch()}>
-                  <RefreshCw size={14} />
+                <Button size="sm" disabled={suppressions.isFetching} onClick={() => suppressions.refetch()}>
+                  <RefreshCw size={14} className={suppressions.isFetching?"is-spinning":undefined} />
                   刷新
                 </Button>
                 <span>共 {suppressions.data?.total ?? 0} 条记录</span>
@@ -567,8 +567,8 @@ function OutboundSettings() {
             )}
             {governanceView === "渠道事件" && (
               <>
-                <Button size="sm" onClick={() => channelEvents.refetch()}>
-                  <RefreshCw size={14} />
+                <Button size="sm" disabled={channelEvents.isFetching} onClick={() => channelEvents.refetch()}>
+                  <RefreshCw size={14} className={channelEvents.isFetching?"is-spinning":undefined} />
                   刷新
                 </Button>
                 <span>最近 {channelEvents.data?.items.length ?? 0} 条事件</span>
@@ -1283,12 +1283,13 @@ export function SettingsPage() {
                   />
                   <Button
                     className="customer-refresh"
+                    disabled={aiServiceQuery.isFetching}
                     onClick={async () => {
                       await aiServiceQuery.refetch();
                       showToast("AI 服务列表已刷新");
                     }}
                   >
-                    <RefreshCw />
+                    <RefreshCw className={aiServiceQuery.isFetching?"is-spinning":undefined} />
                     刷新
                   </Button>
                   <Button
@@ -1588,7 +1589,7 @@ export function SettingsPage() {
                   <strong>{backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}</strong>
                   <small>每份自动备份生成后均执行 pg_restore 目录校验；升级前仍建议额外下载一份。</small>
                 </span>
-                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15}/>刷新</Button>
+                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15} className={backupsQuery.isFetching?"is-spinning":undefined}/>刷新</Button>
               </div>
               {(backupsQuery.data?.items ?? []).length > 0 && <div className="backup-reminder">
                 <span>

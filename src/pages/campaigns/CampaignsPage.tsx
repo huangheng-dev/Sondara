@@ -152,15 +152,15 @@ export function CampaignsPage() {
         actions={
           <>
             <Button onClick={() => setUtility("optimize")}>
-              <Sparkles />
+              <Sparkles size={16} />
               优化建议
             </Button>
             <Button onClick={() => setDialog("calendar")}>
-              <CalendarDays />
+              <CalendarDays size={16} />
               排期日历{scheduledCount > 0 ? ` · ${scheduledCount}` : ""}
             </Button>
             <Button variant="primary" onClick={() => setDialog("campaign")}>
-              <Plus />
+              <Plus size={16} />
               新建活动
             </Button>
           </>
@@ -213,11 +213,11 @@ export function CampaignsPage() {
               disabled={campaignQuery.isFetching}
               onClick={async () => {await campaignQuery.refetch();showToast("营销活动列表已刷新")}}
             >
-              <RefreshCw />
+              <RefreshCw className={campaignQuery.isFetching ? "is-spinning" : undefined} />
               刷新
             </Button>
             <Button
-              className="module-clear"
+              className="customer-clear module-clear"
               disabled={!query && filter === "全部" && sort === "执行进度最高"}
               onClick={() => {
                 setQuery("");

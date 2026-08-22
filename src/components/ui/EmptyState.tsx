@@ -8,12 +8,13 @@ type EmptyStateProps = {
   icon?: ComponentType<LucideProps>
   className?: string
   action?: ReactNode
+  spinning?: boolean
 }
 
-export function EmptyState({ title, description, icon: Icon, className, action }: EmptyStateProps) {
+export function EmptyState({ title, description, icon: Icon, className, action, spinning }: EmptyStateProps) {
   return <Empty
     className={['app-empty-ant', className].filter(Boolean).join(' ')}
-    image={Icon ? <Icon size={30} aria-hidden="true" /> : Empty.PRESENTED_IMAGE_SIMPLE}
+    image={Icon ? <Icon size={30} aria-hidden="true" className={spinning ? 'is-spinning' : undefined} /> : Empty.PRESENTED_IMAGE_SIMPLE}
     description={<div><strong>{title}</strong>{description && <p className="app-empty-description">{description}</p>}</div>}
   >{action && <div className="app-empty-action">{action}</div>}</Empty>
 }
