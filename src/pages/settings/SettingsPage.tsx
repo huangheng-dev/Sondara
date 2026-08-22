@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useUiStore } from "@/stores/ui-store";
 import { CustomSelect } from "@/components/ui/CustomSelect";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { CreateDialog } from "@/components/ui/CreateDialog";
 import { integrationServices } from "@/data/channels";
 import { useBusinessStore } from "@/stores/business-store";
@@ -537,17 +538,7 @@ function OutboundSettings() {
             />
             {governanceView === "抑制名单" && (
               <>
-                <label className="customer-search module-search">
-                  <Search />
-                  <Input
-                    aria-label="搜索抑制名单"
-                    value={suppressionQuery}
-                    onChange={(event) =>
-                      setSuppressionQuery(event.target.value)
-                    }
-                    placeholder="搜索邮箱或原因"
-                  />
-                </label>
+                <SearchInput className="customer-search module-search" ariaLabel="搜索抑制名单" value={suppressionQuery} onChange={(event) => setSuppressionQuery(event.target.value)} placeholder="搜索邮箱或原因" />
                 <CustomSelect
                   ariaLabel="抑制状态"
                   value={suppressionStatus}
@@ -1252,15 +1243,7 @@ export function SettingsPage() {
             <Panel className="standard-list-panel ai-service-panel">
               <div className="ai-service-toolbar customer-toolbar module-toolbar standard-list-toolbar">
                 <div className="customer-filter-controls">
-                  <label className="customer-search module-search">
-                    <Search />
-                    <Input
-                      aria-label="搜索 AI 服务"
-                      value={serviceQuery}
-                      onChange={(event) => setServiceQuery(event.target.value)}
-                      placeholder="搜索服务、模型或提供商"
-                    />
-                  </label>
+                  <SearchInput className="customer-search module-search" ariaLabel="搜索 AI 服务" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="搜索服务、模型或提供商" />
                   <CustomSelect
                     className="ai-status-select"
                     ariaLabel="筛选 AI 服务状态"

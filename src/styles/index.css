@@ -5226,7 +5226,6 @@ textarea:focus-visible {
   gap: 7px;
   padding: 0 10px;
   color: #8b95a4;
-  margin-bottom: 4px;
 }
 .radar-search input {
   border: 0;
@@ -18865,6 +18864,44 @@ input[type="radio"]:focus-visible {
   border-radius: 8px;
   color: #8b95a4;
 }
+.standard-list-toolbar.module-toolbar .app-search-input.ant-input-affix-wrapper {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  height: 36px;
+  min-height: 36px;
+  flex: 0 0 220px;
+  padding: 0 10px;
+  border: 1px solid #d6dce6;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  font-size: 13px;
+}
+.standard-list-toolbar.module-toolbar .app-search-input.ant-input-affix-wrapper:hover {
+  border-color: var(--control-border-hover);
+  background: var(--control-bg-hover);
+}
+.standard-list-toolbar.module-toolbar .app-search-input.ant-input-affix-wrapper-focused,
+.standard-list-toolbar.module-toolbar .app-search-input.ant-input-affix-wrapper:focus-within {
+  border-color: var(--control-border-focus);
+  background: #fff;
+  box-shadow: var(--focus-ring);
+}
+.standard-list-toolbar.module-toolbar .app-search-input .ant-input {
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.standard-list-toolbar.module-toolbar .app-search-input .ant-input-prefix {
+  margin-inline-end: 7px;
+  color: #8b95a4;
+}
+.standard-list-toolbar.module-toolbar .app-search-input .ant-input-prefix svg {
+  width: 14px;
+  height: 14px;
+}
 .standard-list-toolbar.module-toolbar .module-search svg {
   width: 14px;
   height: 14px;
@@ -19836,6 +19873,41 @@ input[type="radio"]:focus-visible {
   background: transparent;
   color: #344054;
   font-size: 8px;
+}
+.inbox-list > header .app-search-input.ant-input-affix-wrapper {
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: none;
+  font-size: 13px;
+}
+.inbox-list > header .app-search-input.ant-input-affix-wrapper:hover {
+  border-color: var(--control-border-hover);
+  background: var(--control-bg-hover);
+}
+.inbox-list > header .app-search-input.ant-input-affix-wrapper-focused,
+.inbox-list > header .app-search-input.ant-input-affix-wrapper:focus-within {
+  border-color: var(--control-border-focus);
+  background: #fff;
+  box-shadow: var(--focus-ring);
+}
+.inbox-list > header .app-search-input .ant-input {
+  font-size: 13px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.inbox-list > header .app-search-input .ant-input-prefix {
+  margin-inline-end: 8px;
+  color: #667085;
+}
+.inbox-list > header .app-search-input .ant-input-prefix svg {
+  width: 15px;
+  height: 15px;
 }
 .message-filter-row {
   min-width: 0;
