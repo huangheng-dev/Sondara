@@ -14,16 +14,6 @@ NODE_ENV=production npm start
 
 使用 systemd、PM2 或其他进程管理器时，先停止旧进程，执行 migration，再启动新进程。不要让不同版本的应用同时写同一个 SQLite 文件。
 
-## Docker 升级
-
-```bash
-docker compose down
-docker compose build --pull
-docker compose up -d
-```
-
-`docker compose down` 不删除 `sondara_app-data` 数据卷。不要使用 `down -v`，除非明确要删除全部应用数据。
-
 ## Migration 说明
 
 - migration 文件位于 `server/db/migrations-sqlite/`；
