@@ -6,7 +6,7 @@ const apiPort = Number(process.env.SONDARA_API_PORT || 4176)
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   server: {
     port: 4175,
     strictPort: true,
@@ -16,12 +16,31 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-ui': ['lucide-react', 'zustand'],
-          'vendor-antd-css': ['@ant-design/cssinjs'],
-          'vendor-antd-runtime': ['@rc-component/util'],
+        manualChunks(id) {
+          const moduleId = id.replaceAll('\\', '/')
+
+          if (
+            moduleId.includes('/node_modules/react/')
+            || moduleId.includes('/node_modules/react-dom/')
+            || moduleId.includes('/node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react'
+          }
+          if (moduleId.includes('/node_modules/@tanstack/react-query/')) {
+            return 'vendor-query'
+          }
+          if (
+            moduleId.includes('/node_modules/lucide-react/')
+            || moduleId.includes('/node_modules/zustand/')
+          ) {
+            return 'vendor-ui'
+          }
+          if (moduleId.includes('/node_modules/@ant-design/cssinjs/')) {
+            return 'vendor-antd-css'
+          }
+          if (moduleId.includes('/node_modules/@rc-component/util/')) {
+            return 'vendor-antd-runtime'
+          }
         },
       },
     },
