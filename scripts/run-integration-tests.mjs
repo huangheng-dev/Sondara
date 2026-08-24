@@ -24,6 +24,7 @@ const tests = [
   'partial-updates',
   'search-connector',
   'team-invitations',
+  'worker-locks',
 ]
 
 let index = 0

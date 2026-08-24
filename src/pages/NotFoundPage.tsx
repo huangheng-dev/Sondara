@@ -6,7 +6,7 @@ import { FileQuestion } from 'lucide-react'
 export function NotFoundPage() {
   const navigate = useNavigate()
   return (
-    <div className="page-content not-found-page">
+    <div>
       <EmptyState
         icon={FileQuestion}
         title="页面不存在"

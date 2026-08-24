@@ -8,6 +8,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
 import { config } from "./config.js";
+import { withMigrationLock } from "./db/migration-lock.js";
 import { db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
 import { aiServiceRoutes } from "./routes/ai-services.js";
@@ -32,9 +33,11 @@ import { leadSourceRoutes } from "./routes/lead-sources.js";
 import { captureObservabilityException } from "./lib/observability.js";
 
 export const buildApp = async () => {
-  await migrate(db, {
-    migrationsFolder: resolve(process.cwd(), "server/db/migrations-pg"),
-  });
+  if (config.autoMigrate) {
+    await withMigrationLock(() => migrate(db, {
+      migrationsFolder: resolve(process.cwd(), "server/db/migrations-pg"),
+    }));
+  }
   const app = Fastify({
     logger: { level: config.logLevel },
     bodyLimit: 1_048_576,

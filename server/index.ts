@@ -21,10 +21,12 @@ const shutdown = async (signal: string) => {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, "Shutting down…");
-  radarWorker.stop();
-  outboxWorker.stop();
-  imapReceiver.stop();
-  backupWorker.stop();
+  await Promise.allSettled([
+    radarWorker.stop(),
+    outboxWorker.stop(),
+    imapReceiver.stop(),
+    backupWorker.stop(),
+  ]);
   const forceTimer = setTimeout(async () => {
     app.log.error("Forced shutdown after 10s timeout");
     await databaseRuntime.close();

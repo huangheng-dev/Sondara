@@ -146,7 +146,7 @@ export function RadarPage() {
   const researchCandidates=candidateRecords.filter(candidate=>candidate.status==='candidate'||candidate.status==='review').slice(0,3)
   const savedCount=candidateRecords.filter(candidate=>candidate.status==='saved').length
 
-  return <div className="page-content radar-page">
+  return <div>
     <PageHeader title="AI 获客" description="从多渠道持续发现、研究和筛选值得跟进的目标企业。" actions={<>
       <Button onClick={()=>setArchiveView(value=>!value)}><Layers3 size={16}/>{archiveView?'返回候选':'已归档'}</Button>
       <Button onClick={()=>activeTask?setTaskDetail(true):showToast('暂无雷达任务，请先创建任务。')}><Activity size={16}/>任务详情</Button>
@@ -154,24 +154,24 @@ export function RadarPage() {
       <Button variant="primary" onClick={() => setDialog('task')}><Plus size={16} />创建雷达任务</Button>
     </>} />
 
-    <div className="radar-workspace" id="radar-candidates">
-      <Panel className="customer-workspace radar-customer-workspace">
-        <div className="customer-toolbar radar-toolbar module-toolbar standard-list-toolbar">
-          <div className="customer-filter-controls radar-filter-controls">
-            <SearchInput className="customer-search radar-search module-search" ariaLabel="搜索候选客户" value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索企业、行业或信号"/>
-            <CustomSelect className="radar-mode-select" ariaLabel="筛选获客渠道" value={mode} onChange={value=>setMode(value as Mode)} options={modes.map(({label,icon:Icon})=>({value:label,label,icon:<Icon/>}))}/>
+    <div id="radar-candidates">
+      <Panel>
+        <div>
+          <div>
+            <SearchInput ariaLabel="搜索候选客户" value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索企业、行业或信号"/>
+            <CustomSelect ariaLabel="筛选获客渠道" value={mode} onChange={value=>setMode(value as Mode)} options={modes.map(({label,icon:Icon})=>({value:label,label,icon:<Icon/>}))}/>
             <CustomSelect ariaLabel="筛选候选状态" value={filter} onChange={value=>setFilter(value as Filter)} options={[{value:'全部',label:'全部候选',icon:<ListFilter/>},{value:'高匹配',label:'高匹配',icon:<Target/>},{value:'强信号',label:'强信号',icon:<Zap/>}]}/>
-            <CustomSelect className="sort-select" ariaLabel="候选排序" value={sort} onChange={value=>setSort(value as CandidateSort)} options={[
+            <CustomSelect ariaLabel="候选排序" value={sort} onChange={value=>setSort(value as CandidateSort)} options={[
               {value:'匹配分最高',label:'匹配分最高',icon:<Gauge/>},{value:'匹配分最低',label:'匹配分最低',icon:<Gauge/>},
               {value:'企业名称 A–Z',label:'企业名称 A–Z',icon:<ArrowDown/>},{value:'企业名称 Z–A',label:'企业名称 Z–A',icon:<ArrowUp/>},
               {value:'证据置信度最高',label:'证据置信度最高',icon:<CheckCircle2/>},{value:'证据置信度最低',label:'证据置信度最低',icon:<CheckCircle2/>},
               {value:'预计价值最高',label:'预计价值最高',icon:<HandCoins/>},{value:'预计价值最低',label:'预计价值最低',icon:<HandCoins/>},
               {value:'最近发现',label:'最近发现',icon:<CalendarDays/>},{value:'最早发现',label:'最早发现',icon:<CalendarDays/>},
             ]}/>
-            <Button className="customer-refresh" disabled={candidateQuery.isFetching||radarTaskQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),radarTaskQuery.refetch()]);showToast('候选客户列表已刷新')}}><RefreshCw className={candidateQuery.isFetching||radarTaskQuery.isFetching?'is-spinning':undefined}/>刷新</Button>
-            <Button className="customer-clear module-clear" disabled={!query&&filter==='全部'&&mode==='智能多渠道'&&sort==='匹配分最高'} onClick={()=>{setQuery('');setFilter('全部');setMode('智能多渠道');setSort('匹配分最高')}}>清除筛选</Button>
+            <Button disabled={candidateQuery.isFetching||radarTaskQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),radarTaskQuery.refetch()]);showToast('候选客户列表已刷新')}}><RefreshCw className="is-spinning"/>刷新</Button>
+            <Button disabled={!query&&filter==='全部'&&mode==='智能多渠道'&&sort==='匹配分最高'} onClick={()=>{setQuery('');setFilter('全部');setMode('智能多渠道');setSort('匹配分最高')}}>清除筛选</Button>
           </div>
-          <div className={`customer-selection-tools${checkedCandidates.size>0?' has-selection':' is-empty'}`} aria-hidden={checkedCandidates.size===0}><span><CheckCircle2/><small>已选择</small><strong>{checkedCandidates.size}</strong><small>家</small></span><div><Button disabled={archiveView} onClick={saveChecked}><Bookmark/>保存客户</Button><Button disabled={archiveView} onClick={()=>setBatchTaskOpen(true)}><CheckCircle2/>创建任务</Button><Button onClick={()=>archiveCandidates([...checkedCandidates],!archiveView)}><Layers3/>{archiveView?'恢复所选':'归档所选'}</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setCheckedCandidates(new Set())}><X/></Button></div></div>
+          <div aria-hidden={checkedCandidates.size===0}><span><CheckCircle2/><small>已选择</small><strong>{checkedCandidates.size}</strong><small>家</small></span><div><Button disabled={archiveView} onClick={saveChecked}><Bookmark/>保存客户</Button><Button disabled={archiveView} onClick={()=>setBatchTaskOpen(true)}><CheckCircle2/>创建任务</Button><Button onClick={()=>archiveCandidates([...checkedCandidates],!archiveView)}><Layers3/>{archiveView?'恢复所选':'归档所选'}</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setCheckedCandidates(new Set())}><X/></Button></div></div>
         </div>
         <CandidateList candidates={candidatePaging.pageItems} saved={saved} selected={checkedCandidates} sort={sort} onSortChange={setSort} onSelectionChange={setCheckedCandidates} onOpen={setSelected} onSave={archiveView?async()=>showToast('请先恢复候选，再保存至客户库。'):save} />
         {filtered.length>0&&<Pagination page={candidatePaging.page} pageSize={candidatePaging.pageSize} total={filtered.length} onPageChange={candidatePaging.setPage} onPageSizeChange={candidatePaging.setPageSize} itemName="家候选"/>}
@@ -184,17 +184,17 @@ export function RadarPage() {
     <CreateDialog open={batchTaskOpen} title={`为 ${checkedCandidates.size} 家候选创建任务`} description="候选会先保存至客户库，再生成统一的跟进任务。" submitLabel="创建任务" successMessage="候选已保存并创建跟进任务" onClose={()=>setBatchTaskOpen(false)} onSubmit={createCheckedTask} fields={[{name:'title',label:'任务名称',required:true,placeholder:'例如：复核联系人并完成首次触达'},{name:'due',label:'截止时间',required:true},{name:'priority',label:'优先级',type:'select',required:true,options:['高','中','低']},{name:'note',label:'执行说明',type:'textarea'}]}/>
     <Modal open={taskDetail&&Boolean(activeTask)} width={780} title={activeTask?.name??'雷达任务'} description="雷达任务详情与当前执行状态" onClose={()=>setTaskDetail(false)} footer={<>{activeTask&&['queued','running'].includes(activeTask.status)&&<Button onClick={()=>changeTaskStatus('pause')}>暂停任务</Button>}{activeTask?.status==='paused'&&<Button onClick={()=>changeTaskStatus('resume')}>继续任务</Button>}{activeTask?.status==='failed'&&<Button onClick={()=>changeTaskStatus('retry')}>失败重试</Button>}{activeTask&&['queued','running','paused','failed'].includes(activeTask.status)&&<Button variant="danger" onClick={()=>changeTaskStatus('cancel')}>取消任务</Button>}<Button onClick={()=>setTaskDetail(false)}>关闭</Button><Button variant="primary" onClick={()=>{setTaskDetail(false);setDialog('task')}}>复制为新任务</Button></>}>
       {activeTask&&
-      <div className="radar-task-dialog">
-        <section className="radar-task-stats"><article><i><Activity/></i><span><small>任务进度</small><strong>{activeTask.progress}%</strong><em>{activeTask.currentStage}</em></span></article><article><i><Target/></i><span><small>高匹配候选</small><strong>{activeTask.highMatchCount}</strong><em>匹配分 90 以上</em></span></article><article><i><ListTree/></i><span><small>队列重试</small><strong>{latestQueue?.attempts??0}/{latestQueue?.maxAttempts??3}</strong><em>{latestQueue?statusLabels[latestQueue.status]:'暂无队列记录'}</em></span></article></section>
+      <div>
+        <section><article><i><Activity/></i><span><small>任务进度</small><strong>{activeTask.progress}%</strong><em>{activeTask.currentStage}</em></span></article><article><i><Target/></i><span><small>高匹配候选</small><strong>{activeTask.highMatchCount}</strong><em>匹配分 90 以上</em></span></article><article><i><ListTree/></i><span><small>队列重试</small><strong>{latestQueue?.attempts??0}/{latestQueue?.maxAttempts??3}</strong><em>{latestQueue?statusLabels[latestQueue.status]:'暂无队列记录'}</em></span></article></section>
         <dl><div><dt>客户定位</dt><dd>{activeTask.icp}</dd></div><div><dt>发现方式</dt><dd>{activeTask.mode}</dd></div><div><dt>研究深度</dt><dd>{activeTask.depth}</dd></div><div><dt>候选上限</dt><dd>{activeTask.candidateLimit} 家</dd></div><div><dt>目标地区</dt><dd>{activeTask.targetRegion}</dd></div><div><dt>运行状态</dt><dd>{statusLabels[activeTask.status]}</dd></div></dl>
-        <div className="radar-task-stage"><CheckCircle2 size={16}/><span><h3>当前阶段 · {activeTask.currentStage}</h3><p>{activeTask.lastError??'任务状态由服务端队列维护；数据源接入后会写入候选、证据和研究进度。'}</p></span></div>
-        <div className="radar-task-runtime">
-          <section><header><span><h3>处理流水线</h3><p>从发现、研究到保存至客户库</p></span><Badge tone={activeTask.status==='failed'?'orange':activeTask.status==='completed'?'green':'blue'}>{statusLabels[activeTask.status]}</Badge></header><div className="radar-pipeline">{[
+        <div><CheckCircle2 size={16}/><span><h3>当前阶段 · {activeTask.currentStage}</h3><p>{activeTask.lastError??'任务状态由服务端队列维护；数据源接入后会写入候选、证据和研究进度。'}</p></span></div>
+        <div>
+          <section><header><span><h3>处理流水线</h3><p>从发现、研究到保存至客户库</p></span><Badge tone={activeTask.status==='failed'?'orange':activeTask.status==='completed'?'green':'blue'}>{statusLabels[activeTask.status]}</Badge></header><div>{[
             ['发现与采集',String(activeTask.candidatesFound),'已发现',activeTask.progress],['高匹配筛选',String(activeTask.highMatchCount),'90 分以上',activeTask.candidatesFound?Math.round(activeTask.highMatchCount/activeTask.candidatesFound*100):0],['AI 企业研究',String(researchCandidates.length),'待研究',researchCandidates.length?Math.round(researchCandidates.reduce((sum,item)=>sum+item.confidence,0)/researchCandidates.length):0],['人工复核',String(candidateRecords.filter(item=>item.status==='review').length),'等待确认',candidateRecords.length?Math.round(candidateRecords.filter(item=>item.status==='review').length/candidateRecords.length*100):0],['保存至客户库',String(savedCount),'已保存',candidateRecords.length?Math.round(savedCount/candidateRecords.length*100):0],
           ].map((item,index)=><div key={item[0]}><i>{index+1}</i><span><strong>{item[0]}</strong><small>{item[2]}</small></span><b>{item[1]}</b><em><u style={{width:`${item[3]}%`}}/></em></div>)}</div></section>
-          <section><header><span><h3>研究队列</h3><p>等待核验证据与联系人</p></span><Button className="radar-refresh" aria-label="刷新研究队列" disabled={candidateQuery.isFetching||queueQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),queueQuery.refetch()]);showToast('研究队列已刷新')}}><RefreshCw size={14} className={candidateQuery.isFetching||queueQuery.isFetching?'is-spinning':undefined}/></Button></header><div className="radar-research-list">{researchCandidates.length?researchCandidates.map(item=><div key={item.id}><span><i><Activity size={15}/></i><strong>{item.company}</strong><small>{item.evidence.length} 条证据待核验</small></span><b>{item.confidence}%</b><em><u style={{width:`${item.confidence}%`}}/></em></div>):<EmptyState className="list-empty-state compact" title="暂无研究队列" icon={Activity} />}</div></section>
+          <section><header><span><h3>研究队列</h3><p>等待核验证据与联系人</p></span><Button aria-label="刷新研究队列" disabled={candidateQuery.isFetching||queueQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),queueQuery.refetch()]);showToast('研究队列已刷新')}}><RefreshCw size={14} className="is-spinning"/></Button></header><div>{researchCandidates.length?researchCandidates.map(item=><div key={item.id}><span><i><Activity size={15}/></i><strong>{item.company}</strong><small>{item.evidence.length} 条证据待核验</small></span><b>{item.confidence}%</b><em><u style={{width:`${item.confidence}%`}}/></em></div>):<EmptyState title="暂无研究队列" icon={Activity} />}</div></section>
         </div>
-        <section className="radar-task-events"><header><span><h3>执行记录</h3><p>连接器、重试和完成状态均由服务端记录</p></span></header><div>{taskEventQuery.data?.items.length?taskEventQuery.data.items.slice(0,8).map(event=><article key={event.id} className={event.level==='error'?'is-error':''}><i/><span><strong>{event.message}</strong><small>{new Date(event.createdAt).toLocaleString('zh-CN')}</small></span></article>):<EmptyState className="list-empty-state compact" title="暂无执行记录" icon={Activity} />}</div></section>
+        <section><header><span><h3>执行记录</h3><p>连接器、重试和完成状态均由服务端记录</p></span></header><div>{taskEventQuery.data?.items.length?taskEventQuery.data.items.slice(0,8).map(event=><article key={event.id}><i/><span><strong>{event.message}</strong><small>{new Date(event.createdAt).toLocaleString('zh-CN')}</small></span></article>):<EmptyState title="暂无执行记录" icon={Activity} />}</div></section>
       </div>}
     </Modal>
   </div>

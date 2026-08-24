@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
     "db:seed:dev": "tsx server/db/seed-dev.ts",
+    "db:seed:formal-customers": "tsx server/db/seed-formal-demo-customers.ts",
     "setup": "node scripts/setup.mjs",
     "test:auth-2fa": "tsx server/tests/auth-2fa.integration.ts",
     "test:ai-client": "tsx server/tests/ai-client.integration.ts",
@@ -41,13 +42,15 @@
     "qa:public-repo": "node scripts/check-public-repo.mjs",
     "qa:e2e": "npm run build && node scripts/run-e2e.mjs",
     "qa:smoke": "npm run build && npm run smoke:production",
-    "qa:all": "npm run qa:public-repo && npm run qa:ui-framework && npm run typecheck && npm run build && npm run qa:bundle-budget && node scripts/run-e2e.mjs && npm run smoke:production && npm run test:all",
+    "qa:all": "npm run qa:public-repo && npm run qa:ui-framework && npm run test:unit && npm run typecheck && npm run build && npm run qa:bundle-budget && node scripts/run-e2e.mjs && npm run smoke:production && npm run test:all",
     "test:all": "node scripts/run-integration-tests.mjs",
     "test:customer-governance": "tsx server/tests/customer-governance.integration.ts",
     "test:approvals": "tsx server/tests/approvals.integration.ts",
     "test:team-invitations": "tsx server/tests/team-invitations.integration.ts",
     "test:lead-sources": "tsx server/tests/lead-sources.integration.ts",
-    "test:backup-worker": "tsx server/tests/backup-worker.integration.ts"
+    "test:backup-worker": "tsx server/tests/backup-worker.integration.ts",
+    "test:unit": "tsx --test src/lib/customer-stages.test.ts",
+    "test:worker-locks": "tsx server/tests/worker-locks.integration.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

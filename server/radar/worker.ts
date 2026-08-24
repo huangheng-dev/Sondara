@@ -1,5 +1,8 @@
 import { and, asc, eq, lte, sql } from 'drizzle-orm'
 import { db } from '../db/client.js'
+import { config } from '../config.js'
+import { acquireLeaderLease, LEADER_KEYS, type LeaderLease } from '../lib/leader-lock.js'
+import { logger } from '../logger.js'
 import { candidateEvidence, radarCandidates, radarJobEvents, radarQueueItems, radarTasks } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { hasAiConfiguration } from '../ai/client.js'
@@ -189,9 +192,65 @@ export const createRadarWorker = (intervalMs: number) => {
     }
   }
 
+  let electionTimer: NodeJS.Timeout | undefined;
+  let lease: LeaderLease | null = null;
+
+  const scheduleElection = () => {
+    if (electionTimer) return;
+    electionTimer = setTimeout(() => {
+      electionTimer = undefined;
+      void elect();
+    }, config.workerLeaderElectionIntervalMs);
+    electionTimer.unref?.();
+  };
+
+  const activate = async () => {
+    if (timer) return;
+    const now = Date.now();
+    await db.update(radarQueueItems).set({ status: 'queued', lastError: '服务重启后恢复执行', scheduledAt: now, updatedAt: now }).where(eq(radarQueueItems.status, 'running'));
+    await db.update(radarTasks).set({ status: 'queued', currentStage: '服务重启后恢复队列', updatedAt: now }).where(eq(radarTasks.status, 'running'));
+    void processNext();
+    timer = setInterval(() => { void processNext() }, intervalMs);
+    logger.info({ intervalMs }, 'Radar worker elected as leader');
+  };
+
+  const elect = async () => {
+    if (timer || electionTimer) return;
+    if (!config.workerLeaderLock) {
+      await activate();
+      return;
+    }
+    try {
+      lease = await acquireLeaderLease(LEADER_KEYS.radar, () => {
+        logger.warn('Radar worker leader lock lost; standing down');
+        if (timer) clearInterval(timer);
+        timer = undefined;
+        void lease?.release();
+        lease = null;
+        scheduleElection();
+      });
+      if (lease) await activate();
+      else {
+        logger.info('Radar worker is standby; another instance owns the leader lock');
+        scheduleElection();
+      }
+    } catch (error) {
+      logger.warn({ err: error }, 'Radar worker leader election failed; retrying');
+      scheduleElection();
+    }
+  };
+
   return {
     processNext,
-    start: async () => { if (!timer) { const now=Date.now();await db.update(radarQueueItems).set({status:'queued',lastError:'服务重启后恢复执行',scheduledAt:now,updatedAt:now}).where(eq(radarQueueItems.status,'running'));await db.update(radarTasks).set({status:'queued',currentStage:'服务重启后恢复队列',updatedAt:now}).where(eq(radarTasks.status,'running'));void processNext(); timer = setInterval(() => { void processNext() }, intervalMs) } },
-    stop: () => { if (timer) clearInterval(timer); timer = undefined },
+    start: elect,
+    stop: async () => {
+      if (electionTimer) clearTimeout(electionTimer);
+      electionTimer = undefined;
+      if (timer) clearInterval(timer);
+      timer = undefined;
+      const current = lease;
+      lease = null;
+      await current?.release();
+    },
   }
 }

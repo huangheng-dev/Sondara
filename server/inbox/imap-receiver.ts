@@ -18,6 +18,7 @@ import { stopCampaignAudienceForCustomer } from "../campaigns/audience-lifecycle
 import { decryptSecret } from "../lib/secret-vault.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
+import { acquireLeaderLease, LEADER_KEYS, type LeaderLease } from "../lib/leader-lock.js";
 
 type ImapAccount = {
   connectionId: string;
@@ -491,18 +492,63 @@ export const createImapReceiver = (intervalMs = 60_000) => {
     }
   };
 
+  let electionTimer: NodeJS.Timeout | null = null;
+  let lease: LeaderLease | null = null;
+
+  const scheduleElection = () => {
+    if (electionTimer) return;
+    electionTimer = setTimeout(() => {
+      electionTimer = null;
+      void elect();
+    }, config.workerLeaderElectionIntervalMs);
+    electionTimer.unref?.();
+  };
+
+  const activate = () => {
+    if (timer) return;
+    if (!config.imapEnabled) return;
+    void tick();
+    timer = setInterval(() => void tick(), intervalMs);
+    timer.unref();
+    logger.info({ intervalMs }, "IMAP receiver elected as leader");
+  };
+
+  const elect = async () => {
+    if (timer || electionTimer) return;
+    if (!config.workerLeaderLock) {
+      activate();
+      return;
+    }
+    try {
+      lease = await acquireLeaderLease(LEADER_KEYS.imap, () => {
+        logger.warn("IMAP receiver leader lock lost; standing down");
+        if (timer) clearInterval(timer);
+        timer = null;
+        void lease?.release();
+        lease = null;
+        scheduleElection();
+      });
+      if (lease) activate();
+      else {
+        logger.info("IMAP receiver is standby; another instance owns the leader lock");
+        scheduleElection();
+      }
+    } catch (error) {
+      logger.warn({ err: error }, "IMAP receiver leader election failed; retrying");
+      scheduleElection();
+    }
+  };
+
   return {
-    start() {
-      if (timer) return;
-      if (!config.imapEnabled) return;
-      void tick();
-      timer = setInterval(() => void tick(), intervalMs);
-      timer.unref();
-      logger.info({ intervalMs }, "IMAP receiver started");
-    },
-    stop() {
+    start: elect,
+    async stop() {
+      if (electionTimer) clearTimeout(electionTimer);
+      electionTimer = null;
       if (timer) clearInterval(timer);
       timer = null;
+      const current = lease;
+      lease = null;
+      await current?.release();
     },
     async pollNow() {
       return tick();

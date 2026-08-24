@@ -2,6 +2,8 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { config } from '../config.js'
+import { acquireLeaderLease, LEADER_KEYS, type LeaderLease } from '../lib/leader-lock.js'
+import { logger } from '../logger.js'
 
 export type BackupRecord = { fileName: string; createdAt: number; size: number; verifiedAt: number | null }
 
@@ -57,7 +59,51 @@ export const createBackupWorker = () => {
   const runOnce = async () => {
     if (running) return
     running = true
-    try { await createDatabaseBackup() } catch (error) { console.error('Automatic PostgreSQL backup failed', error) } finally { running = false }
+    try { await createDatabaseBackup() } catch (error) { logger.error({ err: error }, 'Automatic PostgreSQL backup failed') } finally { running = false }
   }
-  return { start: () => { void runOnce(); timer = setInterval(() => void runOnce(), config.backupIntervalMs); timer.unref() }, stop: () => { if (timer) clearInterval(timer) } }
+  let electionTimer: NodeJS.Timeout | undefined
+  let lease: LeaderLease | null = null
+  const scheduleElection = () => {
+    if (electionTimer) return
+    electionTimer = setTimeout(() => { electionTimer = undefined; void elect() }, config.workerLeaderElectionIntervalMs)
+    electionTimer.unref?.()
+  }
+  const activate = () => {
+    if (timer) return
+    void runOnce()
+    timer = setInterval(() => void runOnce(), config.backupIntervalMs)
+    timer.unref()
+    logger.info({ intervalMs: config.backupIntervalMs }, 'Backup worker elected as leader')
+  }
+  const elect = async () => {
+    if (timer || electionTimer) return
+    if (!config.workerLeaderLock) { activate(); return }
+    try {
+      lease = await acquireLeaderLease(LEADER_KEYS.backup, () => {
+        logger.warn('Backup worker leader lock lost; standing down')
+        if (timer) clearInterval(timer)
+        timer = undefined
+        void lease?.release()
+        lease = null
+        scheduleElection()
+      })
+      if (lease) activate()
+      else { logger.info('Backup worker is standby; another instance owns the leader lock'); scheduleElection() }
+    } catch (error) {
+      logger.warn({ err: error }, 'Backup worker leader election failed; retrying')
+      scheduleElection()
+    }
+  }
+  return {
+    start: elect,
+    stop: async () => {
+      if (electionTimer) clearTimeout(electionTimer)
+      electionTimer = undefined
+      if (timer) clearInterval(timer)
+      timer = undefined
+      const current = lease
+      lease = null
+      await current?.release()
+    },
+  }
 }

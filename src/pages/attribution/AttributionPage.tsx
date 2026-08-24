@@ -80,9 +80,9 @@ export function AttributionPage(){
 
   useEffect(()=>setSelected(new Set()),[period])
   const clearFilters=()=>{setQuery('');setBottleneck('全部瓶颈');setResultFilter('全部结果');setSort('转化率最高')}
-  const sortIcon=(active:boolean,descending:boolean)=><span className="customer-sort-icon" aria-hidden="true">{active?(descending?<ArrowDown/>:<ArrowUp/>):<ArrowUpDown/>}</span>
+  const sortIcon=(active:boolean,descending:boolean)=><span aria-hidden="true">{active?(descending?<ArrowDown/>:<ArrowUp/>):<ArrowUpDown/>}</span>
   const openChannel=(row:AttributionChannel)=>{setSelectedChannel(row);setDialog('channel')}
-  const periodTabs=<Segmented className="conversion-period-tabs" aria-label="选择统计周期" value={period} options={['本月','本季度','本年度']} onChange={value=>setPeriod(value as Period)}/>
+  const periodTabs=<Segmented aria-label="选择统计周期" value={period} options={['本月','本季度','本年度']} onChange={value=>setPeriod(value as Period)}/>
 
   const isLoading=overviewQuery.isLoading
   const isError=overviewQuery.isError
@@ -90,45 +90,44 @@ export function AttributionPage(){
   const avgQuality=qualityItems?Math.round(qualityItems.reduce((s,i)=>s+i.pct,0)/qualityItems.length):null
   const selectedChannels=allRows.filter(row=>selected.has(row.name))
 
-  return <div className="page-content conversion-page conversion-page-rebuilt">
-    <PageHeader title="转化分析" description="定位客户从发现到成交的流失环节，并比较不同获客渠道的真实转化能力。" actions={<div className="conversion-header-actions">{periodTabs}<Button onClick={()=>overviewQuery.refetch()} disabled={isLoading}><RefreshCw size={16} className={isLoading?'is-spinning':undefined}/>刷新</Button><Button onClick={()=>{exportRows(rows);showToast(`已导出 ${rows.length} 个渠道的转化数据`)}}><Download size={16}/>导出分析</Button></div>}/>
+  return <div>
+    <PageHeader title="转化分析" description="定位客户从发现到成交的流失环节，并比较不同获客渠道的真实转化能力。" actions={<div>{periodTabs}<Button onClick={()=>overviewQuery.refetch()} disabled={isLoading}><RefreshCw size={16} className="is-spinning"/>刷新</Button><Button onClick={()=>{exportRows(rows);showToast(`已导出 ${rows.length} 个渠道的转化数据`)}}><Download size={16}/>导出分析</Button></div>}/>
 
     {isError ? (
       <Panel title="整体转化链路"><div><EmptyState title="数据加载失败" description="无法获取转化数据，请检查网络连接后重试。"/><div style={{textAlign:'center',marginTop:'1rem'}}><Button variant="primary" onClick={()=>overviewQuery.refetch()}>重新加载</Button></div></div></Panel>
     ) : (
-    <Panel className="conversion-flow-panel conversion-overview-panel" title="整体转化链路" subtitle={`${period}客户从发现到成交的完整路径`} action={<Button className="conversion-quality-compact" onClick={()=>setDialog('quality')}><Database/><span>数据完整度</span><strong>{avgQuality!==null?`${avgQuality}%`:'—'}</strong><ArrowUpRight/></Button>}>
-      <div className="conversion-flow" aria-label={`${period}客户转化链路`}>
+    <Panel title="整体转化链路" subtitle={`${period}客户从发现到成交的完整路径`} action={<Button onClick={()=>setDialog('quality')}><Database/><span>数据完整度</span><strong>{avgQuality!==null?`${avgQuality}%`:'—'}</strong><ArrowUpRight/></Button>}>
+      <div aria-label={`${period}客户转化链路`}>
         {isLoading ? (
-          <EmptyState className="compact" spinning title="正在加载转化数据…" icon={RefreshCw}/>
-        ) : stages.map((stage,index)=>{const Icon=stage.icon;const rate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const loss=stage.next===null?null:stage.value-stage.next;return <Fragment key={stage.key}><article className={index===stages.length-1?'complete':''}><header><i><Icon/></i><span><small>阶段 {index+1}</small><strong>{stage.label}</strong></span></header><b>{stage.value.toLocaleString()}</b>{stage.next===null?<footer><Badge tone="green">总转化率 {rate}%</Badge></footer>:<footer><span><strong>{rate}%</strong><small>进入下一阶段</small></span><em>流失 {loss?.toLocaleString()}</em></footer>}</article>{index<stages.length-1&&<i className="conversion-stage-arrow" aria-hidden="true"><ArrowRight/></i>}</Fragment>})}
+          <EmptyState spinning title="正在加载转化数据…" icon={RefreshCw}/>
+        ) : stages.map((stage,index)=>{const Icon=stage.icon;const rate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const loss=stage.next===null?null:stage.value-stage.next;return <Fragment key={stage.key}><article><header><i><Icon/></i><span><small>阶段 {index+1}</small><strong>{stage.label}</strong></span></header><b>{stage.value.toLocaleString()}</b>{stage.next===null?<footer><Badge tone="green">总转化率 {rate}%</Badge></footer>:<footer><span><strong>{rate}%</strong><small>进入下一阶段</small></span><em>流失 {loss?.toLocaleString()}</em></footer>}</article>{index<stages.length-1&&<i aria-hidden="true"><ArrowRight/></i>}</Fragment>})}
       </div>
     </Panel>
     )}
 
-    <Panel className="attribution-channel-table-panel standard-list-panel">
-      <div className="standard-list-heading"><span><h2>渠道转化表现</h2><p>逐项比较渠道规模、触达、商机与成交结果</p></span></div>
-      <div className="customer-toolbar module-toolbar standard-list-toolbar attribution-channel-toolbar">
-        <div className="customer-filter-controls attribution-filter-controls">
-          <SearchInput className="customer-search module-search" ariaLabel="搜索渠道" value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索渠道名称"/>
+    <Panel>
+      <div><span><h2>渠道转化表现</h2><p>逐项比较渠道规模、触达、商机与成交结果</p></span></div>
+      <div>
+        <div>
+          <SearchInput ariaLabel="搜索渠道" value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索渠道名称"/>
           <CustomSelect ariaLabel="筛选主要瓶颈" value={bottleneck} onChange={value=>setBottleneck(value as Bottleneck)} options={(['全部瓶颈','获客质量','有效触达','客户回复','商机创建','成交推进'] as Bottleneck[]).map(label=>({value:label,label,icon:label==='获客质量'?<Target/>:label==='有效触达'?<Send/>:label==='客户回复'?<MessageCircleReply/>:label==='商机创建'?<Building2/>:label==='成交推进'?<Trophy/>:<CircleAlert/>}))}/>
           <CustomSelect ariaLabel="筛选成交结果" value={resultFilter} onChange={value=>setResultFilter(value as ResultFilter)} options={(['全部结果','已有成交','暂无成交'] as ResultFilter[]).map(label=>({value:label,label,icon:label==='暂无成交'?<CircleAlert/>:label==='已有成交'?<Trophy/>:<CheckCircle2/>}))}/>
-          <CustomSelect className="sort-select" ariaLabel="渠道排序" value={sort} onChange={value=>setSort(value as ChannelSort)} options={(['转化率最高','转化率最低','发现客户最多','回复最多','成交客户最多','渠道名称 A–Z'] as ChannelSort[]).map(label=>({value:label,label,icon:<ArrowUpDown/>}))}/>
-          <Button className="customer-refresh" disabled={overviewQuery.isFetching} onClick={()=>overviewQuery.refetch()}><RefreshCw size={14} className={overviewQuery.isFetching?'is-spinning':undefined}/>刷新</Button>
-          <Button className="customer-clear module-clear" disabled={!query&&bottleneck==='全部瓶颈'&&resultFilter==='全部结果'&&sort==='转化率最高'} onClick={clearFilters}>清除筛选</Button>
+          <CustomSelect ariaLabel="渠道排序" value={sort} onChange={value=>setSort(value as ChannelSort)} options={(['转化率最高','转化率最低','发现客户最多','回复最多','成交客户最多','渠道名称 A–Z'] as ChannelSort[]).map(label=>({value:label,label,icon:<ArrowUpDown/>}))}/>
+          <Button disabled={overviewQuery.isFetching} onClick={()=>overviewQuery.refetch()}><RefreshCw size={14} className="is-spinning"/>刷新</Button>
+          <Button disabled={!query&&bottleneck==='全部瓶颈'&&resultFilter==='全部结果'&&sort==='转化率最高'} onClick={clearFilters}>清除筛选</Button>
         </div>
-        <div className={`customer-selection-tools${selected.size>0?' has-selection':' is-empty'}`}><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>个</small></span>{selected.size>0&&<div><Button onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div>}</div>
+        <div><span><CheckCircle2/><small>已选择</small><strong>{selected.size}</strong><small>个</small></span>{selected.size>0&&<div><Button onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></div>}</div>
       </div>
       {isLoading ? (
-        <EmptyState className="compact" spinning title="正在加载渠道数据…" icon={RefreshCw}/>
+        <EmptyState spinning title="正在加载渠道数据…" icon={RefreshCw}/>
       ) : rows.length?<><DataTable
-        className="customer-table customer-table-pro standard-data-table attribution-channel-table"
         columns={[
-          {key:'select',title:<span className="customer-check"><Checkbox aria-label="选择本页全部渠道" checked={pagedRows.length>0&&pagedRows.every(row=>selected.has(row.name))} onChange={event=>setSelected(current=>{const next=new Set(current);pagedRows.forEach(row=>event.target.checked?next.add(row.name):next.delete(row.name));return next})}/></span>,width:52},
-          {key:'channel',title:<Button className="customer-sort-head" onClick={()=>setSort('渠道名称 A–Z')}>渠道{sortIcon(sort==='渠道名称 A–Z',false)}</Button>},
-          {key:'scale',title:<Button className="customer-sort-head" onClick={()=>setSort('发现客户最多')}>获客规模{sortIcon(sort==='发现客户最多',true)}</Button>},
-          {key:'reach',title:<Button className="customer-sort-head" onClick={()=>setSort('回复最多')}>触达与回复{sortIcon(sort==='回复最多',true)}</Button>},
-          {key:'deals',title:<Button className="customer-sort-head" onClick={()=>setSort('成交客户最多')}>商机与成交{sortIcon(sort==='成交客户最多',true)}</Button>},
-          {key:'rate',title:<Button className="customer-sort-head" onClick={()=>setSort(sort==='转化率最高'?'转化率最低':'转化率最高')}>总转化率{sortIcon(sort==='转化率最高'||sort==='转化率最低',sort==='转化率最高')}</Button>},
+          {key:'select',title:<span><Checkbox aria-label="选择本页全部渠道" checked={pagedRows.length>0&&pagedRows.every(row=>selected.has(row.name))} onChange={event=>setSelected(current=>{const next=new Set(current);pagedRows.forEach(row=>event.target.checked?next.add(row.name):next.delete(row.name));return next})}/></span>,width:52},
+          {key:'channel',title:<Button onClick={()=>setSort('渠道名称 A–Z')}>渠道{sortIcon(sort==='渠道名称 A–Z',false)}</Button>},
+          {key:'scale',title:<Button onClick={()=>setSort('发现客户最多')}>获客规模{sortIcon(sort==='发现客户最多',true)}</Button>},
+          {key:'reach',title:<Button onClick={()=>setSort('回复最多')}>触达与回复{sortIcon(sort==='回复最多',true)}</Button>},
+          {key:'deals',title:<Button onClick={()=>setSort('成交客户最多')}>商机与成交{sortIcon(sort==='成交客户最多',true)}</Button>},
+          {key:'rate',title:<Button onClick={()=>setSort(sort==='转化率最高'?'转化率最低':'转化率最高')}>总转化率{sortIcon(sort==='转化率最高'||sort==='转化率最低',sort==='转化率最高')}</Button>},
           {key:'bottleneck',title:'主要瓶颈与建议'},
           {key:'actions',title:'操作',width:72},
         ]}
@@ -136,22 +135,22 @@ export function AttributionPage(){
           key:row.name,
           className:selected.has(row.name)?'selected':'',
           cells:[
-            <span className="customer-check"><Checkbox aria-label={`选择 ${row.name}`} checked={selected.has(row.name)} onChange={event=>setSelected(current=>{const next=new Set(current);event.target.checked?next.add(row.name):next.delete(row.name);return next})}/></span>,
-            <Button className="standard-entity attribution-channel-entity" onClick={()=>openChannel(row)}><i style={{background:row.color,color:'#fff',boxShadow:'none'}}>{row.name.slice(0,1)}</i><span><strong>{row.name}</strong><small>{period}渠道转化路径</small></span></Button>,
-            <div className="standard-progress"><span><strong>{row.discovered.toLocaleString()}</strong><small>有效 {row.qualified.toLocaleString()}</small></span><i><u style={{width:`${qualification}%`}}/></i><small>有效率 {qualification}%</small></div>,
-            <div className="standard-cell-stack"><strong>触达 {row.contacted.toLocaleString()}</strong><small>获得回复 {row.replies.toLocaleString()}</small></div>,
-            <div className="standard-cell-stack"><strong>商机 {row.deals.toLocaleString()}</strong><small>成交 {row.won.toLocaleString()}</small></div>,
-            <div className="attribution-rate"><strong>{row.conversionRate}%</strong><small>{row.won>0?'已有成交':'暂无成交'}</small></div>,
-            <div className="standard-next attribution-bottleneck"><Badge tone={row.bottleneck==='获客质量'?'orange':'blue'}>{row.bottleneck}</Badge><small>{row.action}</small></div>,
-            <div className="standard-row-actions"><Button aria-label={`查看 ${row.name} 转化链路`} title="查看转化链路" onClick={()=>openChannel(row)}><ArrowUpRight/></Button></div>,
+            <span><Checkbox aria-label={`选择 ${row.name}`} checked={selected.has(row.name)} onChange={event=>setSelected(current=>{const next=new Set(current);event.target.checked?next.add(row.name):next.delete(row.name);return next})}/></span>,
+            <Button onClick={()=>openChannel(row)}><i style={{background:row.color,color:'#fff',boxShadow:'none'}}>{row.name.slice(0,1)}</i><span><strong>{row.name}</strong><small>{period}渠道转化路径</small></span></Button>,
+            <div><span><strong>{row.discovered.toLocaleString()}</strong><small>有效 {row.qualified.toLocaleString()}</small></span><i><u style={{width:`${qualification}%`}}/></i><small>有效率 {qualification}%</small></div>,
+            <div><strong>触达 {row.contacted.toLocaleString()}</strong><small>获得回复 {row.replies.toLocaleString()}</small></div>,
+            <div><strong>商机 {row.deals.toLocaleString()}</strong><small>成交 {row.won.toLocaleString()}</small></div>,
+            <div><strong>{row.conversionRate}%</strong><small>{row.won>0?'已有成交':'暂无成交'}</small></div>,
+            <div><Badge tone={row.bottleneck==='获客质量'?'orange':'blue'}>{row.bottleneck}</Badge><small>{row.action}</small></div>,
+            <div><Button aria-label={`查看 ${row.name} 转化链路`} title="查看转化链路" onClick={()=>openChannel(row)}><ArrowUpRight/></Button></div>,
           ],
         }})}
-      /><Pagination page={paging.page} pageSize={paging.pageSize} total={rows.length} onPageChange={paging.setPage} onPageSizeChange={paging.setPageSize} itemName="个渠道"/></>:<EmptyState className="list-empty-state" title="暂无渠道数据" icon={Database}/>}
+      /><Pagination page={paging.page} pageSize={paging.pageSize} total={rows.length} onPageChange={paging.setPage} onPageSizeChange={paging.setPageSize} itemName="个渠道"/></>:<EmptyState title="暂无渠道数据" icon={Database}/>}
     </Panel>
 
     <Modal open={dialog==='quality'} title="转化数据质量" description="影响转化率判断的关联与来源完整度。" onClose={()=>setDialog(null)}>
-      <div className="status-detail-list">
-        {qualityQuery.isLoading ? <EmptyState className="compact" spinning title="正在计算…" icon={RefreshCw}/> :
+      <div>
+        {qualityQuery.isLoading ? <EmptyState spinning title="正在计算…" icon={RefreshCw}/> :
         (qualityItems??[]).map(item=><article key={item.label}>
           <span><strong>{item.label}</strong><small>{item.detail}</small></span>
           <Badge tone={item.pct>=80?'green':'orange'}>{item.pct}%</Badge>
@@ -159,17 +158,17 @@ export function AttributionPage(){
       </div>
     </Modal>
     <Modal open={dialog==='optimize'} title="转化优化建议" description={`${period} · 优先解决高影响流失阶段`} onClose={()=>setDialog(null)} footer={<><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" disabled={optimizeMutation.isPending||selectedChannels.length===0} onClick={()=>optimizeMutation.mutate(selectedChannels.map(c=>c.name))}>{optimizeMutation.isPending?'正在生成…':'生成优化任务'}</Button></>}>
-      <div className="conversion-recommendations">
+      <div>
         {selectedChannels.slice(0,5).map(ch=><article key={ch.name}>
           <i>{ch.bottleneck==='获客质量'?<Target/>:ch.bottleneck==='有效触达'?<Send/>:ch.bottleneck==='客户回复'?<MessageCircleReply/>:ch.bottleneck==='商机创建'?<Building2/>:<Trophy/>}</i>
           <span><strong>{ch.name} · {ch.bottleneck}</strong><small>{ch.action}</small></span>
           <Badge tone={ch.won===0?'orange':'blue'}>{ch.won===0?'高影响':`转化率 ${ch.conversionRate}%`}</Badge>
         </article>)}
-        {selectedChannels.length===0 && <EmptyState className="compact" title="请先选择至少一个渠道。" icon={CircleAlert}/>}
+        {selectedChannels.length===0 && <EmptyState title="请先选择至少一个渠道。" icon={CircleAlert}/>}
       </div>
     </Modal>
     <Modal open={dialog==='channel'} title={`${selectedChannel?.name??''} · 转化详情`} description={`${period}完整转化链路`} onClose={()=>setDialog(null)}>
-      <div className="conversion-channel-detail">
+      <div>
         <section>{stageMeta.map(({key,label,icon:Icon})=><span key={key}><i><Icon/></i><small>{label}</small><strong>{(selectedChannel?.[key as keyof AttributionChannel] as number ?? 0).toLocaleString()}</strong></span>)}</section>
         <article><CircleAlert/><span><strong>主要瓶颈：{selectedChannel?.bottleneck}</strong><small>{selectedChannel?.action}</small></span></article>
         <div><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" onClick={()=>{if(selectedChannel){optimizeMutation.mutate([selectedChannel.name]);setDialog(null)}}}><Building2/>创建优化任务</Button></div>

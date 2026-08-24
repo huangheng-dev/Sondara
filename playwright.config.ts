@@ -41,6 +41,7 @@ export default defineConfig({
       SONDARA_RADAR_WORKER_ENABLED: 'false',
       SONDARA_OUTBOX_WORKER_ENABLED: 'false',
       SONDARA_RATE_LIMIT_MAX: '3000',
+      SONDARA_SECURE_COOKIES: 'false',
       SONDARA_LOG_LEVEL: 'warn',
     },
   },

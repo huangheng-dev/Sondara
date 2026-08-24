@@ -155,7 +155,7 @@ export const GrowthKnowledge = forwardRef<
   const pagedItems = paging.pageItems;
 
   const sortIcon = (active: boolean, descending: boolean) => (
-    <span className="customer-sort-icon" aria-hidden="true">
+    <span aria-hidden="true">
       {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
     </span>
   );
@@ -274,9 +274,9 @@ export const GrowthKnowledge = forwardRef<
   };
 
   return (
-    <div className={`knowledge-page knowledge-page-inline ${modal ? "knowledge-page-modal" : ""}`}>
+    <div>
       {!modal && (
-        <section className="knowledge-inline-header">
+        <section>
           <div>
             <i><BookOpenText /></i>
             <span>
@@ -285,7 +285,7 @@ export const GrowthKnowledge = forwardRef<
             </span>
             <Badge tone="green">已接入定位分析</Badge>
           </div>
-          <div className="knowledge-inline-actions">
+          <div>
             <div ref={fileRef}>
               <Upload
                 accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.pdf,.doc,.docx,text/*"
@@ -310,11 +310,11 @@ export const GrowthKnowledge = forwardRef<
         </Upload>
       </div>}
 
-      <div className="knowledge-workspace knowledge-workspace-inline">
-        <Panel className="knowledge-library customer-workspace standard-list-panel">
-          <div className="knowledge-toolbar customer-toolbar module-toolbar standard-list-toolbar">
-            <div className="customer-filter-controls">
-              <SearchInput className="customer-search module-search" ariaLabel="搜索客户定位资料" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索产品、市场、规则或关键词" />
+      <div>
+        <Panel>
+          <div>
+            <div>
+              <SearchInput ariaLabel="搜索客户定位资料" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索产品、市场、规则或关键词" />
               <CustomSelect ariaLabel="资料类型" value={type} onChange={v => setType(v as typeof type)} options={[
                 { value: "全部类型", label: "全部类型", icon: <Layers3 /> },
                 ...knowledgeTypeOptions,
@@ -325,7 +325,7 @@ export const GrowthKnowledge = forwardRef<
                 { value: "待复核", label: "待复核" },
                 { value: "已停用", label: "已停用" },
               ]} />
-              <CustomSelect className="sort-select" ariaLabel="资料排序" value={sort} onChange={v => setSort(v as SortKey)} options={[
+              <CustomSelect ariaLabel="资料排序" value={sort} onChange={v => setSort(v as SortKey)} options={[
                 { value: "updated_desc", label: "最近更新", icon: <ArrowUpDown /> },
                 { value: "updated_asc", label: "最早更新", icon: <ArrowUpDown /> },
                 { value: "title_asc", label: "标题 A–Z", icon: <ArrowDownAZ /> },
@@ -333,22 +333,22 @@ export const GrowthKnowledge = forwardRef<
                 { value: "references_desc", label: "引用最多", icon: <ArrowUpDown /> },
                 { value: "references_asc", label: "引用最少", icon: <ArrowUpDown /> },
               ]} />
-              <Button className="customer-refresh" disabled={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
-                <RefreshCw className={listQuery.isFetching ? "is-spinning" : undefined} />刷新
+              <Button disabled={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
+                <RefreshCw className="is-spinning" />刷新
               </Button>
-              <Button className="customer-clear module-clear"
+              <Button
                 disabled={!query && type === "全部类型" && status === "全部状态" && sort === "updated_desc"}
                 onClick={() => { setQuery(""); setType("全部类型"); setStatus("全部状态"); setSort("updated_desc"); }}>
                 清除筛选
               </Button>
             </div>
-            <div className={`customer-selection-tools${selectedIds.size > 0 ? " has-selection" : " is-empty"}`} aria-hidden={selectedIds.size === 0}>
+            <div aria-hidden={selectedIds.size === 0}>
               <span><CheckCircle2 /><small>已选择</small><strong>{selectedIds.size}</strong><small>条</small></span>
               <div>
                 <Button onClick={() => bulkStatus("已启用")}>启用引用</Button>
                 <Button onClick={() => bulkStatus("已停用")}>停用引用</Button>
                 <Button onClick={exportSelected}><Download />导出所选</Button>
-                <Button className="danger" onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>
+                <Button onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>
                 <Button aria-label="取消选择" title="取消选择" onClick={() => setSelectedIds(new Set())}><X /></Button>
               </div>
             </div>
@@ -356,24 +356,23 @@ export const GrowthKnowledge = forwardRef<
           {pagedItems.length ? (
             <>
               <DataTable
-                className="customer-table customer-table-pro knowledge-table knowledge-customer-table"
                 columns={[
-                  { key: "select", title: <span className="customer-check"><Checkbox aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
-                  { key: "title", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
+                  { key: "select", title: <span><Checkbox aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
+                  { key: "title", title: <Button onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
                   { key: "type", title: "类型" }, { key: "status", title: "状态" }, { key: "source", title: "来源" },
-                  { key: "usage", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
-                  { key: "updated", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
+                  { key: "usage", title: <Button onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
+                  { key: "updated", title: <Button onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
                   { key: "actions", title: "操作", width: 72 },
                 ]}
                 rows={pagedItems.map(item => { const Icon = typeIcons[item.itemType as KnowledgeItemType] ?? Layers3; return { key: item.id, className: selectedIds.has(item.id) ? "selected" : "", cells: [
-                  <span className="customer-check"><Checkbox aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} /></span>,
-                  <Button className="standard-entity" onClick={() => setSelected(item)}><i><Icon /></i><span><strong>{item.title}</strong><small>{item.summary}</small></span></Button>,
+                  <span><Checkbox aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} /></span>,
+                  <Button onClick={() => setSelected(item)}><i><Icon /></i><span><strong>{item.title}</strong><small>{item.summary}</small></span></Button>,
                   <Badge tone="blue">{item.itemType}</Badge>,
                   <Badge tone={item.status === "已启用" ? "green" : item.status === "待复核" ? "orange" : "neutral"}>{item.status}</Badge>,
-                  <div className="standard-cell-stack"><strong>{item.source}</strong><small>{item.sourceUrl || "保留来源记录"}</small></div>,
-                  <div className="standard-value"><strong>{item.referenceCount} 次</strong><small>累计引用</small></div>,
+                  <div><strong>{item.source}</strong><small>{item.sourceUrl || "保留来源记录"}</small></div>,
+                  <div><strong>{item.referenceCount} 次</strong><small>累计引用</small></div>,
                   <span>{formatUpdated(item.updatedAt)}</span>,
-                  <div className="standard-row-actions"><Button aria-label={`查看 ${item.title}`} title="查看资料" onClick={() => setSelected(item)}><ChevronRight /></Button></div>,
+                  <div><Button aria-label={`查看 ${item.title}`} title="查看资料" onClick={() => setSelected(item)}><ChevronRight /></Button></div>,
                 ] }; })}
               />
               <Pagination
@@ -385,7 +384,7 @@ export const GrowthKnowledge = forwardRef<
           ) : listQuery.isLoading ? (
             <EmptyState spinning title="正在加载定位资料" description="从工作区读取中…" icon={RefreshCw} />
           ) : (
-            <EmptyState className="list-empty-state" title="暂无定位资料" icon={BookOpenText} />
+            <EmptyState title="暂无定位资料" icon={BookOpenText} />
           )}
         </Panel>
       </div>
@@ -424,7 +423,7 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="primary" onClick={() => setSelected(null)}>完成</Button>
           </>
         }>
-        <div className="knowledge-detail">
+        <div>
           <section>
             <Badge tone={selected?.status === "已启用" ? "green" : "orange"}>{selected?.status}</Badge>
             <span>更新于 {formatUpdated(selected?.updatedAt)}</span>
@@ -449,7 +448,7 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="danger" onClick={remove}>确认删除</Button>
           </>
         }>
-        <p className="danger-copy">历史客户研究结果会保留，但将失去这条知识的后续引用。你也可以选择停用，以便将来恢复。</p>
+        <p>历史客户研究结果会保留，但将失去这条知识的后续引用。你也可以选择停用，以便将来恢复。</p>
       </Modal>
       <Modal open={confirmBulkDelete} title="删除所选资料" description={`将删除已选择的 ${selectedIds.size} 条资料。`}
         onClose={() => setConfirmBulkDelete(false)}
@@ -459,7 +458,7 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="danger" onClick={bulkRemove}>确认删除</Button>
           </>
         }>
-        <p className="danger-copy">删除后这些资料不会再参与客户定位和 AI 获客，历史引用记录仍会保留。</p>
+        <p>删除后这些资料不会再参与客户定位和 AI 获客，历史引用记录仍会保留。</p>
       </Modal>
     </div>
   );

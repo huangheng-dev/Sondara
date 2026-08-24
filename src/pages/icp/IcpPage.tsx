@@ -176,10 +176,10 @@ export function IcpPage() {
   }
 
   if (profileQuery.isLoading) {
-    return <div className="page-content icp-page"><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState className="compact" spinning title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
+    return <div><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState spinning title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
   }
   if (profileQuery.isError || !profile) {
-    return <div className="page-content icp-page">
+    return <div>
       <Panel title="客户定位" subtitle="业务资料读取失败。">
         <Button onClick={() => profileQuery.refetch()}>重试</Button>
       </Panel>
@@ -192,16 +192,16 @@ export function IcpPage() {
     : customerProfile.map(([, v]) => v)
   ).slice(0, 5)
 
-  return <div className="page-content icp-page positioning-page">
+  return <div>
     <PageHeader title="客户定位" description="提供你的业务资料，AI 自动分析应该开发哪些市场和客户。" actions={<>
       <Button onClick={() => setBusinessDialog(true)}><FileText size={16} />编辑业务资料</Button>
       <Button onClick={() => setKnowledgeOpen(true)}><BookOpenText size={16} />定位资料</Button>
-      <Button variant="primary" disabled={analysisRunning} onClick={runAnalysis}><RefreshCw size={16} className={analysisRunning ? 'is-spinning' : ''} />{analysisRunning ? '正在分析…' : '重新分析'}</Button>
+      <Button variant="primary" disabled={analysisRunning} onClick={runAnalysis}><RefreshCw size={16} className="is-spinning" />{analysisRunning ? '正在分析…' : '重新分析'}</Button>
     </>} />
 
-    <section className="icp-business-hero" aria-label="当前业务资料">
-      <div className="icp-business-hero__head">
-        <div className="icp-business-hero__identity">
+    <section aria-label="当前业务资料">
+      <div>
+        <div>
           <i><FileText /></i>
           <span>
             <small>当前业务资料</small>
@@ -213,7 +213,7 @@ export function IcpPage() {
           {profile.analysisStatus === 'complete' ? `已分析 · ${lastAnalyzedLabel}` : profile.analysisStatus === 'running' ? '分析中…' : '尚未分析'}
         </Badge>
       </div>
-      <dl className="icp-business-hero__grid">
+      <dl>
         <div>
           <dt><i><Boxes /></i><span>产品与解决方案</span></dt>
           <dd title={profile.products}>{profile.products || '待补充'}</dd>
@@ -233,17 +233,17 @@ export function IcpPage() {
       </dl>
     </section>
 
-    <section className="positioning-result-grid" aria-label="客户定位结果">
-      <Panel className="positioning-market-ranking" title="推荐市场排行" subtitle={analysis?.recommendedMarkets?.length ? '由业务资料和启用中的知识生成' : '根据你的业务资料自动排序'} action={<Badge tone="blue">{markets.length} 个候选市场</Badge>}>
-        <div className="positioning-market-list">{markets.map((market, index) => <Button className={selectedMarket?.name === market.name ? 'active' : ''} aria-pressed={selectedMarket?.name === market.name} key={market.name} onClick={() => setSelectedMarketName(market.name)}>
+    <section aria-label="客户定位结果">
+      <Panel title="推荐市场排行" subtitle={analysis?.recommendedMarkets?.length ? '由业务资料和启用中的知识生成' : '根据你的业务资料自动排序'} action={<Badge tone="blue">{markets.length} 个候选市场</Badge>}>
+        <div>{markets.map((market, index) => <Button aria-pressed={selectedMarket?.name === market.name} key={market.name} onClick={() => setSelectedMarketName(market.name)}>
           <i>{index + 1}</i><span><strong>{market.name}</strong><small>{market.region} · {market.profile.join(' · ')}</small></span><b>{market.score}</b><ArrowRight />
         </Button>)}</div>
       </Panel>
 
-      <Panel className="positioning-profile-card" title={`${selectedMarket?.name ?? '待选择市场'} · 理想客户画像`} subtitle="系统自动归纳，无需手动设置评分参数" action={<Badge tone={selectedMarket?.status === '优先开发' ? 'green' : selectedMarket?.status === '继续验证' ? 'orange' : 'neutral'}>{selectedMarket?.status}</Badge>}>
-        <div className="positioning-profile-workspace">
-          <section className="positioning-profile-summary"><div className="positioning-profile-lead" aria-busy={analysisRunning}><i><Sparkles /></i><span><small>AI 定位结论</small><strong>{analysisRunning ? '正在重新分析业务资料…' : analysis?.summary || `优先开发${selectedMarket?.name ?? '目标市场'}相关企业`}</strong><p>{analysisRunning ? '正在结合产品、案例和市场资料生成最新结果。' : (selectedReason || `该市场与你的产品能力和既有客户特征匹配，当前机会强度为${selectedMarket?.opportunity ?? '中'}。`)}</p></span><div><small>定位置信度</small><strong>{analysisRunning ? '—' : selectedMarket?.score}</strong></div></div><div className="positioning-profile-overview"><span><small>潜在企业</small><strong>{selectedMarket?.companies ?? '—'}</strong></span><span><small>市场规模</small><strong>{selectedMarket?.tam ?? '—'}</strong></span><span><small>机会强度</small><strong>{selectedMarket?.opportunity ?? '—'}</strong></span></div><div className="positioning-profile-tags">{selectedMarket?.profile.map(tag => <Badge key={tag} tone="blue">{tag}</Badge>)}</div></section>
-          <section className="positioning-profile-criteria"><header><span><strong>客户筛选条件</strong><small>用于 AI 获客和候选客户排序</small></span><Badge>{criteriaRows.length} 项条件</Badge></header><div className="positioning-profile-compact">{criteriaRows.map(value => <article key={value}><i><CheckCircle2 /></i><span><strong>{value}</strong></span></article>)}</div></section>
+      <Panel title={`${selectedMarket?.name ?? '待选择市场'} · 理想客户画像`} subtitle="系统自动归纳，无需手动设置评分参数" action={<Badge tone={selectedMarket?.status === '优先开发' ? 'green' : selectedMarket?.status === '继续验证' ? 'orange' : 'neutral'}>{selectedMarket?.status}</Badge>}>
+        <div>
+          <section><div aria-busy={analysisRunning}><i><Sparkles /></i><span><small>AI 定位结论</small><strong>{analysisRunning ? '正在重新分析业务资料…' : analysis?.summary || `优先开发${selectedMarket?.name ?? '目标市场'}相关企业`}</strong><p>{analysisRunning ? '正在结合产品、案例和市场资料生成最新结果。' : (selectedReason || `该市场与你的产品能力和既有客户特征匹配，当前机会强度为${selectedMarket?.opportunity ?? '中'}。`)}</p></span><div><small>定位置信度</small><strong>{analysisRunning ? '—' : selectedMarket?.score}</strong></div></div><div><span><small>潜在企业</small><strong>{selectedMarket?.companies ?? '—'}</strong></span><span><small>市场规模</small><strong>{selectedMarket?.tam ?? '—'}</strong></span><span><small>机会强度</small><strong>{selectedMarket?.opportunity ?? '—'}</strong></span></div><div>{selectedMarket?.profile.map(tag => <Badge key={tag} tone="blue">{tag}</Badge>)}</div></section>
+          <section><header><span><strong>客户筛选条件</strong><small>用于 AI 获客和候选客户排序</small></span><Badge>{criteriaRows.length} 项条件</Badge></header><div>{criteriaRows.map(value => <article key={value}><i><CheckCircle2 /></i><span><strong>{value}</strong></span></article>)}</div></section>
         </div>
         <footer><Button onClick={() => setMarketDetail(selectedMarket ?? null)}>查看完整画像</Button><Button variant="primary" disabled={analysisRunning || !selectedMarket} onClick={() => selectedMarket && startRadar(selectedMarket)}>按此定位找客户<ArrowRight size={14} /></Button></footer>
       </Panel>
@@ -267,6 +267,6 @@ export function IcpPage() {
 
     <Modal open={knowledgeOpen} width={1360} title="客户定位资料" description="管理供客户定位、AI 获客和客户研究引用的产品、案例、市场与判断规则。" onClose={() => setKnowledgeOpen(false)} actions={<><Button onClick={() => knowledgeManagerRef.current?.openFile()}><Import size={16} />导入资料</Button><Button onClick={() => knowledgeManagerRef.current?.openUrl()}><Link2 size={16} />添加网页</Button><Button variant="primary" onClick={() => knowledgeManagerRef.current?.openNew()}><Plus size={16} />新增资料</Button></>}><GrowthKnowledge ref={knowledgeManagerRef} showToast={showToast} modal /></Modal>
 
-    <Modal open={Boolean(marketDetail)} title={`${marketDetail?.name ?? ''} · 理想客户画像`} description="以下结论由你的业务资料自动生成，AI 获客会据此判断匹配度。" onClose={() => setMarketDetail(null)} footer={<><Button onClick={() => setMarketDetail(null)}>关闭</Button><Button variant="primary" onClick={() => marketDetail && startRadar(marketDetail)}>按此画像找客户</Button></>}><div className="icp-profile-dialog"><section><span><small>定位置信度</small><strong>{marketDetail?.score}</strong></span><span><small>潜在企业</small><strong>{marketDetail?.companies}</strong></span><span><small>市场规模</small><strong>{marketDetail?.tam}</strong></span></section><div><h3>企业特征</h3>{marketDetail?.profile.map(x => <Badge key={x} tone="blue">{x}</Badge>)}</div><dl><div><dt>重点信号</dt><dd>{analysis?.signals?.join('、') || '扩产、新建项目、技术升级、经销网络调整'}</dd></div><div><dt>优先联系人</dt><dd>采购负责人、技术负责人、工厂负责人</dd></div><div><dt>排除条件</dt><dd>{profile.exclusions || '无官网、业务范围不匹配、近 12 个月停止经营'}</dd></div></dl></div></Modal>
+    <Modal open={Boolean(marketDetail)} title={`${marketDetail?.name ?? ''} · 理想客户画像`} description="以下结论由你的业务资料自动生成，AI 获客会据此判断匹配度。" onClose={() => setMarketDetail(null)} footer={<><Button onClick={() => setMarketDetail(null)}>关闭</Button><Button variant="primary" onClick={() => marketDetail && startRadar(marketDetail)}>按此画像找客户</Button></>}><div><section><span><small>定位置信度</small><strong>{marketDetail?.score}</strong></span><span><small>潜在企业</small><strong>{marketDetail?.companies}</strong></span><span><small>市场规模</small><strong>{marketDetail?.tam}</strong></span></section><div><h3>企业特征</h3>{marketDetail?.profile.map(x => <Badge key={x} tone="blue">{x}</Badge>)}</div><dl><div><dt>重点信号</dt><dd>{analysis?.signals?.join('、') || '扩产、新建项目、技术升级、经销网络调整'}</dd></div><div><dt>优先联系人</dt><dd>采购负责人、技术负责人、工厂负责人</dd></div><div><dt>排除条件</dt><dd>{profile.exclusions || '无官网、业务范围不匹配、近 12 个月停止经营'}</dd></div></dl></div></Modal>
   </div>
 }

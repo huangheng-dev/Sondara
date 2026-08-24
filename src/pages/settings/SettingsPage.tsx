@@ -169,7 +169,7 @@ const integrationGroups = [
 const builtInIntegrations = new Set(["联系人补全 API", "行业与招投标数据"]);
 type ConfigurableIntegration = "搜索与网页 API" | "地图 API";
 const aiSortIcon = (active: boolean, descending = false) => (
-  <span className="customer-sort-icon" aria-hidden="true">
+  <span aria-hidden="true">
     {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
   </span>
 );
@@ -267,7 +267,7 @@ function OutboundSettings() {
   const statusLabel = (status: OutboundConnectionApiRecord["status"]) =>
     status === "available" ? "可用" : status === "error" ? "异常" : "待测试";
   return (
-    <section className="outbound-settings-section">
+    <section>
       <header>
         <span>
           <strong>消息发送、收件与队列</strong>
@@ -290,7 +290,7 @@ function OutboundSettings() {
           </Button>
         </div>
       </header>
-      <div className="outbound-connection-grid">
+      <div>
         {connections.data?.items.length ? (
           connections.data.items.map((connection) => (
             <article key={connection.id}>
@@ -364,7 +364,6 @@ function OutboundSettings() {
           ))
         ) : (
           <EmptyState
-            className="list-empty-state"
             title="暂无邮件发送配置"
             icon={Mail}
           />
@@ -486,8 +485,8 @@ function OutboundSettings() {
         onClose={() => setQueueOpen(false)}
         footer={<Button onClick={() => setQueueOpen(false)}>关闭</Button>}
       >
-        <div className="outbox-modal">
-          <div className="outbox-toolbar">
+        <div>
+          <div>
             <CustomSelect
               ariaLabel="发送状态"
               value={jobStatus}
@@ -502,22 +501,21 @@ function OutboundSettings() {
               ]}
             />
             <Button size="sm" disabled={jobs.isFetching} onClick={() => jobs.refetch()}>
-              <RefreshCw size={14} className={jobs.isFetching?"is-spinning":undefined} />
+              <RefreshCw size={14} className="is-spinning" />
               刷新
             </Button>
             <span>共 {jobs.data?.total ?? 0} 个任务</span>
           </div>
           {jobs.data?.items.length ? <DataTable
-            className="customer-table customer-table-pro outbox-table"
             columns={[{key:"recipient",title:"收件人"},{key:"message",title:"主题与内容"},{key:"status",title:"状态"},{key:"attempts",title:"尝试"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]}
             rows={jobs.data.items.map(job=>({key:job.id,cells:[
-              <div className="standard-cell-stack"><strong>{job.contact.name}</strong><small>{job.contact.company} · {job.contact.email??"缺少邮箱"}</small></div>,
-              <div className="standard-cell-stack"><strong>{job.thread.subject}</strong><small>{job.message.body}</small></div>,
-              <div className="standard-cell-stack"><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<small title={job.lastError}>{job.lastError}</small>}</div>,
+              <div><strong>{job.contact.name}</strong><small>{job.contact.company} · {job.contact.email??"缺少邮箱"}</small></div>,
+              <div><strong>{job.thread.subject}</strong><small>{job.message.body}</small></div>,
+              <div><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<small title={job.lastError}>{job.lastError}</small>}</div>,
               <span>{job.attempts} / {job.maxAttempts}</span>,<span>{new Date(job.updatedAt).toLocaleString("zh-CN")}</span>,
-              <div className="standard-row-actions">{["failed","awaiting_configuration"].includes(job.status)&&<Button title="确认重试" onClick={async()=>{try{await outboxApi.retryJob(job.id);await jobs.refetch();showToast("发送任务已重新进入队列")}catch(cause){showToast(cause instanceof Error?cause.message:"任务重试失败")}}}><RefreshCw/></Button>}</div>,
+              <div>{["failed","awaiting_configuration"].includes(job.status)&&<Button title="确认重试" onClick={async()=>{try{await outboxApi.retryJob(job.id);await jobs.refetch();showToast("发送任务已重新进入队列")}catch(cause){showToast(cause instanceof Error?cause.message:"任务重试失败")}}}><RefreshCw/></Button>}</div>,
             ]}))}
-          />:<EmptyState className="list-empty-state compact" title="暂无发送任务" icon={Mail}/>}
+          />:<EmptyState title="暂无发送任务" icon={Mail}/>}
         </div>
       </Modal>
       <Modal
@@ -528,8 +526,8 @@ function OutboundSettings() {
         onClose={() => setGovernanceOpen(false)}
         footer={<Button onClick={() => setGovernanceOpen(false)}>关闭</Button>}
       >
-        <div className="outbox-modal">
-          <div className="outbox-toolbar governance-toolbar">
+        <div>
+          <div>
             <CustomSelect
               ariaLabel="治理内容"
               value={governanceView}
@@ -538,7 +536,7 @@ function OutboundSettings() {
             />
             {governanceView === "抑制名单" && (
               <>
-                <SearchInput className="customer-search module-search" ariaLabel="搜索抑制名单" value={suppressionQuery} onChange={(event) => setSuppressionQuery(event.target.value)} placeholder="搜索邮箱或原因" />
+                <SearchInput ariaLabel="搜索抑制名单" value={suppressionQuery} onChange={(event) => setSuppressionQuery(event.target.value)} placeholder="搜索邮箱或原因" />
                 <CustomSelect
                   ariaLabel="抑制状态"
                   value={suppressionStatus}
@@ -550,7 +548,7 @@ function OutboundSettings() {
                   ]}
                 />
                 <Button size="sm" disabled={suppressions.isFetching} onClick={() => suppressions.refetch()}>
-                  <RefreshCw size={14} className={suppressions.isFetching?"is-spinning":undefined} />
+                  <RefreshCw size={14} className="is-spinning" />
                   刷新
                 </Button>
                 <span>共 {suppressions.data?.total ?? 0} 条记录</span>
@@ -559,7 +557,7 @@ function OutboundSettings() {
             {governanceView === "渠道事件" && (
               <>
                 <Button size="sm" disabled={channelEvents.isFetching} onClick={() => channelEvents.refetch()}>
-                  <RefreshCw size={14} className={channelEvents.isFetching?"is-spinning":undefined} />
+                  <RefreshCw size={14} className="is-spinning" />
                   刷新
                 </Button>
                 <span>最近 {channelEvents.data?.items.length ?? 0} 条事件</span>
@@ -567,16 +565,16 @@ function OutboundSettings() {
             )}
           </div>
           {governanceView === "抑制名单" ? (
-            suppressions.data?.items.length ? <DataTable className="customer-table customer-table-pro outbox-table governance-table" columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
-              <div className="standard-cell-stack"><strong>{item.destination}</strong><small>邮件渠道</small></div>,<span>{item.reason}</span>,<span>{item.source==="channel_event"?"渠道事件":item.source}</span>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<span>{new Date(item.updatedAt).toLocaleString("zh-CN")}</span>,
-              <div className="standard-row-actions">{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</div>,
-            ]}))}/> : <EmptyState className="list-empty-state compact" title="暂无抑制记录" icon={Mail}/>
+            suppressions.data?.items.length ? <DataTable columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
+              <div><strong>{item.destination}</strong><small>邮件渠道</small></div>,<span>{item.reason}</span>,<span>{item.source==="channel_event"?"渠道事件":item.source}</span>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<span>{new Date(item.updatedAt).toLocaleString("zh-CN")}</span>,
+              <div>{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</div>,
+            ]}))}/> : <EmptyState title="暂无抑制记录" icon={Mail}/>
           ) : (
-            channelEvents.data?.items.length ? <DataTable className="customer-table customer-table-pro outbox-table governance-table" columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
+            channelEvents.data?.items.length ? <DataTable columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
               <Badge tone={item.eventType==="bounced"||item.eventType==="complained"?"red":item.eventType==="unsubscribed"?"orange":"blue"}>{{delivered:"已送达",bounced:"退信",complained:"投诉",unsubscribed:"退订",inbound_reply:"客户回复"}[item.eventType]}</Badge>,
-              <div className="standard-cell-stack"><strong>{item.sender??item.recipient??"—"}</strong><small>{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</small></div>,<span title={item.externalMessageId??""}>{item.externalMessageId??"未关联"}</span>,
+              <div><strong>{item.sender??item.recipient??"—"}</strong><small>{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</small></div>,<span title={item.externalMessageId??""}>{item.externalMessageId??"未关联"}</span>,
               <Badge tone={item.processingStatus==="processed"?"green":item.processingStatus==="unlinked"?"orange":item.processingStatus==="failed"?"red":"blue"}>{{processed:"已处理",unlinked:"未关联",failed:"失败",pending:"处理中"}[item.processingStatus]}</Badge>,<span>{new Date(item.occurredAt).toLocaleString("zh-CN")}</span>,<span>{item.reason??item.processingError??"—"}</span>,
-            ]}))}/> : <EmptyState className="list-empty-state compact" title="暂无渠道事件" icon={Mail}/>
+            ]}))}/> : <EmptyState title="暂无渠道事件" icon={Mail}/>
           )}
         </div>
       </Modal>
@@ -628,7 +626,7 @@ function OutboundSettings() {
           </>
         }
       >
-        <div className="webhook-setup">
+        <div>
           <div>
             <span>
               <strong>事件接收地址</strong>
@@ -1125,16 +1123,16 @@ export function SettingsPage() {
       </>
     ) : undefined;
   return (
-    <div className="page-content settings-page">
+    <div>
       <PageHeader
         title={activeMeta.title}
         description={`应用设置 · ${activeMeta.description}`}
         actions={pageActions}
       />
-      <div className="settings-content">
+      <div>
         {tab === "个人资料" ? (
-          <div className="profile-settings-layout">
-            <section className="profile-card profile-identity-card">
+          <div>
+            <section>
               <header>
                 <i>
                   <UserRound size={18} />
@@ -1144,14 +1142,14 @@ export function SettingsPage() {
                   <small>用于账户显示和消息通知</small>
                 </span>
               </header>
-              <div className="profile-preview">
+              <div>
                 <b>{profileDraft.displayName?.trim().slice(0, 1) || "用"}</b>
                 <span>
                   <strong>{profileDraft.displayName || "未设置名称"}</strong>
                   <small>{profileDraft.email || "未设置邮箱"}</small>
                 </span>
               </div>
-              <div className="profile-form">
+              <div>
                 <label>
                   显示名称
                   <Input
@@ -1179,7 +1177,7 @@ export function SettingsPage() {
                 </label>
               </div>
             </section>
-            <section className="profile-card profile-preferences-card">
+            <section>
               <header>
                 <i>
                   <Database size={18} />
@@ -1189,7 +1187,7 @@ export function SettingsPage() {
                   <small>用于界面语言、时间和经营数据的默认口径</small>
                 </span>
               </header>
-              <div className="profile-form profile-preference-grid">
+              <div>
                 <label>
                   默认语言
                   <CustomSelect
@@ -1239,20 +1237,18 @@ export function SettingsPage() {
             </section>
           </div>
         ) : tab === "AI 模型配置" ? (
-          <div className="ai-settings-page">
-            <Panel className="standard-list-panel ai-service-panel">
-              <div className="ai-service-toolbar customer-toolbar module-toolbar standard-list-toolbar">
-                <div className="customer-filter-controls">
-                  <SearchInput className="customer-search module-search" ariaLabel="搜索 AI 服务" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="搜索服务、模型或提供商" />
+          <div>
+            <Panel>
+              <div>
+                <div>
+                  <SearchInput ariaLabel="搜索 AI 服务" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="搜索服务、模型或提供商" />
                   <CustomSelect
-                    className="ai-status-select"
                     ariaLabel="筛选 AI 服务状态"
                     value={serviceStatus}
                     onChange={setServiceStatus}
                     options={["全部状态", "可用", "未验证", "异常", "停用"]}
                   />
                   <CustomSelect
-                    className="sort-select"
                     ariaLabel="AI 服务排序"
                     value={serviceSort}
                     onChange={(value) => setServiceSort(value as AiServiceSort)}
@@ -1265,18 +1261,16 @@ export function SettingsPage() {
                     ]}
                   />
                   <Button
-                    className="customer-refresh"
                     disabled={aiServiceQuery.isFetching}
                     onClick={async () => {
                       await aiServiceQuery.refetch();
                       showToast("AI 服务列表已刷新");
                     }}
                   >
-                    <RefreshCw className={aiServiceQuery.isFetching?"is-spinning":undefined} />
+                    <RefreshCw className="is-spinning" />
                     刷新
                   </Button>
                   <Button
-                    className="customer-clear module-clear"
                     disabled={
                       !serviceQuery &&
                       serviceStatus === "全部状态" &&
@@ -1292,7 +1286,6 @@ export function SettingsPage() {
                   </Button>
                 </div>
                 <div
-                  className={`customer-selection-tools${selectedAiServices.size > 0 ? " has-selection" : " is-empty"}`}
                   aria-hidden={selectedAiServices.size === 0}
                 >
                   <span>
@@ -1318,18 +1311,18 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
-              <DataTable className="customer-table customer-table-pro ai-service-table" minWidth={880} columns={[
-                {key:"select",title:<span className="customer-check"><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
-                {key:"service",title:<Button className="customer-sort-head" onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>服务、模型与优先级{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:260},
-                {key:"keys",title:<Button className="customer-sort-head" onClick={()=>setServiceSort("密钥最多")}>密钥与状态{aiSortIcon(serviceSort==="密钥最多",true)}</Button>,width:150},
-                {key:"quality",title:<Button className="customer-sort-head" onClick={()=>setServiceSort("延迟最低")}>连接质量与接口{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:260},
+              <DataTable minWidth={880} columns={[
+                {key:"select",title:<span><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
+                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>服务、模型与优先级{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:260},
+                {key:"keys",title:<Button onClick={()=>setServiceSort("密钥最多")}>密钥与状态{aiSortIcon(serviceSort==="密钥最多",true)}</Button>,width:150},
+                {key:"quality",title:<Button onClick={()=>setServiceSort("延迟最低")}>连接质量与接口{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:260},
                 {key:"enabled",title:"启用状态",width:90},{key:"actions",title:"操作",width:120},
               ]} rows={aiServicePaging.pageItems.map(service=>({key:service.id,className:`${service.status==="停用"?"disabled ":""}${selectedAiServices.has(service.id)?"selected":""}`,cells:[
-                <span className="customer-check"><Checkbox aria-label={`选择 ${service.name}`} checked={selectedAiServices.has(service.id)} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);event.target.checked?next.add(service.id):next.delete(service.id);return next;})}/></span>,
-                <div className="customer-company ai-service-company"><i><Bot/></i><span><strong>{service.name}</strong><small>{service.provider} · {service.model}</small><em><Route/>{service.priority===1?"当前主服务":`备用服务 ${service.priority-1}`}</em></span></div>,
-                <div className="standard-cell-stack"><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><small>{service.keyCount} 个密钥参与轮转</small></div>,<div className="standard-cell-stack"><strong>{service.latency}</strong><span className="ai-endpoint" title={service.endpoint}>{service.endpoint}</span></div>,
+                <span><Checkbox aria-label={`选择 ${service.name}`} checked={selectedAiServices.has(service.id)} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);event.target.checked?next.add(service.id):next.delete(service.id);return next;})}/></span>,
+                <div><i><Bot/></i><span><strong>{service.name}</strong><small>{service.provider} · {service.model}</small><em><Route/>{service.priority===1?"当前主服务":`备用服务 ${service.priority-1}`}</em></span></div>,
+                <div><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><small>{service.keyCount} 个密钥参与轮转</small></div>,<div><strong>{service.latency}</strong><span title={service.endpoint}>{service.endpoint}</span></div>,
                 <Switch aria-label={`${service.name}启用状态`} checked={service.status!=="停用"} onChange={()=>toggleAiService(service.id)}/>,
-                <div className="standard-row-actions ai-table-actions"><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button aria-label={`管理 ${service.name} 密钥`} title="管理密钥" onClick={()=>setKeyService(service)}><KeyRound/></Button><Button className="ai-promote-service" disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button></div>,
+                <div><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button aria-label={`管理 ${service.name} 密钥`} title="管理密钥" onClick={()=>setKeyService(service)}><KeyRound/></Button><Button disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button></div>,
               ]}))}/>
               {filteredAiServices.length > 0 && (
                 <Pagination
@@ -1345,17 +1338,17 @@ export function SettingsPage() {
             </Panel>
           </div>
         ) : tab === "数据源与集成" ? (
-          <div className="integration-settings-page">
+          <div>
             <OutboundSettings />
             {integrationGroups.map((group, groupIndex) => (
-              <section className="integration-group" key={group.title}>
+              <section key={group.title}>
                 <header>
                   <span>
                     <strong>{group.title}</strong>
                     <small>{group.description}</small>
                   </span>
                 </header>
-                <div className="integration-grid">
+                <div>
                   {group.services.map((service) => {
                     const index = integrationServices.findIndex(
                       (item) => item.name === service.name,
@@ -1401,17 +1394,16 @@ export function SettingsPage() {
                         : service.description;
                     return (
                       <article
-                        className={isConnected ? "connected" : ""}
                         key={service.name}
                       >
-                        <div className="integration-icon">
+                        <div>
                           <Icon size={19} />
                         </div>
                         <span>
                           <strong>{service.name}</strong>
                           <small>{connectionDetail}</small>
                         </span>
-                        <div className="integration-card-actions">
+                        <div>
                           <Badge
                             tone={
                               statusLabel === "可用" ||
@@ -1426,7 +1418,7 @@ export function SettingsPage() {
                           </Badge>
                           <span>
                             {isBuiltIn ? (
-                              <small className="integration-built-in">
+                              <small>
                                 无需密钥
                               </small>
                             ) : (
@@ -1496,8 +1488,8 @@ export function SettingsPage() {
             ))}
           </div>
         ) : tab === "数据与备份" ? (
-          <div className="data-backup-layout">
-            <section className="data-location-card">
+          <div>
+            <section>
               <header>
                 <i>
                   <MonitorSmartphone size={20} />
@@ -1522,14 +1514,14 @@ export function SettingsPage() {
                 </span>
               </div>
             </section>
-            <section className="backup-control-card">
+            <section>
               <header>
                 <span>
                   <strong>数据导出与备份</strong>
                   <small>从服务器导出当前工作区的真实数据，或下载完整数据库备份</small>
                 </span>
               </header>
-              <div className="backup-action-grid">
+              <div>
                 <Button
                   onClick={async () => {
                     try {
@@ -1567,21 +1559,21 @@ export function SettingsPage() {
                   </span>
                 </Button>
               </div>
-              <div className="backup-reminder">
+              <div>
                 <span>
                   <strong>{backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}</strong>
                   <small>每份自动备份生成后均执行 pg_restore 目录校验；升级前仍建议额外下载一份。</small>
                 </span>
-                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15} className={backupsQuery.isFetching?"is-spinning":undefined}/>刷新</Button>
+                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15} className="is-spinning"/>刷新</Button>
               </div>
-              {(backupsQuery.data?.items ?? []).length > 0 && <div className="backup-reminder">
+              {(backupsQuery.data?.items ?? []).length > 0 && <div>
                 <span>
                   <strong>最近持久化备份</strong>
                   <small>{backupsQuery.data!.items.slice(0, 3).map(item=>`${new Date(item.createdAt).toLocaleString("zh-CN")} · ${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`).join("\n")}</small>
                 </span>
                 <Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button>
               </div>}
-              {operationsQuery.data && <div className="backup-reminder">
+              {operationsQuery.data && <div>
                 <span>
                   <strong>运行概览</strong>
                   <small>{`客户 ${operationsQuery.data.counts.customers} · 任务 ${operationsQuery.data.counts.tasks} · 商机 ${operationsQuery.data.counts.deals} · 雷达任务 ${operationsQuery.data.counts.radarTasks} · 外发队列 ${operationsQuery.data.counts.queuedOutbound}`}</small>
@@ -1592,7 +1584,7 @@ export function SettingsPage() {
                 const s = connectorHealthQuery.data.summary;
                 const totalIssues = s.totalIssues;
                 if (totalIssues === 0) return (
-                  <div className="backup-reminder">
+                  <div>
                     <span>
                       <strong>连接器健康</strong>
                       <small>所有连接器正常，过去 7 天无失败</small>
@@ -1601,12 +1593,12 @@ export function SettingsPage() {
                   </div>
                 );
                 return (
-                  <div className="backup-reminder connector-health-panel">
+                  <div>
                     <span>
                       <strong>连接器失败告警</strong>
                       <small>过去 7 天共 {totalIssues} 项异常</small>
                     </span>
-                    <div className="connector-health-summary">
+                    <div>
                       {s.outboundUnhealthy > 0 && <Badge tone="red">外发渠道 {s.outboundUnhealthy}</Badge>}
                       {s.integrationUnhealthy > 0 && <Badge tone="red">数据源 {s.integrationUnhealthy}</Badge>}
                       {s.leadSourceUnhealthy > 0 && <Badge tone="orange">官方线索 {s.leadSourceUnhealthy}</Badge>}
@@ -1635,23 +1627,23 @@ export function SettingsPage() {
                   return "blue" as const;
                 };
                 return (
-                  <div className="connector-health-details">
+                  <div>
                     {allConnections.map(c => {
                       const tone = connStatusTone(c);
                       return (
-                        <article key={`${c.type}-${c.name}`} className="connector-health-item">
-                          <span className={`connector-dot connector-dot-${tone}`} />
+                        <article key={`${c.type}-${c.name}`}>
+                          <span />
                           <span>
                             <strong>{c.type} · {c.name}</strong>
                             <small>{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</small>
-                            {c.lastError && <small className="connector-error-text">{c.lastError}</small>}
+                            {c.lastError && <small>{c.lastError}</small>}
                           </span>
                           <Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>
                         </article>
                       );
                     })}
                     {data.failedRadarTasks.map(task => (
-                      <article key={task.id} className="connector-health-item">
+                      <article key={task.id}>
                         <AlertTriangle size={14} />
                         <span>
                           <strong>雷达任务失败 · {task.name}</strong>
@@ -1661,7 +1653,7 @@ export function SettingsPage() {
                       </article>
                     ))}
                     {data.outboxFailures.slice(0, 5).map(job => (
-                      <article key={job.id} className="connector-health-item">
+                      <article key={job.id}>
                         <AlertTriangle size={14} />
                         <span>
                           <strong>外发失败 · {job.channel}</strong>
@@ -1671,7 +1663,7 @@ export function SettingsPage() {
                       </article>
                     ))}
                     {data.radarEvents.slice(0, 5).map(event => (
-                      <article key={event.id} className="connector-health-item">
+                      <article key={event.id}>
                         <AlertTriangle size={14} />
                         <span>
                           <strong>雷达连接器 · {event.eventType}</strong>
@@ -1686,8 +1678,8 @@ export function SettingsPage() {
             </section>
           </div>
         ) : (
-          <div className="security-settings-layout">
-            <section className="security-card">
+          <div>
+            <section>
               <header>
                 <i>
                   <LockKeyhole size={18} />
@@ -1697,7 +1689,7 @@ export function SettingsPage() {
                   <small>管理登录凭据与第二重身份验证</small>
                 </span>
               </header>
-              <div className="security-options">
+              <div>
                 <article>
                   <i>
                     <LockKeyhole size={17} />
@@ -1728,7 +1720,7 @@ export function SettingsPage() {
                 </article>
               </div>
             </section>
-            <section className="security-card">
+            <section>
               <header>
                 <i>
                   <MonitorSmartphone size={18} />
@@ -1738,8 +1730,8 @@ export function SettingsPage() {
                   <small>查看当前设备和其他活动会话</small>
                 </span>
               </header>
-              <div className="session-list">
-                {(sessionsQuery.data?.items ?? []).map(session => <article className={session.current ? "current" : ""} key={session.id}>
+              <div>
+                {(sessionsQuery.data?.items ?? []).map(session => <article key={session.id}>
                   <i><MonitorSmartphone size={17}/></i>
                   <span><strong>{/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · {session.ipAddress ?? "未知地址"}</strong><small>{session.current ? "当前设备" : "其他设备"} · 最近活动：{session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}</small></span>
                   {session.current ? <Badge tone="green">当前</Badge> : <Button size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>}
@@ -1750,7 +1742,7 @@ export function SettingsPage() {
                 </article>}
               </div>
             </section>
-            <section className="security-danger-card">
+            <section>
               <i>
                 <Trash2 size={18} />
               </i>
@@ -1792,8 +1784,8 @@ export function SettingsPage() {
           </>
         }
       >
-        <div className="ai-policy-modal">
-          <div className="ai-policy-flow">
+        <div>
+          <div>
             <span>
               <i>1</i>
               <strong>请求主服务</strong>
@@ -1812,7 +1804,7 @@ export function SettingsPage() {
               <small>切换下一个可用服务</small>
             </span>
           </div>
-          <div className="ai-policy-grid">
+          <div>
             <label>
               密钥轮转方式
               <CustomSelect
@@ -1850,7 +1842,7 @@ export function SettingsPage() {
               />
             </label>
           </div>
-          <div className="setting-row">
+          <div>
             <span>
               <strong>跨服务自动切换</strong>
               <small>当前服务全部密钥失败后，自动使用下一优先级服务。</small>
@@ -1918,7 +1910,7 @@ export function SettingsPage() {
           </>
         }
       >
-        <div className="ai-key-pool">
+        <div>
           <header>
             <span>
               <strong>
@@ -1970,7 +1962,6 @@ export function SettingsPage() {
                 ))
             ) : (
               <EmptyState
-                className="list-empty-state compact"
                 title="暂无密钥"
                 icon={KeyRound}
               />
@@ -2047,12 +2038,12 @@ export function SettingsPage() {
           </>
         }
       >
-        <p className="danger-copy">
+        <p>
           {confirmDelete === "account"
             ? "账号、客户、活动、消息、商机和密钥都将永久删除。建议先导出完整备份。"
             : "删除后，依赖该密钥的 AI 研究与内容生成功能将停止。"}
         </p>
-        {confirmDelete === "account" && <div className="two-factor-fields"><label>当前密码<span>用于确认账户所有权</span><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></label><label>确认文字<span>请输入 DELETE</span><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></label></div>}
+        {confirmDelete === "account" && <div><label>当前密码<span>用于确认账户所有权</span><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></label><label>确认文字<span>请输入 DELETE</span><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></label></div>}
       </Modal>
       <CreateDialog
         open={Boolean(integration)}
@@ -2216,19 +2207,19 @@ export function SettingsPage() {
         onClose={closeTwoFactorDialog}
         footer={twoFactorRecovery ? <Button variant="primary" onClick={closeTwoFactorDialog}>我已保存</Button> : <><Button onClick={closeTwoFactorDialog} disabled={twoFactorBusy}>取消</Button><Button variant="primary" onClick={submitTwoFactor} disabled={twoFactorBusy}>{twoFactorBusy ? "正在处理…" : twoFactorStatusQuery.data?.enabled ? "关闭验证" : "验证并启用"}</Button></>}
       >
-        {twoFactorRecovery ? <div className="two-factor-setup"><div className="two-factor-guide"><i><ShieldCheck /></i><strong>恢复码</strong><span>每个恢复码只能使用一次；丢失验证器时可用其中一个登录。</span></div><div className="two-factor-key"><strong>一次性恢复码</strong><small>请离线保存</small><div style={{display:'grid',gap:8}}>{twoFactorRecovery.map(code=><code key={code}>{code}</code>)}</div></div></div> : <div className="two-factor-setup">
-          {!twoFactorStatusQuery.data?.enabled && <div className="two-factor-guide">
+        {twoFactorRecovery ? <div><div><i><ShieldCheck /></i><strong>恢复码</strong><span>每个恢复码只能使用一次；丢失验证器时可用其中一个登录。</span></div><div><strong>一次性恢复码</strong><small>请离线保存</small><div style={{display:'grid',gap:8}}>{twoFactorRecovery.map(code=><code key={code}>{code}</code>)}</div></div></div> : <div>
+          {!twoFactorStatusQuery.data?.enabled && <div>
             {twoFactorQrCode ? (
-              <img className="two-factor-qr" src={twoFactorQrCode} alt="Sondara 双重验证二维码" width={140} height={140} />
+              <img src={twoFactorQrCode} alt="Sondara 双重验证二维码" width={140} height={140} />
             ) : (
-              <div className="qr-placeholder" aria-label="正在生成二维码">QR<br />生成中</div>
+              <div aria-label="正在生成二维码">QR<br />生成中</div>
             )}
             <strong>扫描二维码添加验证器</strong>
             <span>账户名称：{twoFactorSetup?.accountName ?? (profileDraft.email || "Sondara")}</span>
             <small>{twoFactorBusy && !twoFactorSetup ? "正在生成服务端加密密钥…" : "二维码由本机根据 otpauth 地址离线生成；无法扫码时可继续使用下方密钥手动输入。"}</small>
           </div>}
-          <div className="two-factor-fields">
-            {!twoFactorStatusQuery.data?.enabled && <div className="two-factor-key">
+          <div>
+            {!twoFactorStatusQuery.data?.enabled && <div>
               <strong>设置密钥</strong>
               <small>复制后粘贴到 Google Authenticator、1Password、Authy 等应用</small>
               <div>
