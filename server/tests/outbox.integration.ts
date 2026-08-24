@@ -205,7 +205,7 @@ const run = async () => {
       payload: {
         name: "LinkedIn 合规适配器",
         provider: "webhook",
-        host: "https://example.com/sondara-outbound",
+        host: "https://192.0.2.1/sondara-outbound",
         port: 443,
         secure: true,
         username: "bearer",

@@ -35,7 +35,8 @@ import { CustomSelect } from "@/components/ui/CustomSelect";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { downloadCsv } from "@/utils/download";
 import { campaignApi, contentApi, customerApi, taskApi, type CampaignApiRecord } from "@/lib/api";
-import { Checkbox } from 'antd'
+import { Alert, Avatar, Checkbox, List, Progress, Space, Typography } from 'antd'
+import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
 
 type CampaignRecord = CampaignApiRecord & { sent:number; replies:number; opportunities:number; revenue:string }
 
@@ -140,12 +141,12 @@ export function CampaignsPage() {
     }
   };
   const sortIcon = (active: boolean, descending: boolean) => (
-    <span className="customer-sort-icon" aria-hidden="true">
+    <span aria-hidden="true">
       {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
     </span>
   );
   return (
-    <div className="page-content campaigns-page">
+    <PageContainer>
       <PageHeader
         title="营销活动"
         description="把目标客户、内容、触达节奏和商机跟进编排成可衡量的营销执行。"
@@ -166,12 +167,10 @@ export function CampaignsPage() {
           </>
         }
       />
-      <Panel className="campaign-workspace standard-list-panel">
-        <div className="campaign-toolbar customer-toolbar module-toolbar standard-list-toolbar">
-          <div className="customer-filter-controls">
-            <SearchInput className="campaign-search customer-search module-search" ariaLabel="搜索活动" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索活动或目标市场"/>
+      <Panel title="营销活动列表" subtitle="统一管理受众、内容、执行节点与转化结果">
+        <TableToolbar filters={<>
+            <SearchInput ariaLabel="搜索活动" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索活动或目标市场"/>
             <CustomSelect
-              className="campaign-status-select"
               ariaLabel="筛选活动状态"
               value={filter}
               onChange={setFilter}
@@ -184,7 +183,6 @@ export function CampaignsPage() {
               )}
             />
             <CustomSelect
-              className="sort-select"
               ariaLabel="活动排序"
               value={sort}
               onChange={(value) => setSort(value as CampaignSort)}
@@ -209,15 +207,13 @@ export function CampaignsPage() {
               ]}
             />
             <Button
-              className="customer-refresh"
-              disabled={campaignQuery.isFetching}
+              loading={campaignQuery.isFetching}
               onClick={async () => {await campaignQuery.refetch();showToast("营销活动列表已刷新")}}
             >
-              <RefreshCw className={campaignQuery.isFetching ? "is-spinning" : undefined} />
+              {!campaignQuery.isFetching&&<RefreshCw />}
               刷新
             </Button>
             <Button
-              className="customer-clear module-clear"
               disabled={!query && filter === "全部" && sort === "执行进度最高"}
               onClick={() => {
                 setQuery("");
@@ -227,18 +223,7 @@ export function CampaignsPage() {
             >
               清除筛选
             </Button>
-          </div>
-          <div
-            className={`customer-selection-tools${checked.size > 0 ? " has-selection" : " is-empty"}`}
-            aria-hidden={checked.size === 0}
-          >
-            <span>
-              <CheckCircle2 />
-              <small>已选择</small>
-              <strong>{checked.size}</strong>
-              <small>个</small>
-            </span>
-            <div>
+          </>} selection={checked.size>0?<SelectionBar summary={<Space><CheckCircle2/>已选择 {checked.size} 个活动</Space>} actions={<>
               <Button onClick={() => updateCheckedStatus("运行中")}>
                 <Play />
                 恢复活动
@@ -285,30 +270,27 @@ export function CampaignsPage() {
               >
                 <X size={16}/>
               </Button>
-            </div>
-          </div>
-        </div>
-        {campaignQuery.isLoading&&<div className="standard-list-state"><RefreshCw className="is-spinning"/><strong>正在载入营销活动</strong><span>从当前工作区读取活动、执行节点与关联内容。</span></div>}
-        {campaignQuery.isError&&<div className="standard-list-state"><Target/><strong>营销活动载入失败</strong><span>{campaignQuery.error instanceof Error?campaignQuery.error.message:"请稍后重试。"}</span><Button onClick={()=>campaignQuery.refetch()}>重新加载</Button></div>}
-        {!campaignQuery.isLoading&&!campaignQuery.isError&&visible.length===0&&<EmptyState className="list-empty-state" title="暂无营销活动" description="创建活动后，可以把客户、内容和执行节奏放进同一条工作流。" icon={Mail} action={<Button variant="primary" onClick={()=>setDialog("campaign")}><Plus/>新建活动</Button>}/>}
+            </>}/>:undefined}/>
+        {campaignQuery.isLoading&&<PageState status="loading" title="正在载入营销活动" description="从当前工作区读取活动、执行节点与关联内容。"/>}
+        {campaignQuery.isError&&<PageState status="error" title="营销活动载入失败" description={campaignQuery.error instanceof Error?campaignQuery.error.message:"请稍后重试。"} onRetry={()=>campaignQuery.refetch()}/>}
+        {!campaignQuery.isLoading&&!campaignQuery.isError&&visible.length===0&&<EmptyState title="暂无营销活动" description="创建活动后，可以把客户、内容和执行节奏放进同一条工作流。" icon={Mail} action={<Button variant="primary" onClick={()=>setDialog("campaign")}><Plus/>新建活动</Button>}/>}
         {visible.length>0&&(
         <DataTable
-          className="customer-table customer-table-pro campaign-table"
           columns={[
-            {key:"select",title:<span className="customer-check"><Checkbox aria-label="选择本页全部活动" checked={campaignPaging.pageItems.length>0&&campaignPaging.pageItems.every(c=>checked.has(c.id))} onChange={e=>setChecked(current=>{const next=new Set(current);campaignPaging.pageItems.forEach(c=>e.target.checked?next.add(c.id):next.delete(c.id));return next;})}/></span>,width:52},
-            {key:"campaign",title:<Button className="customer-sort-head" onClick={()=>setSort(sort==="活动名称 A–Z"?"活动名称 Z–A":"活动名称 A–Z")}>活动档案{sortIcon(sort==="活动名称 A–Z"||sort==="活动名称 Z–A",sort==="活动名称 Z–A")}</Button>},
-            {key:"status",title:"状态与渠道"},{key:"progress",title:<Button className="customer-sort-head" onClick={()=>setSort("执行进度最高")}>执行进度{sortIcon(sort==="执行进度最高",true)}</Button>},
-            {key:"reach",title:<Button className="customer-sort-head" onClick={()=>setSort("触达最多")}>触达与回复{sortIcon(sort==="触达最多",true)}</Button>},{key:"revenue",title:<Button className="customer-sort-head" onClick={()=>setSort("商机最多")}>商机与收入{sortIcon(sort==="商机最多",true)}</Button>},{key:"next",title:"下一执行节点"},{key:"actions",title:"操作"},
+            {key:"select",title:<Checkbox aria-label="选择本页全部活动" checked={campaignPaging.pageItems.length>0&&campaignPaging.pageItems.every(c=>checked.has(c.id))} onChange={e=>setChecked(current=>{const next=new Set(current);campaignPaging.pageItems.forEach(c=>e.target.checked?next.add(c.id):next.delete(c.id));return next;})}/>,width:52},
+            {key:"campaign",title:<Button onClick={()=>setSort(sort==="活动名称 A–Z"?"活动名称 Z–A":"活动名称 A–Z")}>活动档案{sortIcon(sort==="活动名称 A–Z"||sort==="活动名称 Z–A",sort==="活动名称 Z–A")}</Button>},
+            {key:"status",title:"状态与渠道"},{key:"progress",title:<Button onClick={()=>setSort("执行进度最高")}>执行进度{sortIcon(sort==="执行进度最高",true)}</Button>},
+            {key:"reach",title:<Button onClick={()=>setSort("触达最多")}>触达与回复{sortIcon(sort==="触达最多",true)}</Button>},{key:"revenue",title:<Button onClick={()=>setSort("商机最多")}>商机与收入{sortIcon(sort==="商机最多",true)}</Button>},{key:"next",title:"下一执行节点"},{key:"actions",title:"操作"},
           ]}
           rows={campaignPaging.pageItems.map(c=>{const meta=metaFor(c);const isPaused=c.status==="已暂停";return {key:c.id,className:checked.has(c.id)?"selected":"",cells:[
-            <span className="customer-check"><Checkbox aria-label={`选择 ${c.name}`} checked={checked.has(c.id)} onChange={e=>setChecked(current=>{const next=new Set(current);e.target.checked?next.add(c.id):next.delete(c.id);return next;})}/></span>,
-            <Button className="standard-entity" onClick={()=>setSelected(c)}><i><Mail/></i><span><strong>{c.name}</strong><small>{c.market} · 受众 {meta.audience}</small></span></Button>,
-            <div className="standard-cell-stack"><Badge tone={c.status==="运行中"?"green":c.status==="草稿"?"orange":"neutral"}>{c.status}</Badge><small>{c.channel??meta.channel}</small></div>,
-            <div className="standard-progress"><span><strong>{meta.progress}%</strong><small>执行进度</small></span><i><u style={{width:`${meta.progress}%`}}/></i></div>,
-            <div className="standard-cell-stack"><strong>{c.sent} 已触达</strong><small>{c.replies} 回复 · {meta.replyRate}</small></div>,
-            <div className="standard-value"><strong className="money">{c.revenue}</strong><small>{c.opportunities} 个商机</small></div>,
-            <div className="standard-next"><strong>{meta.next}</strong><small>{c.status==="草稿"?"启动前需完成配置":"按当前活动节奏执行"}</small></div>,
-            <div className="standard-row-actions"><Button aria-label={`查看 ${c.name}`} title="查看详情" onClick={()=>setSelected(c)}><ArrowRight/></Button><Button disabled={c.status==="草稿"} aria-label={isPaused?`恢复 ${c.name}`:`暂停 ${c.name}`} title={c.status==="草稿"?"草稿未启动":isPaused?"恢复活动":"暂停活动"} onClick={async()=>{const next=isPaused?"运行中":"已暂停";try{await campaignApi.update(c.id,{status:next});await queryClient.invalidateQueries({queryKey:["campaigns"]});showToast(`${c.name}${next==="已暂停"?"已暂停":"已恢复"}`)}catch(error){showToast(error instanceof Error?error.message:"活动状态更新失败")}}}>{isPaused?<Play/>:<Pause/>}</Button><Button aria-label={`更多操作：${c.name}`} title="更多操作" onClick={()=>{setSelected(c);setUtility("menu")}}><MoreHorizontal/></Button></div>,
+            <Checkbox aria-label={`选择 ${c.name}`} checked={checked.has(c.id)} onChange={e=>setChecked(current=>{const next=new Set(current);e.target.checked?next.add(c.id):next.delete(c.id);return next;})}/>,
+            <Button type="link" onClick={()=>setSelected(c)}><Avatar icon={<Mail/>}/><Space direction="vertical" size={0}><Typography.Text strong>{c.name}</Typography.Text><Typography.Text type="secondary">{c.market} · 受众 {meta.audience}</Typography.Text></Space></Button>,
+            <Space direction="vertical" size={2}><Badge tone={c.status==="运行中"?"green":c.status==="草稿"?"orange":"neutral"}>{c.status}</Badge><Typography.Text type="secondary">{c.channel??meta.channel}</Typography.Text></Space>,
+            <Space direction="vertical" size={2}><Typography.Text strong>{meta.progress}%</Typography.Text><Progress aria-label={`${c.name}执行进度`} percent={meta.progress} showInfo={false}/></Space>,
+            <Space direction="vertical" size={0}><Typography.Text strong>{c.sent} 已触达</Typography.Text><Typography.Text type="secondary">{c.replies} 回复 · {meta.replyRate}</Typography.Text></Space>,
+            <Space direction="vertical" size={0}><Typography.Text strong>{c.revenue}</Typography.Text><Typography.Text type="secondary">{c.opportunities} 个商机</Typography.Text></Space>,
+            <Space direction="vertical" size={0}><Typography.Text strong>{meta.next}</Typography.Text><Typography.Text type="secondary">{c.status==="草稿"?"启动前需完成配置":"按当前活动节奏执行"}</Typography.Text></Space>,
+            <Space><Button aria-label={`查看 ${c.name}`} title="查看详情" onClick={()=>setSelected(c)}><ArrowRight/></Button><Button disabled={c.status==="草稿"} aria-label={isPaused?`恢复 ${c.name}`:`暂停 ${c.name}`} title={c.status==="草稿"?"草稿未启动":isPaused?"恢复活动":"暂停活动"} onClick={async()=>{const next=isPaused?"运行中":"已暂停";try{await campaignApi.update(c.id,{status:next});await queryClient.invalidateQueries({queryKey:["campaigns"]});showToast(`${c.name}${next==="已暂停"?"已暂停":"已恢复"}`)}catch(error){showToast(error instanceof Error?error.message:"活动状态更新失败")}}}>{isPaused?<Play/>:<Pause/>}</Button><Button aria-label={`更多操作：${c.name}`} title="更多操作" onClick={()=>{setSelected(c);setUtility("menu")}}><MoreHorizontal/></Button></Space>,
           ]};})}
         />
         )}
@@ -324,32 +306,11 @@ export function CampaignsPage() {
         )}
       </Panel>
       {selected && !utility && (
-        <DetailDrawer className="campaign-drawer" open title={selected.name} subtitle={selected.market} onClose={() => setSelected(null)} footer={<><Button onClick={() => setUtility("schedule")}><CalendarDays/>调整排期</Button><Button variant="primary" onClick={() => setUtility("content")}>查看活动内容</Button></>}>
-            <div className="app-detail-drawer-body">
-              <Badge tone={selected.status==="运行中"?"green":selected.status==="草稿"?"orange":"neutral"}>{selected.status}</Badge>
-              <section>
-                <h3>执行流程</h3>
-                {(selected.steps.length?selected.steps:[{id:"pending",name:"完善首个执行节点",status:"draft",scheduledAt:null}]).map((step, i) => (
-                  <article className={step.status === "completed" ? "done" : ""} key={step.id}>
-                    <i>{step.status === "completed" ? <CheckCircle2 /> : i + 1}</i>
-                    <span>
-                      <strong>{step.name}</strong>
-                      <small>{step.status === "completed" ? "已完成" : step.scheduledAt?new Intl.DateTimeFormat("zh-CN",{dateStyle:"medium",timeStyle:"short"}).format(step.scheduledAt):"待排期"}</small>
-                    </span>
-                    {step.id !== "pending" && ["draft", "scheduled"].includes(step.status) && <Button size="sm" variant="primary" onClick={()=>setExecuteTarget(step as CampaignApiRecord["steps"][number])}><Play/>确认执行</Button>}
-                  </article>
-                ))}
-              </section>
-              <section>
-                <h3>停止与保护规则</h3>
-                <p>
-                  收到回复、退订或创建商机后自动停止后续触达，避免重复联系。
-                </p>
-              </section>
-            </div>
+        <DetailDrawer open title={selected.name} subtitle={selected.market} onClose={() => setSelected(null)} footer={<><Button onClick={() => setUtility("schedule")}><CalendarDays/>调整排期</Button><Button variant="primary" onClick={() => setUtility("content")}>查看活动内容</Button></>}>
+            <Space direction="vertical" size="middle" style={{width:'100%'}}><Badge tone={selected.status==="运行中"?"green":selected.status==="草稿"?"orange":"neutral"}>{selected.status}</Badge>{selected.steps.length?<List header={<Typography.Text strong>执行流程</Typography.Text>} dataSource={selected.steps} renderItem={(step,i)=><List.Item actions={["draft", "scheduled"].includes(step.status)?[<Button key="execute" variant="primary" onClick={()=>setExecuteTarget(step)}><Play/>确认执行</Button>]:undefined}><List.Item.Meta avatar={step.status === "completed" ? <CheckCircle2 /> : <Badge tone="blue">{i+1}</Badge>} title={step.name} description={step.status === "completed" ? "已完成" : step.scheduledAt?new Intl.DateTimeFormat("zh-CN",{dateStyle:"medium",timeStyle:"short"}).format(step.scheduledAt):"待排期"}/></List.Item>}/>:<EmptyState title="完善首个执行节点" description="当前活动还没有内容或排期节点。" icon={CalendarDays}/>}<Alert type="info" showIcon message="停止与保护规则" description="收到回复、退订或创建商机后自动停止后续触达，避免重复联系。"/></Space>
         </DetailDrawer>
       )}
-      <Modal open={Boolean(executeTarget)} title={`确认执行 · ${executeTarget?.name ?? ""}`} description={`${selected?.name ?? "营销活动"} · ${executeTarget?.channel ?? selected?.channel ?? "待配置"}`} onClose={()=>!executing&&setExecuteTarget(null)} footer={<><Button disabled={executing} onClick={()=>setExecuteTarget(null)}>取消</Button><Button variant="primary" disabled={executing} onClick={async()=>{if(!selected||!executeTarget)return;setExecuting(true);try{const result=await campaignApi.executeStep(selected.id,executeTarget.id);await Promise.all([queryClient.invalidateQueries({queryKey:["campaigns"]}),queryClient.invalidateQueries({queryKey:["campaign-schedule"]}),queryClient.invalidateQueries({queryKey:["tasks"]}),queryClient.invalidateQueries({queryKey:["inbox-threads"]}),queryClient.invalidateQueries({queryKey:["outbox-jobs"]})]);setExecuteTarget(null);setSelected(null);showToast(result.manualTasks?`已创建 ${result.manualTasks} 项人工触达任务`:`已确认 ${result.recipientCount} 位收件人，${result.queued} 封进入发送队列${result.awaitingConfiguration?`，${result.awaitingConfiguration} 封等待 SMTP 配置`:""}`)}catch(cause){showToast(cause instanceof Error?cause.message:"活动执行失败")}finally{setExecuting(false)}}}>{executing?"正在建立执行任务…":"确认内容与受众并执行"}</Button></>}><div className="danger-copy"><p>系统会使用当前活动受众和关联内容。邮件渠道将进入统一 SMTP 队列；LinkedIn、电话、WhatsApp、短信和微信等渠道会为每位客户创建人工触达任务。</p><p>退订、投诉和退信地址仍会被抑制名单拦截。</p></div></Modal>
+      <Modal open={Boolean(executeTarget)} title={`确认执行 · ${executeTarget?.name ?? ""}`} description={`${selected?.name ?? "营销活动"} · ${executeTarget?.channel ?? selected?.channel ?? "待配置"}`} onClose={()=>!executing&&setExecuteTarget(null)} footer={<><Button disabled={executing} onClick={()=>setExecuteTarget(null)}>取消</Button><Button variant="primary" loading={executing} onClick={async()=>{if(!selected||!executeTarget)return;setExecuting(true);try{const result=await campaignApi.executeStep(selected.id,executeTarget.id);await Promise.all([queryClient.invalidateQueries({queryKey:["campaigns"]}),queryClient.invalidateQueries({queryKey:["campaign-schedule"]}),queryClient.invalidateQueries({queryKey:["tasks"]}),queryClient.invalidateQueries({queryKey:["inbox-threads"]}),queryClient.invalidateQueries({queryKey:["outbox-jobs"]})]);setExecuteTarget(null);setSelected(null);showToast(result.manualTasks?`已创建 ${result.manualTasks} 项人工触达任务`:`已确认 ${result.recipientCount} 位收件人，${result.queued} 封进入发送队列${result.awaitingConfiguration?`，${result.awaitingConfiguration} 封等待 SMTP 配置`:""}`)}catch(cause){showToast(cause instanceof Error?cause.message:"活动执行失败")}finally{setExecuting(false)}}}>确认内容与受众并执行</Button></>}><Space direction="vertical"><Typography.Paragraph>系统会使用当前活动受众和关联内容。邮件渠道将进入统一 SMTP 队列；LinkedIn、电话、WhatsApp、短信和微信等渠道会为每位客户创建人工触达任务。</Typography.Paragraph><Alert type="warning" showIcon message="退订、投诉和退信地址仍会被抑制名单拦截。"/></Space></Modal>
       <CreateDialog
         open={dialog === "campaign"}
         title="新建营销活动"
@@ -398,7 +359,7 @@ export function CampaignsPage() {
         ]}
       />
       <Modal open={dialog === "calendar"} title="活动排期" description="按时间查看当前工作区的活动执行节点。" onClose={()=>setDialog(null)} footer={<><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" onClick={()=>setDialog("schedule-node")}><Plus/>添加节点</Button></>}>
-        <div className="campaign-content-dialog">{scheduleQuery.isLoading?<p>正在读取排期…</p>:scheduleQuery.data?.items.length?scheduleQuery.data.items.map(item=><article key={item.id}><i>{item.position}</i><span><strong>{item.name}</strong><small>{item.campaignName} · {item.scheduledAt?new Intl.DateTimeFormat("zh-CN",{dateStyle:"medium",timeStyle:"short"}).format(item.scheduledAt):"待安排"}</small></span><Badge tone={item.status==="completed"?"green":item.status==="cancelled"?"neutral":"blue"}>{item.status==="completed"?"已完成":item.status==="cancelled"?"已取消":"已排期"}</Badge></article>):<EmptyState className="list-empty-state compact" title="暂无排期节点" icon={CalendarDays} />}</div>
+        {scheduleQuery.isLoading?<PageState status="loading" title="正在读取排期…"/>:scheduleQuery.data?.items.length?<List dataSource={scheduleQuery.data.items} renderItem={item=><List.Item extra={<Badge tone={item.status==="completed"?"green":item.status==="cancelled"?"neutral":"blue"}>{item.status==="completed"?"已完成":item.status==="cancelled"?"已取消":"已排期"}</Badge>}><List.Item.Meta avatar={<Badge tone="blue">{item.position}</Badge>} title={item.name} description={`${item.campaignName} · ${item.scheduledAt?new Intl.DateTimeFormat("zh-CN",{dateStyle:"medium",timeStyle:"short"}).format(item.scheduledAt):"待安排"}`}/></List.Item>}/>:<EmptyState title="暂无排期节点" icon={CalendarDays} />}
       </Modal>
       <CreateDialog
         open={dialog === "schedule-node"}
@@ -477,17 +438,7 @@ export function CampaignsPage() {
           </>
         }
       >
-        <div className="recommendation-list">
-          {recommendations.length ? recommendations.map((item,index)=>(
-            <article key={item.title}>
-              <b>{index+1}</b>
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.detail}</small>
-              </span>
-            </article>
-          )) : <EmptyState className="list-empty-state compact" title="暂无优化建议" icon={Sparkles} />}
-        </div>
+        {recommendations.length ? <List dataSource={recommendations} renderItem={(item,index)=><List.Item extra={<Badge tone={item.priority==='高'?'orange':item.priority==='中'?'blue':'neutral'}>{item.priority}优先级</Badge>}><List.Item.Meta avatar={<Badge tone="blue">{index+1}</Badge>} title={item.title} description={item.detail}/></List.Item>}/> : <EmptyState title="暂无优化建议" icon={Sparkles} />}
       </Modal>
       <Modal
         open={utility === "content"}
@@ -500,18 +451,7 @@ export function CampaignsPage() {
           </Button>
         }
       >
-        <div className="campaign-content-dialog">
-          {selected?.contentItems.length ? selected.contentItems.map((item) => (
-            <article key={item.id}>
-              <i>{item.position}</i>
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.purpose} · {item.contentType} · {item.status}</small>
-              </span>
-              <Badge tone={item.status==="已发布"?"green":"blue"}>{item.status}</Badge>
-            </article>
-          )) : <EmptyState className="list-empty-state compact" title="暂无关联内容" icon={Mail} />}
-        </div>
+        {selected?.contentItems.length ? <List dataSource={selected.contentItems} renderItem={item=><List.Item extra={<Badge tone={item.status==="已发布"?"green":"blue"}>{item.status}</Badge>}><List.Item.Meta avatar={<Badge tone="blue">{item.position}</Badge>} title={item.title} description={`${item.purpose} · ${item.contentType} · ${item.status}`}/></List.Item>}/> : <EmptyState title="暂无关联内容" icon={Mail} />}
       </Modal>
       <Modal
         open={utility === "menu"}
@@ -521,37 +461,12 @@ export function CampaignsPage() {
           setSelected(null);
         }}
       >
-        <div className="action-sheet-list">
-          <Button onClick={() => setUtility("schedule")}>
-            <CalendarDays />
-            <span>
-              <strong>调整排期</strong>
-              <small>更改下一执行日期与发送时区</small>
-            </span>
-            <ArrowRight />
-          </Button>
-          <Button onClick={() => setUtility("content")}>
-            <Mail />
-            <span>
-              <strong>查看活动内容</strong>
-              <small>检查邮件、案例和跟进顺序</small>
-            </span>
-            <ArrowRight />
-          </Button>
-          <Button
-            onClick={() => {
-              setUtility(null);
-            }}
-          >
-            <Target />
-            <span>
-              <strong>查看活动详情</strong>
-              <small>打开执行流程和停止规则</small>
-            </span>
-            <ArrowRight />
-          </Button>
-        </div>
+        <List dataSource={[
+          {key:'schedule',icon:<CalendarDays/>,title:'调整排期',description:'更改下一执行日期与发送时区',run:()=>setUtility('schedule')},
+          {key:'content',icon:<Mail/>,title:'查看活动内容',description:'检查邮件、案例和跟进顺序',run:()=>setUtility('content')},
+          {key:'detail',icon:<Target/>,title:'查看活动详情',description:'打开执行流程和停止规则',run:()=>setUtility(null)},
+        ]} renderItem={item=><List.Item actions={[<ArrowRight key="arrow"/>]} onClick={item.run}><List.Item.Meta avatar={item.icon} title={item.title} description={item.description}/></List.Item>}/>
       </Modal>
-    </div>
+    </PageContainer>
   );
 }

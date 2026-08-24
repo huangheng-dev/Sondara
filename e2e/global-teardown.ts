@@ -1,7 +1,6 @@
 import { readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Client } from 'pg'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const storageState = resolve(root, '.tmp/e2e-auth.json')
@@ -49,29 +48,26 @@ const stopE2eServer = async () => {
   await rm(serverPidFile, { force: true })
 }
 
-const dropE2eDatabase = async () => {
-  let metadata: { databaseName?: string; adminUrl?: string }
+const removeE2eDatabase = async () => {
+  let metadata: { databasePath?: string }
   try {
     metadata = JSON.parse(await readFile(databaseFile, 'utf8')) as typeof metadata
   } catch {
     return
   }
-  const { databaseName, adminUrl } = metadata
-  if (!databaseName || !adminUrl || !/^sondara_e2e_\d+_\d+$/.test(databaseName)) return
-  const client = new Client({ connectionString: adminUrl, connectionTimeoutMillis: 10_000 })
-  await client.connect()
-  try {
-    await client.query('select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()', [databaseName])
-    await client.query(`drop database if exists "${databaseName}"`)
-  } finally {
-    await client.end()
-    await rm(databaseFile, { force: true })
-  }
+  const { databasePath } = metadata
+  if (!databasePath || !databasePath.startsWith(resolve(root, '.tmp'))) return
+  await Promise.all([
+    removeWithRetry(databasePath),
+    removeWithRetry(`${databasePath}-wal`),
+    removeWithRetry(`${databasePath}-shm`),
+    rm(databaseFile, { force: true }),
+  ])
 }
 
 export default async function globalTeardown() {
   await stopE2eServer()
-  await dropE2eDatabase()
+  await removeE2eDatabase()
   await removeWithRetry(storageState, 5)
 
 }

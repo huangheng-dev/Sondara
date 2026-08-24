@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useLocation } from 'react-router-dom'
+import { Result } from 'antd'
 import { ShieldCheck } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
 import { ApiError, authApi } from '@/lib/api'
 import { useBusinessStore } from '@/stores/business-store'
-import { Button } from '@/components/ui/Button'
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const location = useLocation()
@@ -29,7 +30,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   }, [session.data, updateAccountPreferences])
 
   if (session.isPending) {
-    return <main className="session-gate" aria-busy="true"><i><ShieldCheck /></i><strong>正在恢复工作空间</strong><span>正在验证账户和数据权限…</span></main>
+    return null
   }
 
   if (session.error instanceof ApiError && session.error.status === 401) {
@@ -37,7 +38,12 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   }
 
   if (session.isError) {
-    return <main className="session-gate session-gate-error"><i><ShieldCheck /></i><strong>暂时无法连接服务</strong><span>请确认 API 服务已启动，然后重试。</span><Button onClick={() => session.refetch()}>重新连接</Button></main>
+    return <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: '#f5f7fb' }}><Result
+      icon={<ShieldCheck size={48} strokeWidth={1.7} color="#175cd3" />}
+      title="暂时无法连接服务"
+      subTitle="请确认 API 服务已启动，然后重试。"
+      extra={<Button type="primary" onClick={() => session.refetch()}>重新连接</Button>}
+    /></main>
   }
 
   return children

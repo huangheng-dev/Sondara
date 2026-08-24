@@ -6,6 +6,7 @@ import { auditLogs, customers, tasks } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
 import { requireAuth } from '../plugins/auth.js'
+import { booleanQuerySchema } from '../contracts/query.js'
 
 const taskInput = z.object({
   customerId: z.string().trim().min(1).nullable().optional(),
@@ -22,8 +23,8 @@ const taskPatch = taskInput.partial().extend({ status: z.enum(['open', 'complete
 const listQuery = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(['open', 'completed']).optional(),
-  includeArchived: z.coerce.boolean().default(false),
-  archivedOnly: z.coerce.boolean().default(false),
+  includeArchived: booleanQuerySchema,
+  archivedOnly: booleanQuerySchema,
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.enum(['created_desc', 'due_asc', 'priority_desc']).default('created_desc'),

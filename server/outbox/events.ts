@@ -160,8 +160,8 @@ const suppress = async (input: {
   reason: string;
   eventId: string;
   now: number;
-}) =>
-  (await db
+}, executor: typeof db = db) =>
+  (await executor
         .insert(contactSuppressions)
         .values({
           id: createId("sup"),
@@ -358,7 +358,7 @@ export const processChannelEvent = async (
                   : "用户退订"),
             eventId,
             now,
-          });
+          }, tx as unknown as typeof db);
         }
 
         if (input.type === "inbound_reply") {

@@ -346,7 +346,7 @@ export const activateWaitingJobs = async (
           eq(outboxJobs.status, "awaiting_configuration"),
           channelCondition,
         ),
-      )).rowCount ?? 0;
+      )).rowsAffected ?? 0;
 };
 
 export const processOutboxJob = async (jobId: string) => {
@@ -360,7 +360,7 @@ export const processOutboxJob = async (jobId: string) => {
   const claimed = (await db
       .update(outboxJobs)
       .set({ status: "processing", startedAt: now, updatedAt: now })
-      .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "queued")))).rowCount ?? 0;
+      .where(and(eq(outboxJobs.id, jobId), eq(outboxJobs.status, "queued")))).rowsAffected ?? 0;
   if (!claimed && original.status !== "processing")
     return { processed: false, status: "claimed" };
   const job = (await db.$first(db
@@ -578,4 +578,4 @@ export const recoverStuckOutboxJobs = async (olderThanMs = 5 * 60_000) =>
             eq(outboxJobs.status, "processing"),
             lte(outboxJobs.startedAt, Date.now() - olderThanMs),
           ),
-        )).rowCount ?? 0;
+        )).rowsAffected ?? 0;

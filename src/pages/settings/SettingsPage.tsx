@@ -9,7 +9,6 @@ import {
   ArrowUpDown,
   Bot,
   CheckCircle2,
-  Copy,
   Database,
   Download,
   KeyRound,
@@ -36,6 +35,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useUiStore } from "@/stores/ui-store";
 import { CustomSelect } from "@/components/ui/CustomSelect";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { CreateDialog } from "@/components/ui/CreateDialog";
 import { integrationServices } from "@/data/channels";
 import { useBusinessStore } from "@/stores/business-store";
@@ -43,7 +43,30 @@ import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable } from "@/components/ui/DataTable";
 import { usePagination } from "@/hooks/usePagination";
-import { Checkbox, Input, Switch } from "antd";
+import {
+  Alert,
+  Avatar,
+  Card,
+  Checkbox,
+  Col,
+  Descriptions,
+  Flex,
+  Form,
+  Input,
+  List,
+  Row,
+  Space,
+  Statistic,
+  Steps,
+  Switch,
+  Typography,
+} from "antd";
+import {
+  PageContainer,
+  PageState,
+  SelectionBar,
+  TableToolbar,
+} from "@/components/ui/PageModules";
 import {
   aiApi,
   authApi,
@@ -168,7 +191,7 @@ const integrationGroups = [
 const builtInIntegrations = new Set(["联系人补全 API", "行业与招投标数据"]);
 type ConfigurableIntegration = "搜索与网页 API" | "地图 API";
 const aiSortIcon = (active: boolean, descending = false) => (
-  <span className="customer-sort-icon" aria-hidden="true">
+  <span aria-hidden="true">
     {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
   </span>
 );
@@ -266,15 +289,12 @@ function OutboundSettings() {
   const statusLabel = (status: OutboundConnectionApiRecord["status"]) =>
     status === "available" ? "可用" : status === "error" ? "异常" : "待测试";
   return (
-    <section className="outbound-settings-section">
-      <header>
-        <span>
-          <strong>消息发送、收件与队列</strong>
-          <small>
-            支持 SMTP、SendGrid、Mailgun、WhatsApp Cloud API 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件
-          </small>
-        </span>
-        <div>
+    <Flex id="outbound-settings" vertical>
+      <Panel
+        title="消息发送、收件与队列"
+        subtitle="支持 SMTP、SendGrid、Mailgun、WhatsApp Cloud API 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件"
+        action={
+          <Space wrap>
           <Button size="sm" onClick={() => setGovernanceOpen(true)}>
             <ShieldCheck size={14} />
             发送治理
@@ -287,28 +307,31 @@ function OutboundSettings() {
             <Plus size={14} />
             添加发送服务
           </Button>
-        </div>
-      </header>
-      <div className="outbound-connection-grid">
+          </Space>
+        }
+      >
         {connections.data?.items.length ? (
-          connections.data.items.map((connection) => (
-            <article key={connection.id}>
-              <i>
-                <Mail size={18} />
-              </i>
-              <span>
-                <strong>{connection.name}</strong>
-                <small>
-                  {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
-                </small>
-                <em>
-                  优先级 {connection.priority}
-                  {connection.lastLatencyMs
-                    ? ` · ${connection.lastLatencyMs} ms`
-                    : ""}
-                </em>
-              </span>
-              <div>
+          <List
+            dataSource={connections.data.items}
+            renderItem={(connection) => (
+              <List.Item key={connection.id}>
+                <Flex vertical gap={12} style={{ width: "100%" }}>
+                  <List.Item.Meta
+                    style={{ minWidth: 0 }}
+                    avatar={<Avatar icon={<Mail size={18} />} />}
+                    title={connection.name}
+                    description={
+                      <Space direction="vertical" size={0}>
+                        <Typography.Text type="secondary">
+                          {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          优先级 {connection.priority}{connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}
+                        </Typography.Text>
+                      </Space>
+                    }
+                  />
+                  <Space wrap>
                 <Badge
                   tone={
                     connection.status === "available"
@@ -358,17 +381,18 @@ function OutboundSettings() {
                 >
                   回调
                 </Button>
-              </div>
-            </article>
-          ))
+                  </Space>
+                </Flex>
+              </List.Item>
+            )}
+          />
         ) : (
           <EmptyState
-            className="list-empty-state"
             title="暂无邮件发送配置"
             icon={Mail}
           />
         )}
-      </div>
+      </Panel>
       <CreateDialog
         open={Boolean(editing)}
         title={current ? "管理发送与收件服务" : "添加发送与收件服务"}
@@ -485,8 +509,8 @@ function OutboundSettings() {
         onClose={() => setQueueOpen(false)}
         footer={<Button onClick={() => setQueueOpen(false)}>关闭</Button>}
       >
-        <div className="outbox-modal">
-          <div className="outbox-toolbar">
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <TableToolbar filters={<>
             <CustomSelect
               ariaLabel="发送状态"
               value={jobStatus}
@@ -501,23 +525,22 @@ function OutboundSettings() {
               ]}
             />
             <Button size="sm" disabled={jobs.isFetching} onClick={() => jobs.refetch()}>
-              <RefreshCw size={14} className={jobs.isFetching?"is-spinning":undefined} />
+              <RefreshCw size={14} />
               刷新
             </Button>
-            <span>共 {jobs.data?.total ?? 0} 个任务</span>
-          </div>
+            <Typography.Text type="secondary">共 {jobs.data?.total ?? 0} 个任务</Typography.Text>
+          </>} />
           {jobs.data?.items.length ? <DataTable
-            className="customer-table customer-table-pro outbox-table"
             columns={[{key:"recipient",title:"收件人"},{key:"message",title:"主题与内容"},{key:"status",title:"状态"},{key:"attempts",title:"尝试"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]}
             rows={jobs.data.items.map(job=>({key:job.id,cells:[
-              <div className="standard-cell-stack"><strong>{job.contact.name}</strong><small>{job.contact.company} · {job.contact.email??"缺少邮箱"}</small></div>,
-              <div className="standard-cell-stack"><strong>{job.thread.subject}</strong><small>{job.message.body}</small></div>,
-              <div className="standard-cell-stack"><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<small title={job.lastError}>{job.lastError}</small>}</div>,
-              <span>{job.attempts} / {job.maxAttempts}</span>,<span>{new Date(job.updatedAt).toLocaleString("zh-CN")}</span>,
-              <div className="standard-row-actions">{["failed","awaiting_configuration"].includes(job.status)&&<Button title="确认重试" onClick={async()=>{try{await outboxApi.retryJob(job.id);await jobs.refetch();showToast("发送任务已重新进入队列")}catch(cause){showToast(cause instanceof Error?cause.message:"任务重试失败")}}}><RefreshCw/></Button>}</div>,
+              <Space direction="vertical" size={0}><Typography.Text strong>{job.contact.name}</Typography.Text><Typography.Text type="secondary">{job.contact.company} · {job.contact.email??"缺少邮箱"}</Typography.Text></Space>,
+              <Space direction="vertical" size={0}><Typography.Text strong>{job.thread.subject}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:job.message.body}}>{job.message.body}</Typography.Text></Space>,
+              <Space direction="vertical" size={0}><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<Typography.Text type="danger" ellipsis={{tooltip:job.lastError}}>{job.lastError}</Typography.Text>}</Space>,
+              <Typography.Text>{job.attempts} / {job.maxAttempts}</Typography.Text>,<Typography.Text>{new Date(job.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
+              <Space>{["failed","awaiting_configuration"].includes(job.status)&&<Button title="确认重试" onClick={async()=>{try{await outboxApi.retryJob(job.id);await jobs.refetch();showToast("发送任务已重新进入队列")}catch(cause){showToast(cause instanceof Error?cause.message:"任务重试失败")}}}><RefreshCw/></Button>}</Space>,
             ]}))}
-          />:<EmptyState className="list-empty-state compact" title="暂无发送任务" icon={Mail}/>}
-        </div>
+          />:<EmptyState title="暂无发送任务" icon={Mail}/>}
+        </Space>
       </Modal>
       <Modal
         open={governanceOpen}
@@ -527,8 +550,8 @@ function OutboundSettings() {
         onClose={() => setGovernanceOpen(false)}
         footer={<Button onClick={() => setGovernanceOpen(false)}>关闭</Button>}
       >
-        <div className="outbox-modal">
-          <div className="outbox-toolbar governance-toolbar">
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <TableToolbar filters={<>
             <CustomSelect
               ariaLabel="治理内容"
               value={governanceView}
@@ -537,17 +560,7 @@ function OutboundSettings() {
             />
             {governanceView === "抑制名单" && (
               <>
-                <label className="customer-search module-search">
-                  <Search />
-                  <Input
-                    aria-label="搜索抑制名单"
-                    value={suppressionQuery}
-                    onChange={(event) =>
-                      setSuppressionQuery(event.target.value)
-                    }
-                    placeholder="搜索邮箱或原因"
-                  />
-                </label>
+                <SearchInput ariaLabel="搜索抑制名单" value={suppressionQuery} onChange={(event) => setSuppressionQuery(event.target.value)} placeholder="搜索邮箱或原因" />
                 <CustomSelect
                   ariaLabel="抑制状态"
                   value={suppressionStatus}
@@ -559,35 +572,35 @@ function OutboundSettings() {
                   ]}
                 />
                 <Button size="sm" disabled={suppressions.isFetching} onClick={() => suppressions.refetch()}>
-                  <RefreshCw size={14} className={suppressions.isFetching?"is-spinning":undefined} />
+                  <RefreshCw size={14} />
                   刷新
                 </Button>
-                <span>共 {suppressions.data?.total ?? 0} 条记录</span>
+                <Typography.Text type="secondary">共 {suppressions.data?.total ?? 0} 条记录</Typography.Text>
               </>
             )}
             {governanceView === "渠道事件" && (
               <>
                 <Button size="sm" disabled={channelEvents.isFetching} onClick={() => channelEvents.refetch()}>
-                  <RefreshCw size={14} className={channelEvents.isFetching?"is-spinning":undefined} />
+                  <RefreshCw size={14} />
                   刷新
                 </Button>
-                <span>最近 {channelEvents.data?.items.length ?? 0} 条事件</span>
+                <Typography.Text type="secondary">最近 {channelEvents.data?.items.length ?? 0} 条事件</Typography.Text>
               </>
             )}
-          </div>
+          </>} />
           {governanceView === "抑制名单" ? (
-            suppressions.data?.items.length ? <DataTable className="customer-table customer-table-pro outbox-table governance-table" columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
-              <div className="standard-cell-stack"><strong>{item.destination}</strong><small>邮件渠道</small></div>,<span>{item.reason}</span>,<span>{item.source==="channel_event"?"渠道事件":item.source}</span>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<span>{new Date(item.updatedAt).toLocaleString("zh-CN")}</span>,
-              <div className="standard-row-actions">{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</div>,
-            ]}))}/> : <EmptyState className="list-empty-state compact" title="暂无抑制记录" icon={Mail}/>
+            suppressions.data?.items.length ? <DataTable columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
+              <Space direction="vertical" size={0}><Typography.Text strong>{item.destination}</Typography.Text><Typography.Text type="secondary">邮件渠道</Typography.Text></Space>,<Typography.Text>{item.reason}</Typography.Text>,<Typography.Text>{item.source==="channel_event"?"渠道事件":item.source}</Typography.Text>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<Typography.Text>{new Date(item.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
+              <Space>{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</Space>,
+            ]}))}/> : <EmptyState title="暂无抑制记录" icon={Mail}/>
           ) : (
-            channelEvents.data?.items.length ? <DataTable className="customer-table customer-table-pro outbox-table governance-table" columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
+            channelEvents.data?.items.length ? <DataTable columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
               <Badge tone={item.eventType==="bounced"||item.eventType==="complained"?"red":item.eventType==="unsubscribed"?"orange":"blue"}>{{delivered:"已送达",bounced:"退信",complained:"投诉",unsubscribed:"退订",inbound_reply:"客户回复"}[item.eventType]}</Badge>,
-              <div className="standard-cell-stack"><strong>{item.sender??item.recipient??"—"}</strong><small>{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</small></div>,<span title={item.externalMessageId??""}>{item.externalMessageId??"未关联"}</span>,
-              <Badge tone={item.processingStatus==="processed"?"green":item.processingStatus==="unlinked"?"orange":item.processingStatus==="failed"?"red":"blue"}>{{processed:"已处理",unlinked:"未关联",failed:"失败",pending:"处理中"}[item.processingStatus]}</Badge>,<span>{new Date(item.occurredAt).toLocaleString("zh-CN")}</span>,<span>{item.reason??item.processingError??"—"}</span>,
-            ]}))}/> : <EmptyState className="list-empty-state compact" title="暂无渠道事件" icon={Mail}/>
+              <Space direction="vertical" size={0}><Typography.Text strong>{item.sender??item.recipient??"—"}</Typography.Text><Typography.Text type="secondary">{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</Typography.Text></Space>,<Typography.Text ellipsis={{tooltip:item.externalMessageId??""}}>{item.externalMessageId??"未关联"}</Typography.Text>,
+              <Badge tone={item.processingStatus==="processed"?"green":item.processingStatus==="unlinked"?"orange":item.processingStatus==="failed"?"red":"blue"}>{{processed:"已处理",unlinked:"未关联",failed:"失败",pending:"处理中"}[item.processingStatus]}</Badge>,<Typography.Text>{new Date(item.occurredAt).toLocaleString("zh-CN")}</Typography.Text>,<Typography.Text>{item.reason??item.processingError??"—"}</Typography.Text>,
+            ]}))}/> : <EmptyState title="暂无渠道事件" icon={Mail}/>
           )}
-        </div>
+        </Space>
       </Modal>
       <Modal
         open={Boolean(webhookConnection)}
@@ -637,68 +650,38 @@ function OutboundSettings() {
           </>
         }
       >
-        <div className="webhook-setup">
-          <div>
-            <span>
-              <strong>事件接收地址</strong>
-              <small>配置到邮件服务或渠道适配器的回调地址</small>
-            </span>
-            <code>
-              {webhookConnection
-                ? `${window.location.origin}/api/outbox-webhooks/${webhookConnection.id}`
-                : ""}
-            </code>
-            <Button
-              size="sm"
-              onClick={() => {
-                if (!webhookConnection) return;
-                navigator.clipboard?.writeText(
-                  `${window.location.origin}/api/outbox-webhooks/${webhookConnection.id}`,
-                );
-                showToast("事件接收地址已复制");
-              }}
-            >
-              <Copy />
-              复制地址
-            </Button>
-          </div>
-          <div>
-            <span>
-              <strong>签名密钥</strong>
-              <small>
-                {webhookSecret
-                  ? "请立即保存，关闭后无法再次查看"
-                  : "当前密钥仅显示末四位"}
-              </small>
-            </span>
-            <code>
-              {webhookSecret ||
-                `•••• •••• •••• ${webhookConnection?.webhookSecretEnding ?? "未生成"}`}
-            </code>
-            <Button
-              size="sm"
-              disabled={!webhookSecret}
-              onClick={() => {
-                navigator.clipboard?.writeText(webhookSecret);
-                showToast("签名密钥已复制");
-              }}
-            >
-              <Copy />
-              复制密钥
-            </Button>
-          </div>
-          <section>
-            <strong>签名协议</strong>
-            <p>
-              请求头携带 <code>x-sondara-timestamp</code> 和{" "}
-              <code>x-sondara-signature</code>。签名内容为{" "}
-              <code>timestamp.JSON</code>，使用 HMAC-SHA256；超过 5
-              分钟或重复事件不会重复处理。
-            </p>
-          </section>
-        </div>
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Descriptions bordered column={1} size="small">
+            <Descriptions.Item label="事件接收地址">
+              <Space wrap>
+                <Typography.Text code copyable>
+                  {webhookConnection
+                    ? `${window.location.origin}/api/outbox-webhooks/${webhookConnection.id}`
+                    : ""}
+                </Typography.Text>
+                <Typography.Text type="secondary">配置到邮件服务或渠道适配器的回调地址</Typography.Text>
+              </Space>
+            </Descriptions.Item>
+            <Descriptions.Item label="签名密钥">
+              <Space wrap>
+                <Typography.Text code copyable={Boolean(webhookSecret)}>
+                  {webhookSecret || `•••• •••• •••• ${webhookConnection?.webhookSecretEnding ?? "未生成"}`}
+                </Typography.Text>
+                <Typography.Text type={webhookSecret ? "warning" : "secondary"}>
+                  {webhookSecret ? "请立即保存，关闭后无法再次查看" : "当前密钥仅显示末四位"}
+                </Typography.Text>
+              </Space>
+            </Descriptions.Item>
+          </Descriptions>
+          <Alert
+            type="info"
+            showIcon
+            message="签名协议"
+            description={<>请求头携带 <Typography.Text code>x-sondara-timestamp</Typography.Text> 和 <Typography.Text code>x-sondara-signature</Typography.Text>。签名内容为 <Typography.Text code>timestamp.JSON</Typography.Text>，使用 HMAC-SHA256；超过 5 分钟或重复事件不会重复处理。</>}
+          />
+        </Space>
       </Modal>
-    </section>
+    </Flex>
   );
 }
 
@@ -1134,36 +1117,22 @@ export function SettingsPage() {
       </>
     ) : undefined;
   return (
-    <div className="page-content settings-page">
+    <PageContainer>
       <PageHeader
         title={activeMeta.title}
         description={`应用设置 · ${activeMeta.description}`}
         actions={pageActions}
       />
-      <div className="settings-content">
+      <Card>
         {tab === "个人资料" ? (
-          <div className="profile-settings-layout">
-            <section className="profile-card profile-identity-card">
-              <header>
-                <i>
-                  <UserRound size={18} />
-                </i>
-                <span>
-                  <strong>身份资料</strong>
-                  <small>用于账户显示和消息通知</small>
-                </span>
-              </header>
-              <div className="profile-preview">
-                <b>{profileDraft.displayName?.trim().slice(0, 1) || "用"}</b>
-                <span>
-                  <strong>{profileDraft.displayName || "未设置名称"}</strong>
-                  <small>{profileDraft.email || "未设置邮箱"}</small>
-                </span>
-              </div>
-              <div className="profile-form">
-                <label>
-                  显示名称
-                  <Input
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={12}>
+              <Card title={<Space><UserRound size={18} />身份资料</Space>} extra={<Typography.Text type="secondary">用于账户显示和消息通知</Typography.Text>}>
+                <Space direction="vertical" size="large" style={{ width: "100%" }}>
+                  <Space align="center"><Avatar size="large">{profileDraft.displayName?.trim().slice(0, 1) || "用"}</Avatar><Space direction="vertical" size={0}><Typography.Text strong>{profileDraft.displayName || "未设置名称"}</Typography.Text><Typography.Text type="secondary">{profileDraft.email || "未设置邮箱"}</Typography.Text></Space></Space>
+                  <Form layout="vertical">
+                    <Form.Item label="显示名称">
+                  <Input aria-label="显示名称"
                     value={profileDraft.displayName}
                     onChange={(e) =>
                       setProfileDraft((value) => ({
@@ -1172,10 +1141,9 @@ export function SettingsPage() {
                       }))
                     }
                   />
-                </label>
-                <label>
-                  邮箱
-                  <Input
+                    </Form.Item>
+                    <Form.Item label="邮箱">
+                  <Input aria-label="邮箱"
                     type="email"
                     value={profileDraft.email}
                     onChange={(e) =>
@@ -1185,22 +1153,15 @@ export function SettingsPage() {
                       }))
                     }
                   />
-                </label>
-              </div>
-            </section>
-            <section className="profile-card profile-preferences-card">
-              <header>
-                <i>
-                  <Database size={18} />
-                </i>
-                <span>
-                  <strong>区域与经营偏好</strong>
-                  <small>用于界面语言、时间和经营数据的默认口径</small>
-                </span>
-              </header>
-              <div className="profile-form profile-preference-grid">
-                <label>
-                  默认语言
+                    </Form.Item>
+                  </Form>
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card title={<Space><Database size={18} />区域与经营偏好</Space>} extra={<Typography.Text type="secondary">经营数据的默认口径</Typography.Text>}>
+                <Form layout="vertical">
+                  <Form.Item label="默认语言">
                   <CustomSelect
                     ariaLabel="默认语言"
                     value={profileDraft.language}
@@ -1209,9 +1170,8 @@ export function SettingsPage() {
                     }
                     options={["简体中文", "English"]}
                   />
-                </label>
-                <label>
-                  时区
+                  </Form.Item>
+                  <Form.Item label="时区">
                   <CustomSelect
                     ariaLabel="时区"
                     value={profileDraft.timezone}
@@ -1220,9 +1180,8 @@ export function SettingsPage() {
                     }
                     options={["Asia/Shanghai (UTC+8)", "Europe/Berlin (UTC+2)"]}
                   />
-                </label>
-                <label>
-                  基准币种
+                  </Form.Item>
+                  <Form.Item label="基准币种">
                   <CustomSelect
                     ariaLabel="基准币种"
                     value={profileDraft.currency}
@@ -1231,10 +1190,9 @@ export function SettingsPage() {
                     }
                     options={["CNY · 人民币", "EUR · 欧元", "USD · 美元"]}
                   />
-                </label>
-                <label>
-                  经营名称
-                  <Input
+                  </Form.Item>
+                  <Form.Item label="经营名称">
+                  <Input aria-label="经营名称"
                     value={profileDraft.businessName}
                     onChange={(e) =>
                       setProfileDraft((value) => ({
@@ -1243,33 +1201,23 @@ export function SettingsPage() {
                       }))
                     }
                   />
-                </label>
-              </div>
-            </section>
-          </div>
+                  </Form.Item>
+                </Form>
+              </Card>
+            </Col>
+          </Row>
         ) : tab === "AI 模型配置" ? (
-          <div className="ai-settings-page">
-            <Panel className="standard-list-panel ai-service-panel">
-              <div className="ai-service-toolbar customer-toolbar module-toolbar standard-list-toolbar">
-                <div className="customer-filter-controls">
-                  <label className="customer-search module-search">
-                    <Search />
-                    <Input
-                      aria-label="搜索 AI 服务"
-                      value={serviceQuery}
-                      onChange={(event) => setServiceQuery(event.target.value)}
-                      placeholder="搜索服务、模型或提供商"
-                    />
-                  </label>
+            <Panel title="服务优先级与密钥池" subtitle="所有模型服务采用相同的状态、筛选、批量操作和表格排版。">
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                <TableToolbar filters={<>
+                  <SearchInput ariaLabel="搜索 AI 服务" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="搜索服务、模型或提供商" />
                   <CustomSelect
-                    className="ai-status-select"
                     ariaLabel="筛选 AI 服务状态"
                     value={serviceStatus}
                     onChange={setServiceStatus}
                     options={["全部状态", "可用", "未验证", "异常", "停用"]}
                   />
                   <CustomSelect
-                    className="sort-select"
                     ariaLabel="AI 服务排序"
                     value={serviceSort}
                     onChange={(value) => setServiceSort(value as AiServiceSort)}
@@ -1282,18 +1230,16 @@ export function SettingsPage() {
                     ]}
                   />
                   <Button
-                    className="customer-refresh"
                     disabled={aiServiceQuery.isFetching}
                     onClick={async () => {
                       await aiServiceQuery.refetch();
                       showToast("AI 服务列表已刷新");
                     }}
-                  >
-                    <RefreshCw className={aiServiceQuery.isFetching?"is-spinning":undefined} />
+                   >
+                    <RefreshCw />
                     刷新
                   </Button>
                   <Button
-                    className="customer-clear module-clear"
                     disabled={
                       !serviceQuery &&
                       serviceStatus === "全部状态" &&
@@ -1307,18 +1253,10 @@ export function SettingsPage() {
                   >
                     清除筛选
                   </Button>
-                </div>
-                <div
-                  className={`customer-selection-tools${selectedAiServices.size > 0 ? " has-selection" : " is-empty"}`}
-                  aria-hidden={selectedAiServices.size === 0}
-                >
-                  <span>
-                    <CheckCircle2 />
-                    <small>已选择</small>
-                    <strong>{selectedAiServices.size}</strong>
-                    <small>个</small>
-                  </span>
-                  <div>
+                </>} selection={selectedAiServices.size > 0 ? (
+                  <SelectionBar
+                    summary={<>已选择 <Typography.Text strong>{selectedAiServices.size}</Typography.Text> 个服务</>}
+                    actions={<>
                     <Button onClick={() => bulkToggleAiServices(true)}>
                       启用所选
                     </Button>
@@ -1332,22 +1270,28 @@ export function SettingsPage() {
                     >
                       <X />
                     </Button>
-                  </div>
-                </div>
-              </div>
-              <DataTable className="customer-table customer-table-pro ai-service-table" minWidth={880} columns={[
-                {key:"select",title:<span className="customer-check"><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
-                {key:"service",title:<Button className="customer-sort-head" onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>服务、模型与优先级{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:260},
-                {key:"keys",title:<Button className="customer-sort-head" onClick={()=>setServiceSort("密钥最多")}>密钥与状态{aiSortIcon(serviceSort==="密钥最多",true)}</Button>,width:150},
-                {key:"quality",title:<Button className="customer-sort-head" onClick={()=>setServiceSort("延迟最低")}>连接质量与接口{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:260},
+                    </>}
+                  />
+                ) : undefined} />
+              {aiServiceQuery.isLoading ? (
+                <PageState status="loading" title="正在加载 AI 服务" />
+              ) : aiServiceQuery.isError ? (
+                <PageState status="error" title="AI 服务加载失败" description="请检查服务端连接后重试。" onRetry={() => aiServiceQuery.refetch()} />
+              ) : (
+              <DataTable minWidth={880} columns={[
+                {key:"select",title:<span><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
+                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>服务、模型与优先级{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:260},
+                {key:"keys",title:<Button onClick={()=>setServiceSort("密钥最多")}>密钥与状态{aiSortIcon(serviceSort==="密钥最多",true)}</Button>,width:150},
+                {key:"quality",title:<Button onClick={()=>setServiceSort("延迟最低")}>连接质量与接口{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:260},
                 {key:"enabled",title:"启用状态",width:90},{key:"actions",title:"操作",width:120},
-              ]} rows={aiServicePaging.pageItems.map(service=>({key:service.id,className:`${service.status==="停用"?"disabled ":""}${selectedAiServices.has(service.id)?"selected":""}`,cells:[
-                <span className="customer-check"><Checkbox aria-label={`选择 ${service.name}`} checked={selectedAiServices.has(service.id)} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);event.target.checked?next.add(service.id):next.delete(service.id);return next;})}/></span>,
-                <div className="customer-company ai-service-company"><i><Bot/></i><span><strong>{service.name}</strong><small>{service.provider} · {service.model}</small><em><Route/>{service.priority===1?"当前主服务":`备用服务 ${service.priority-1}`}</em></span></div>,
-                <div className="standard-cell-stack"><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><small>{service.keyCount} 个密钥参与轮转</small></div>,<div className="standard-cell-stack"><strong>{service.latency}</strong><span className="ai-endpoint" title={service.endpoint}>{service.endpoint}</span></div>,
+              ]} rows={aiServicePaging.pageItems.map(service=>({key:service.id,cells:[
+                <Checkbox aria-label={`选择 ${service.name}`} checked={selectedAiServices.has(service.id)} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);event.target.checked?next.add(service.id):next.delete(service.id);return next;})}/>,
+                <Space><Avatar icon={<Bot/>}/><Space direction="vertical" size={0}><Typography.Text strong>{service.name}</Typography.Text><Typography.Text type="secondary">{service.provider} · {service.model}</Typography.Text><Typography.Text type="secondary"><Route size={13}/> {service.priority===1?"当前主服务":`备用服务 ${service.priority-1}`}</Typography.Text></Space></Space>,
+                <Space direction="vertical" size={0}><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><Typography.Text type="secondary">{service.keyCount} 个密钥参与轮转</Typography.Text></Space>,<Space direction="vertical" size={0}><Typography.Text strong>{service.latency}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:service.endpoint}}>{service.endpoint}</Typography.Text></Space>,
                 <Switch aria-label={`${service.name}启用状态`} checked={service.status!=="停用"} onChange={()=>toggleAiService(service.id)}/>,
-                <div className="standard-row-actions ai-table-actions"><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button aria-label={`管理 ${service.name} 密钥`} title="管理密钥" onClick={()=>setKeyService(service)}><KeyRound/></Button><Button className="ai-promote-service" disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button></div>,
+                <Space><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button aria-label={`管理 ${service.name} 密钥`} title="管理密钥" onClick={()=>setKeyService(service)}><KeyRound/></Button><Button disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button></Space>,
               ]}))}/>
+              )}
               {filteredAiServices.length > 0 && (
                 <Pagination
                   page={aiServicePaging.page}
@@ -1359,21 +1303,14 @@ export function SettingsPage() {
                   itemName="个服务"
                 />
               )}
+              </Space>
             </Panel>
-          </div>
         ) : tab === "数据源与集成" ? (
-          <div className="integration-settings-page">
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
             <OutboundSettings />
             {integrationGroups.map((group, groupIndex) => (
-              <section className="integration-group" key={group.title}>
-                <header>
-                  <span>
-                    <strong>{group.title}</strong>
-                    <small>{group.description}</small>
-                  </span>
-                </header>
-                <div className="integration-grid">
-                  {group.services.map((service) => {
+              <Card key={group.title} title={<Space direction="vertical" size={0}><Typography.Text strong>{group.title}</Typography.Text><Typography.Text type="secondary">{group.description}</Typography.Text></Space>}>
+                <List dataSource={[...group.services] as Array<{ name: string; description: string }>} renderItem={(service) => {
                     const index = integrationServices.findIndex(
                       (item) => item.name === service.name,
                     );
@@ -1417,35 +1354,17 @@ export function SettingsPage() {
                         ? `${connection.name} · ${(connection as { endpoint?: string }).endpoint ?? ""}`
                         : service.description;
                     return (
-                      <article
-                        className={isConnected ? "connected" : ""}
-                        key={service.name}
-                      >
-                        <div className="integration-icon">
-                          <Icon size={19} />
-                        </div>
-                        <span>
-                          <strong>{service.name}</strong>
-                          <small>{connectionDetail}</small>
-                        </span>
-                        <div className="integration-card-actions">
-                          <Badge
-                            tone={
-                              statusLabel === "可用" ||
-                              statusLabel === "内置可用"
-                                ? "green"
-                                : statusLabel === "异常"
-                                  ? "red"
-                                  : "neutral"
-                            }
-                          >
-                            {statusLabel}
-                          </Badge>
-                          <span>
+                      <List.Item key={service.name}>
+                        <Flex vertical gap={12} style={{ width: "100%" }}>
+                          <Space align="start"><Avatar icon={<Icon size={19} />} /><Space direction="vertical" size={0}><Typography.Text strong>{service.name}</Typography.Text><Typography.Text type="secondary">{connectionDetail}</Typography.Text></Space></Space>
+                          <Space wrap>
+                            <Badge
+                              tone={statusLabel === "可用" || statusLabel === "内置可用" ? "green" : statusLabel === "异常" ? "red" : "neutral"}
+                            >
+                              {statusLabel}
+                            </Badge>
                             {isBuiltIn ? (
-                              <small className="integration-built-in">
-                                无需密钥
-                              </small>
+                              <Typography.Text type="secondary">无需密钥</Typography.Text>
                             ) : (
                               <>
                                 {connection && (
@@ -1456,21 +1375,14 @@ export function SettingsPage() {
                                         try {
                                           const result = await outboxApi.testConnection(connection.id);
                                           await outboundConnectionsQuery.refetch();
-                                          showToast(
-                                            `SMTP 连接正常 · ${result.latencyMs} ms${result.activatedJobs ? `，已激活 ${result.activatedJobs} 个待发送任务` : ""}`,
-                                          );
+                                          showToast(`SMTP 连接正常 · ${result.latencyMs} ms${result.activatedJobs ? `，已激活 ${result.activatedJobs} 个待发送任务` : ""}`);
                                         } catch (cause) {
                                           await outboundConnectionsQuery.refetch();
-                                          showToast(
-                                            cause instanceof Error ? cause.message : "SMTP 连接测试失败",
-                                          );
+                                          showToast(cause instanceof Error ? cause.message : "SMTP 连接测试失败");
                                         }
                                         return;
                                       }
-                                      testIntegrationConnection(
-                                        connection as typeof searchConnection,
-                                        service.name === "地图 API" ? "地图" : "搜索",
-                                      );
+                                      testIntegrationConnection(connection as typeof searchConnection, service.name === "地图 API" ? "地图" : "搜索");
                                     }}
                                   >
                                     测试
@@ -1480,73 +1392,40 @@ export function SettingsPage() {
                                   size="sm"
                                   onClick={() => {
                                     if (isEmail) {
-                                      document.querySelector(".outbound-settings-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                      document.getElementById("outbound-settings")?.scrollIntoView({ behavior: "smooth", block: "start" });
                                       return;
                                     }
-                                    if (
-                                      service.name === "搜索与网页 API" ||
-                                      service.name === "地图 API"
-                                    ) {
-                                      setIntegration(service.name);
-                                    }
+                                    if (service.name === "搜索与网页 API" || service.name === "地图 API") setIntegration(service.name);
                                   }}
                                 >
                                   {isConnected ? "管理" : "配置"}
                                 </Button>
                               </>
                             )}
-                          </span>
-                        </div>
-                      </article>
+                          </Space>
+                        </Flex>
+                      </List.Item>
                     );
-                  })}
-                </div>
+                  }} />
                 {groupIndex === 0 && (
-                  <footer>
-                    <ShieldCheck size={14} />
-                    <span>
-                      连接凭据由服务端加密保存并按工作区隔离；公开联系人与行业来源具备无需密钥的内置基础能力。
-                    </span>
-                  </footer>
+                  <Alert type="info" showIcon icon={<ShieldCheck size={14} />} message="连接凭据由服务端加密保存并按工作区隔离；公开联系人与行业来源具备无需密钥的内置基础能力。" />
                 )}
-              </section>
+              </Card>
             ))}
-          </div>
+          </Space>
         ) : tab === "数据与备份" ? (
-          <div className="data-backup-layout">
-            <section className="data-location-card">
-              <header>
-                <i>
-                  <MonitorSmartphone size={20} />
-                </i>
-                <span>
-                  <small>数据存储</small>
-                  <strong>部署服务器持久化保存</strong>
-                  <p>业务数据保存在服务端 PostgreSQL 数据库中，并按工作区隔离。</p>
-                </span>
-                <Badge tone="green">已持久化</Badge>
-              </header>
-              <div>
-                <span>
-                  <small>保存范围</small>
-                  <strong>完整业务数据</strong>
-                  <p>客户、任务、内容、活动与商机</p>
-                </span>
-                <span>
-                  <small>保存方式</small>
-                  <strong>业务动作后实时写入</strong>
-                  <p>无需手动保存，修改即时生效</p>
-                </span>
-              </div>
-            </section>
-            <section className="backup-control-card">
-              <header>
-                <span>
-                  <strong>数据导出与备份</strong>
-                  <small>从服务器导出当前工作区的真实数据，或下载完整数据库备份</small>
-                </span>
-              </header>
-              <div className="backup-action-grid">
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Card title={<Space><MonitorSmartphone size={20} />数据存储</Space>} extra={<Badge tone="green">已持久化</Badge>}>
+              <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
+                <Descriptions.Item label="部署方式">本地 SQLite 文件持久化，按工作区隔离</Descriptions.Item>
+                <Descriptions.Item label="保存范围">客户、任务、内容、活动与商机</Descriptions.Item>
+                <Descriptions.Item label="保存方式">业务动作后实时写入，无需手动保存</Descriptions.Item>
+                <Descriptions.Item label="状态">修改即时生效</Descriptions.Item>
+              </Descriptions>
+            </Card>
+            <Card title="数据导出与备份" extra={<Typography.Text type="secondary">下载当前工作区的真实数据</Typography.Text>}>
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                <Space wrap>
                 <Button
                   onClick={async () => {
                     try {
@@ -1557,13 +1436,8 @@ export function SettingsPage() {
                     }
                   }}
                 >
-                  <i>
-                    <Download size={17} />
-                  </i>
-                  <span>
-                    <strong>导出业务数据 (JSON)</strong>
-                    <small>客户、商机、内容、活动、消息等全部工作区数据</small>
-                  </span>
+                  <Download size={17} />
+                  导出业务数据 (JSON)
                 </Button>
                 <Button
                   onClick={async () => {
@@ -1575,55 +1449,44 @@ export function SettingsPage() {
                     }
                   }}
                 >
-                  <i>
-                    <Database size={17} />
-                  </i>
-                  <span>
-                    <strong>完整数据库备份</strong>
-                    <small>PostgreSQL custom-format 备份，可用于灾难恢复</small>
-                  </span>
+                  <Database size={17} />
+                  完整数据库备份
                 </Button>
-              </div>
-              <div className="backup-reminder">
-                <span>
-                  <strong>{backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}</strong>
-                  <small>每份自动备份生成后均执行 pg_restore 目录校验；升级前仍建议额外下载一份。</small>
-                </span>
-                <Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15} className={backupsQuery.isFetching?"is-spinning":undefined}/>刷新</Button>
-              </div>
-              {(backupsQuery.data?.items ?? []).length > 0 && <div className="backup-reminder">
-                <span>
-                  <strong>最近持久化备份</strong>
-                  <small>{backupsQuery.data!.items.slice(0, 3).map(item=>`${new Date(item.createdAt).toLocaleString("zh-CN")} · ${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`).join("\n")}</small>
-                </span>
-                <Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button>
-              </div>}
-              {operationsQuery.data && <div className="backup-reminder">
-                <span>
-                  <strong>运行概览</strong>
-                  <small>{`客户 ${operationsQuery.data.counts.customers} · 任务 ${operationsQuery.data.counts.tasks} · 商机 ${operationsQuery.data.counts.deals} · 雷达任务 ${operationsQuery.data.counts.radarTasks} · 外发队列 ${operationsQuery.data.counts.queuedOutbound}`}</small>
-                </span>
-                <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
-              </div>}
+                </Space>
+                <Alert
+                  type={backupsQuery.data?.automatic ? "success" : "warning"}
+                  showIcon
+                  message={backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}
+                  description="每份自动备份生成后均执行 SQLite 完整性校验；升级前仍建议额外下载一份。"
+                  action={<Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15}/>刷新</Button>}
+                />
+                {(backupsQuery.data?.items ?? []).length > 0 && (
+                  <List
+                    header={<Space><Typography.Text strong>最近持久化备份</Typography.Text><Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button></Space>}
+                    dataSource={backupsQuery.data!.items.slice(0, 3)}
+                    renderItem={(item) => <List.Item><Flex align="center" gap={12}><Avatar icon={<Database size={16}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>{new Date(item.createdAt).toLocaleString("zh-CN")}</Typography.Text><Typography.Text type="secondary">{`${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`}</Typography.Text></Space></Flex></List.Item>}
+                  />
+                )}
+                {operationsQuery.data && (
+                  <Card size="small" title="运行概览" extra={<Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>}>
+                    <Row gutter={[16, 16]}>
+                      <Col xs={12} md={4}><Statistic title="客户" value={operationsQuery.data.counts.customers}/></Col>
+                      <Col xs={12} md={4}><Statistic title="任务" value={operationsQuery.data.counts.tasks}/></Col>
+                      <Col xs={12} md={4}><Statistic title="商机" value={operationsQuery.data.counts.deals}/></Col>
+                      <Col xs={12} md={4}><Statistic title="雷达任务" value={operationsQuery.data.counts.radarTasks}/></Col>
+                      <Col xs={12} md={4}><Statistic title="外发队列" value={operationsQuery.data.counts.queuedOutbound}/></Col>
+                    </Row>
+                  </Card>
+                )}
               {connectorHealthQuery.data && (() => {
                 const s = connectorHealthQuery.data.summary;
                 const totalIssues = s.totalIssues;
                 if (totalIssues === 0) return (
-                  <div className="backup-reminder">
-                    <span>
-                      <strong>连接器健康</strong>
-                      <small>所有连接器正常，过去 7 天无失败</small>
-                    </span>
-                    <Badge tone="green">全部正常</Badge>
-                  </div>
+                  <Alert type="success" showIcon message="连接器健康" description="所有连接器正常，过去 7 天无失败" />
                 );
                 return (
-                  <div className="backup-reminder connector-health-panel">
-                    <span>
-                      <strong>连接器失败告警</strong>
-                      <small>过去 7 天共 {totalIssues} 项异常</small>
-                    </span>
-                    <div className="connector-health-summary">
+                  <Alert type="warning" showIcon message={`连接器失败告警 · 过去 7 天共 ${totalIssues} 项异常`} description={
+                    <Space wrap>
                       {s.outboundUnhealthy > 0 && <Badge tone="red">外发渠道 {s.outboundUnhealthy}</Badge>}
                       {s.integrationUnhealthy > 0 && <Badge tone="red">数据源 {s.integrationUnhealthy}</Badge>}
                       {s.leadSourceUnhealthy > 0 && <Badge tone="orange">官方线索 {s.leadSourceUnhealthy}</Badge>}
@@ -1632,8 +1495,8 @@ export function SettingsPage() {
                       {s.failedRadarQueue > 0 && <Badge tone="orange">研究队列 {s.failedRadarQueue}</Badge>}
                       {s.outboxFailures > 0 && <Badge tone="red">外发失败 {s.outboxFailures}</Badge>}
                       {s.aiServiceDegraded > 0 && <Badge tone="orange">AI 服务 {s.aiServiceDegraded}</Badge>}
-                    </div>
-                  </div>
+                    </Space>
+                  } />
                 );
               })()}
               {connectorHealthQuery.data && (() => {
@@ -1652,131 +1515,58 @@ export function SettingsPage() {
                   return "blue" as const;
                 };
                 return (
-                  <div className="connector-health-details">
-                    {allConnections.map(c => {
+                  <List header={<Typography.Text strong>连接器与失败明细</Typography.Text>} dataSource={[
+                    ...allConnections.map(c => {
                       const tone = connStatusTone(c);
                       return (
-                        <article key={`${c.type}-${c.name}`} className="connector-health-item">
-                          <span className={`connector-dot connector-dot-${tone}`} />
-                          <span>
-                            <strong>{c.type} · {c.name}</strong>
-                            <small>{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</small>
-                            {c.lastError && <small className="connector-error-text">{c.lastError}</small>}
-                          </span>
-                          <Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>
-                        </article>
+                        <List.Item key={`${c.type}-${c.name}`} extra={<Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>}>
+                          <List.Item.Meta title={`${c.type} · ${c.name}`} description={<Space direction="vertical" size={0}><Typography.Text type="secondary">{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</Typography.Text>{c.lastError && <Typography.Text type="danger">{c.lastError}</Typography.Text>}</Space>} />
+                        </List.Item>
                       );
-                    })}
-                    {data.failedRadarTasks.map(task => (
-                      <article key={task.id} className="connector-health-item">
-                        <AlertTriangle size={14} />
-                        <span>
-                          <strong>雷达任务失败 · {task.name}</strong>
-                          <small>{task.lastError ?? "未知错误"}</small>
-                          <small>{new Date(task.updatedAt).toLocaleString("zh-CN")}</small>
-                        </span>
-                      </article>
-                    ))}
-                    {data.outboxFailures.slice(0, 5).map(job => (
-                      <article key={job.id} className="connector-health-item">
-                        <AlertTriangle size={14} />
-                        <span>
-                          <strong>外发失败 · {job.channel}</strong>
-                          <small>{job.lastError ?? "未知错误"}</small>
-                          <small>重试 {job.attempts}/{job.maxAttempts} · {new Date(job.updatedAt).toLocaleString("zh-CN")}</small>
-                        </span>
-                      </article>
-                    ))}
-                    {data.radarEvents.slice(0, 5).map(event => (
-                      <article key={event.id} className="connector-health-item">
-                        <AlertTriangle size={14} />
-                        <span>
-                          <strong>雷达连接器 · {event.eventType}</strong>
-                          <small>{event.message}</small>
-                          <small>{new Date(event.createdAt).toLocaleString("zh-CN")}</small>
-                        </span>
-                      </article>
-                    ))}
-                  </div>
+                    }),
+                    ...data.failedRadarTasks.map(task => (
+                      <List.Item key={task.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`雷达任务失败 · ${task.name}`} description={`${task.lastError ?? "未知错误"} · ${new Date(task.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
+                    )),
+                    ...data.outboxFailures.slice(0, 5).map(job => (
+                      <List.Item key={job.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`外发失败 · ${job.channel}`} description={`${job.lastError ?? "未知错误"} · 重试 ${job.attempts}/${job.maxAttempts} · ${new Date(job.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
+                    )),
+                    ...data.radarEvents.slice(0, 5).map(event => (
+                      <List.Item key={event.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`雷达连接器 · ${event.eventType}`} description={`${event.message} · ${new Date(event.createdAt).toLocaleString("zh-CN")}`} /></List.Item>
+                    )),
+                  ]} renderItem={(item) => item}/>
                 );
               })()}
-            </section>
-          </div>
+              </Space>
+            </Card>
+          </Space>
         ) : (
-          <div className="security-settings-layout">
-            <section className="security-card">
-              <header>
-                <i>
-                  <LockKeyhole size={18} />
-                </i>
-                <span>
-                  <strong>账户保护</strong>
-                  <small>管理登录凭据与第二重身份验证</small>
-                </span>
-              </header>
-              <div className="security-options">
-                <article>
-                  <i>
-                    <LockKeyhole size={17} />
-                  </i>
-                  <span>
-                    <strong>登录密码</strong>
-                    <small>最近更新于 30 天前</small>
-                  </span>
-                  <Button
-                    size="sm"
-                    onClick={() => setSecurityDialog("password")}
-                  >
-                    修改密码
-                  </Button>
-                </article>
-                <article>
-                  <i>
-                    <ShieldCheck size={17} />
-                  </i>
-                  <span>
-                    <strong>双重验证</strong>
-                    <small>{twoFactorStatusQuery.data?.enabled ? "已启用验证器应用和恢复码" : "使用验证器应用保护账户"}</small>
-                  </span>
-                  <Badge tone={twoFactorStatusQuery.data?.enabled ? "green" : "orange"}>{twoFactorStatusQuery.data?.enabled ? "已启用" : "未启用"}</Badge>
-                  <Button size="sm" onClick={openTwoFactorDialog}>
-                    {twoFactorStatusQuery.data?.enabled ? "管理" : "设置"}
-                  </Button>
-                </article>
-              </div>
-            </section>
-            <section className="security-card">
-              <header>
-                <i>
-                  <MonitorSmartphone size={18} />
-                </i>
-                <span>
-                  <strong>登录会话</strong>
-                  <small>查看当前设备和其他活动会话</small>
-                </span>
-              </header>
-              <div className="session-list">
-                {(sessionsQuery.data?.items ?? []).map(session => <article className={session.current ? "current" : ""} key={session.id}>
-                  <i><MonitorSmartphone size={17}/></i>
-                  <span><strong>{/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · {session.ipAddress ?? "未知地址"}</strong><small>{session.current ? "当前设备" : "其他设备"} · 最近活动：{session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}</small></span>
-                  {session.current ? <Badge tone="green">当前</Badge> : <Button size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>}
-                </article>)}
-                {(sessionsQuery.data?.items ?? []).filter(session => !session.current).length > 0 && <article>
-                  <i><UserRound size={17}/></i><span><strong>其他登录设备</strong><small>一次撤销当前设备之外的全部会话</small></span>
-                  <Button size="sm" onClick={async()=>{const result=await authApi.revokeOtherSessions();await sessionsQuery.refetch();showToast(`已退出 ${result.removed} 个其他会话`)}}>全部退出</Button>
-                </article>}
-              </div>
-            </section>
-            <section className="security-danger-card">
-              <i>
-                <Trash2 size={18} />
-              </i>
-              <span>
-                <strong>删除账户和数据</strong>
-                <small>
-                  永久删除账号、密钥及全部经营数据；建议操作前先导出完整备份。
-                </small>
-              </span>
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Card title={<Space><LockKeyhole size={18} />账户保护</Space>} extra={<Typography.Text type="secondary">管理登录凭据与第二重身份验证</Typography.Text>}>
+              <List dataSource={["password", "two-factor"]} renderItem={(item) => item === "password" ? (
+                <List.Item actions={[<Button key="password" size="sm" onClick={() => setSecurityDialog("password")}>修改密码</Button>]}>
+                  <Space align="center"><Avatar icon={<LockKeyhole size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>登录密码</Typography.Text><Typography.Text type="secondary">使用当前密码验证后可设置新密码</Typography.Text></Space></Space>
+                </List.Item>
+              ) : (
+                <List.Item actions={[<Badge key="status" tone={twoFactorStatusQuery.data?.enabled ? "green" : "orange"}>{twoFactorStatusQuery.data?.enabled ? "已启用" : "未启用"}</Badge>, <Button key="two-factor" size="sm" onClick={openTwoFactorDialog}>{twoFactorStatusQuery.data?.enabled ? "管理" : "设置"}</Button>]}>
+                  <Space align="center"><Avatar icon={<ShieldCheck size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>双重验证</Typography.Text><Typography.Text type="secondary">{twoFactorStatusQuery.data?.enabled ? "已启用验证器应用和恢复码" : "使用验证器应用保护账户"}</Typography.Text></Space></Space>
+                </List.Item>
+              )}/>
+            </Card>
+            <Card title={<Space><MonitorSmartphone size={18} />登录会话</Space>} extra={<Typography.Text type="secondary">查看当前设备和其他活动会话</Typography.Text>}>
+              <List dataSource={sessionsQuery.data?.items ?? []} renderItem={(session) => <List.Item key={session.id} actions={[session.current ? <Badge key="current" tone="green">当前</Badge> : <Button key="revoke" size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>]}>
+                  <Space align="center"><Avatar icon={<MonitorSmartphone size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>{`${/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · ${session.ipAddress ?? "未知地址"}`}</Typography.Text><Typography.Text type="secondary">{`${session.current ? "当前设备" : "其他设备"} · 最近活动：${session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}`}</Typography.Text></Space></Space>
+                </List.Item>}/>
+              {(sessionsQuery.data?.items ?? []).some(session => !session.current) && <List dataSource={["other-sessions"]} renderItem={() => <List.Item actions={[<Button key="revoke-all" size="sm" onClick={async()=>{const result=await authApi.revokeOtherSessions();await sessionsQuery.refetch();showToast(`已退出 ${result.removed} 个其他会话`)}}>全部退出</Button>]}>
+                  <Space align="center"><Avatar icon={<UserRound size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>其他登录设备</Typography.Text><Typography.Text type="secondary">一次撤销当前设备之外的全部会话</Typography.Text></Space></Space>
+                </List.Item>}/>}
+            </Card>
+            <Alert
+              type="error"
+              showIcon
+              icon={<Trash2 size={18} />}
+              message="删除账户和数据"
+              description="永久删除账号、密钥及全部经营数据；建议操作前先导出完整备份。"
+              action={
               <Button
                 variant="danger"
                 onClick={() => setConfirmDelete("account")}
@@ -1784,10 +1574,11 @@ export function SettingsPage() {
                 <Trash2 size={14} />
                 删除账户
               </Button>
-            </section>
-          </div>
+              }
+            />
+          </Space>
         )}
-      </div>
+      </Card>
       <Modal
         open={policyOpen}
         title="轮转与重试策略"
@@ -1809,76 +1600,59 @@ export function SettingsPage() {
           </>
         }
       >
-        <div className="ai-policy-modal">
-          <div className="ai-policy-flow">
-            <span>
-              <i>1</i>
-              <strong>请求主服务</strong>
-              <small>使用当前可用密钥</small>
-            </span>
-            <em>→</em>
-            <span>
-              <i>2</i>
-              <strong>重试与轮转</strong>
-              <small>换密钥并按策略重试</small>
-            </span>
-            <em>→</em>
-            <span>
-              <i>3</i>
-              <strong>服务降级</strong>
-              <small>切换下一个可用服务</small>
-            </span>
-          </div>
-          <div className="ai-policy-grid">
-            <label>
-              密钥轮转方式
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <Steps
+            size="small"
+            current={1}
+            items={[
+              { title: "请求主服务", description: "使用当前可用密钥" },
+              { title: "重试与轮转", description: "换密钥并按策略重试" },
+              { title: "服务降级", description: "切换下一个可用服务" },
+            ]}
+          />
+          <Form layout="vertical">
+            <Row gutter={16}>
+              <Col xs={24} sm={12}><Form.Item label="密钥轮转方式">
               <CustomSelect
                 ariaLabel="密钥轮转方式"
                 value={rotationStrategy}
                 onChange={setRotationStrategy}
                 options={["失败后切换密钥", "按请求轮询", "最少使用优先"]}
               />
-            </label>
-            <label>
-              单密钥重试次数
+              </Form.Item></Col>
+              <Col xs={24} sm={12}><Form.Item label="单密钥重试次数">
               <CustomSelect
                 ariaLabel="单密钥重试次数"
                 value={retryCount}
                 onChange={setRetryCount}
                 options={["不重试", "1 次", "2 次", "3 次"]}
               />
-            </label>
-            <label>
-              重试间隔
+              </Form.Item></Col>
+              <Col xs={24} sm={12}><Form.Item label="重试间隔">
               <CustomSelect
                 ariaLabel="重试间隔"
                 value={retryDelay}
                 onChange={setRetryDelay}
                 options={["指数退避", "固定 1 秒", "固定 3 秒"]}
               />
-            </label>
-            <label>
-              失败冷却时间
+              </Form.Item></Col>
+              <Col xs={24} sm={12}><Form.Item label="失败冷却时间">
               <CustomSelect
                 ariaLabel="失败冷却时间"
                 value={cooldown}
                 onChange={setCooldown}
                 options={["1 分钟", "5 分钟", "15 分钟", "30 分钟"]}
               />
-            </label>
-          </div>
-          <div className="setting-row">
-            <span>
-              <strong>跨服务自动切换</strong>
-              <small>当前服务全部密钥失败后，自动使用下一优先级服务。</small>
-            </span>
-            <Switch
-              aria-label="跨服务自动切换"
-              checked={failoverEnabled}
-              onChange={setFailoverEnabled}
-            />
-          </div>
-        </div>
+              </Form.Item></Col>
+            </Row>
+          </Form>
+          <Card size="small">
+            <Flex justify="space-between" align="center" gap={16}>
+              <Space direction="vertical" size={0}><Typography.Text strong>跨服务自动切换</Typography.Text><Typography.Text type="secondary">当前服务全部密钥失败后，自动使用下一优先级服务。</Typography.Text></Space>
+              <Switch aria-label="跨服务自动切换" checked={failoverEnabled} onChange={setFailoverEnabled} />
+            </Flex>
+          </Card>
+        </Space>
       </Modal>
       <CreateDialog
         open={serviceDialog}
@@ -1935,65 +1709,38 @@ export function SettingsPage() {
           </>
         }
       >
-        <div className="ai-key-pool">
-          <header>
-            <span>
-              <strong>
-                {
-                  aiKeys.filter(
-                    (item) =>
-                      item.serviceId === keyService?.id &&
-                      item.status === "启用",
-                  ).length
-                }{" "}
-                个启用
-              </strong>
-              <small>失败的密钥会进入冷却，恢复后重新加入轮转。</small>
-            </span>
-            <Badge tone="blue">{rotationStrategy}</Badge>
-          </header>
-          <div>
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`${aiKeys.filter((item) => item.serviceId === keyService?.id && item.status === "启用").length} 个密钥已启用`}
+            description="失败的密钥会进入冷却，恢复后重新加入轮转。"
+            action={<Badge tone="blue">{rotationStrategy}</Badge>}
+          />
             {aiKeys.filter((item) => item.serviceId === keyService?.id)
               .length ? (
-              aiKeys
-                .filter((item) => item.serviceId === keyService?.id)
-                .map((key) => (
-                  <article key={key.id}>
-                    <i>
-                      <KeyRound />
-                    </i>
-                    <span>
-                      <strong>{key.name}</strong>
-                      <small>
-                        •••• •••• •••• {key.ending} · 最近使用 {key.lastUsed}
-                      </small>
-                    </span>
-                    <Badge tone={key.status === "启用" ? "green" : "neutral"}>
-                      {key.status}
-                    </Badge>
-                    <Switch
-                      aria-label={`${key.name}启用状态`}
-                      checked={key.status === "启用"}
-                      onChange={() => toggleAiKey(key)}
-                    />
-                    <Button
-                      aria-label={`删除 ${key.name}`}
-                      title="删除密钥"
-                      onClick={() => { setDeleteKeyId(key.id); setConfirmDelete("key"); }}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </article>
-                ))
+              <List
+                dataSource={aiKeys.filter((item) => item.serviceId === keyService?.id)}
+                renderItem={(key) => (
+                  <List.Item
+                    key={key.id}
+                    actions={[
+                      <Badge key="status" tone={key.status === "启用" ? "green" : "neutral"}>{key.status}</Badge>,
+                      <Switch key="switch" aria-label={`${key.name}启用状态`} checked={key.status === "启用"} onChange={() => toggleAiKey(key)} />,
+                      <Button key="delete" aria-label={`删除 ${key.name}`} title="删除密钥" onClick={() => { setDeleteKeyId(key.id); setConfirmDelete("key"); }}><Trash2 size={14} /></Button>,
+                    ]}
+                  >
+                    <List.Item.Meta avatar={<Avatar icon={<KeyRound />} />} title={key.name} description={`•••• •••• •••• ${key.ending} · 最近使用 ${key.lastUsed}`} />
+                  </List.Item>
+                )}
+              />
             ) : (
               <EmptyState
-                className="list-empty-state compact"
                 title="暂无密钥"
                 icon={KeyRound}
               />
             )}
-          </div>
-        </div>
+        </Space>
       </Modal>
       <CreateDialog
         open={Boolean(addKeyService)}
@@ -2064,12 +1811,12 @@ export function SettingsPage() {
           </>
         }
       >
-        <p className="danger-copy">
+        <Typography.Paragraph>
           {confirmDelete === "account"
             ? "账号、客户、活动、消息、商机和密钥都将永久删除。建议先导出完整备份。"
             : "删除后，依赖该密钥的 AI 研究与内容生成功能将停止。"}
-        </p>
-        {confirmDelete === "account" && <div className="two-factor-fields"><label>当前密码<span>用于确认账户所有权</span><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></label><label>确认文字<span>请输入 DELETE</span><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></label></div>}
+        </Typography.Paragraph>
+        {confirmDelete === "account" && <Form layout="vertical"><Form.Item label="当前密码" extra="用于确认账户所有权"><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></Form.Item><Form.Item label="确认文字" extra="请输入 DELETE"><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></Form.Item></Form>}
       </Modal>
       <CreateDialog
         open={Boolean(integration)}
@@ -2233,34 +1980,42 @@ export function SettingsPage() {
         onClose={closeTwoFactorDialog}
         footer={twoFactorRecovery ? <Button variant="primary" onClick={closeTwoFactorDialog}>我已保存</Button> : <><Button onClick={closeTwoFactorDialog} disabled={twoFactorBusy}>取消</Button><Button variant="primary" onClick={submitTwoFactor} disabled={twoFactorBusy}>{twoFactorBusy ? "正在处理…" : twoFactorStatusQuery.data?.enabled ? "关闭验证" : "验证并启用"}</Button></>}
       >
-        {twoFactorRecovery ? <div className="two-factor-setup"><div className="two-factor-guide"><i><ShieldCheck /></i><strong>恢复码</strong><span>每个恢复码只能使用一次；丢失验证器时可用其中一个登录。</span></div><div className="two-factor-key"><strong>一次性恢复码</strong><small>请离线保存</small><div style={{display:'grid',gap:8}}>{twoFactorRecovery.map(code=><code key={code}>{code}</code>)}</div></div></div> : <div className="two-factor-setup">
-          {!twoFactorStatusQuery.data?.enabled && <div className="two-factor-guide">
-            {twoFactorQrCode ? (
-              <img className="two-factor-qr" src={twoFactorQrCode} alt="Sondara 双重验证二维码" width={140} height={140} />
-            ) : (
-              <div className="qr-placeholder" aria-label="正在生成二维码">QR<br />生成中</div>
+        {twoFactorRecovery ? (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Alert type="warning" showIcon icon={<ShieldCheck />} message="请立即保存恢复码" description="每个恢复码只能使用一次；丢失验证器时可用其中一个登录。" />
+            <Card size="small" title="一次性恢复码" extra={<Typography.Text type="secondary">请离线保存</Typography.Text>}>
+              <Row gutter={[12, 12]}>
+                {twoFactorRecovery.map(code=><Col xs={12} key={code}><Typography.Text code copyable>{code}</Typography.Text></Col>)}
+              </Row>
+            </Card>
+          </Space>
+        ) : (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            {!twoFactorStatusQuery.data?.enabled && (
+              <Card size="small">
+                <Flex vertical align="center" gap={12}>
+                  {twoFactorQrCode ? <img src={twoFactorQrCode} alt="Sondara 双重验证二维码" width={140} height={140} /> : <Typography.Text aria-label="正在生成二维码">二维码生成中…</Typography.Text>}
+                  <Typography.Text strong>扫描二维码添加验证器</Typography.Text>
+                  <Typography.Text>账户名称：{twoFactorSetup?.accountName ?? (profileDraft.email || "Sondara")}</Typography.Text>
+                  <Typography.Text type="secondary">{twoFactorBusy && !twoFactorSetup ? "正在生成服务端加密密钥…" : "二维码由本机根据 otpauth 地址离线生成；无法扫码时可继续使用下方密钥手动输入。"}</Typography.Text>
+                </Flex>
+              </Card>
             )}
-            <strong>扫描二维码添加验证器</strong>
-            <span>账户名称：{twoFactorSetup?.accountName ?? (profileDraft.email || "Sondara")}</span>
-            <small>{twoFactorBusy && !twoFactorSetup ? "正在生成服务端加密密钥…" : "二维码由本机根据 otpauth 地址离线生成；无法扫码时可继续使用下方密钥手动输入。"}</small>
-          </div>}
-          <div className="two-factor-fields">
-            {!twoFactorStatusQuery.data?.enabled && <div className="two-factor-key">
-              <strong>设置密钥</strong>
-              <small>复制后粘贴到 Google Authenticator、1Password、Authy 等应用</small>
-              <div>
-                <code>{twoFactorSetup?.secret ?? "正在生成…"}</code>
-                <Button size="sm" disabled={!twoFactorSetup?.secret} onClick={() => { if (twoFactorSetup) { navigator.clipboard?.writeText(twoFactorSetup.secret); showToast("设置密钥已复制"); } }}>
-                  <Copy />复制密钥
-                </Button>
-              </div>
-              {twoFactorSetup?.otpauth ? <small>高级用户也可复制 otpauth 地址导入验证器：<br />{twoFactorSetup.otpauth}</small> : null}
-            </div>}
-            <label>当前登录密码<span>用于确认是本人操作</span><Input type="password" autoComplete="current-password" value={twoFactorPassword} onChange={event=>setTwoFactorPassword(event.target.value)} placeholder="输入当前密码"/></label>
-            <label>{twoFactorStatusQuery.data?.enabled ? "6 位验证码或恢复码" : "6 位验证码"}<span>{twoFactorStatusQuery.data?.enabled ? "关闭验证需要二次确认" : "输入验证器应用当前显示的数字"}</span><Input aria-label="验证码" value={twoFactorCode} onChange={event=>setTwoFactorCode(event.target.value.replace(/\s|-/g,"").slice(0,8))} inputMode="numeric" autoComplete="one-time-code" maxLength={8} placeholder="000000"/></label>
-          </div>
-        </div>}
+            {!twoFactorStatusQuery.data?.enabled && (
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="设置密钥">
+                  <Space wrap><Typography.Text code copyable={Boolean(twoFactorSetup?.secret)}>{twoFactorSetup?.secret ?? "正在生成…"}</Typography.Text><Typography.Text type="secondary">复制后粘贴到验证器应用</Typography.Text></Space>
+                </Descriptions.Item>
+                {twoFactorSetup?.otpauth && <Descriptions.Item label="otpauth 地址"><Typography.Text copyable ellipsis={{tooltip:twoFactorSetup.otpauth}}>{twoFactorSetup.otpauth}</Typography.Text></Descriptions.Item>}
+              </Descriptions>
+            )}
+            <Form layout="vertical">
+              <Form.Item label="当前登录密码" extra="用于确认是本人操作"><Input.Password autoComplete="current-password" value={twoFactorPassword} onChange={event=>setTwoFactorPassword(event.target.value)} placeholder="输入当前密码"/></Form.Item>
+              <Form.Item label={twoFactorStatusQuery.data?.enabled ? "6 位验证码或恢复码" : "6 位验证码"} extra={twoFactorStatusQuery.data?.enabled ? "关闭验证需要二次确认" : "输入验证器应用当前显示的数字"}><Input aria-label="验证码" value={twoFactorCode} onChange={event=>setTwoFactorCode(event.target.value.replace(/\s|-/g,"").slice(0,8))} inputMode="numeric" autoComplete="one-time-code" maxLength={8} placeholder="000000"/></Form.Item>
+            </Form>
+          </Space>
+        )}
       </Modal>
-    </div>
+    </PageContainer>
   );
 }

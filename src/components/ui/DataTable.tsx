@@ -1,5 +1,5 @@
 import type { Key, ReactNode } from 'react'
-import { Table, type TableColumnsType } from 'antd'
+import { Empty, Flex, Table, type TableColumnsType } from 'antd'
 
 type DataTableColumn = {
   key: string
@@ -28,20 +28,23 @@ export function DataTable({ className, columns, rows, loading, minWidth = 960 }:
     title: column.title,
     width: column.width,
     align: column.align,
-    className: column.key === 'actions' ? 'app-data-table-actions-cell' : undefined,
+    onCell: () => ({ style: { overflow: 'hidden', overflowWrap: 'anywhere' } }),
     render: (_, row) => row.cells[index],
   }))
 
-  return <div className={['app-data-table', className].filter(Boolean).join(' ')}>
-    <Table<DataTableRow>
-      columns={antColumns}
-      dataSource={rows}
-      loading={loading}
-      pagination={false}
-      rowClassName={(row) => row.className ?? ''}
-      scroll={{ x: minWidth }}
-      size="middle"
-      tableLayout="fixed"
-    />
-  </div>
+  return <Flex vertical className={['data-table', className].filter(Boolean).join(' ')} style={{ overflowX: 'auto' }}>
+    <Flex vertical style={{ minWidth }}>
+      <Table<DataTableRow>
+        bordered
+        columns={antColumns}
+        dataSource={rows}
+        loading={loading}
+        pagination={false}
+        rowClassName={(row) => row.className ?? ''}
+        size="middle"
+        tableLayout="fixed"
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据"/> }}
+      />
+    </Flex>
+  </Flex>
 }

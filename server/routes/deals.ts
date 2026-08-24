@@ -7,6 +7,7 @@ import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
 import { requireAuth } from '../plugins/auth.js'
 import { stopCampaignAudienceForCustomer } from '../campaigns/audience-lifecycle.js'
+import { booleanQuerySchema } from '../contracts/query.js'
 
 const dealStages = ['线索确认', '需求确认', '方案评估', '商务谈判', '赢单'] as const
 const probabilityByStage: Record<(typeof dealStages)[number], number> = { 线索确认: 20, 需求确认: 40, 方案评估: 60, 商务谈判: 80, 赢单: 100 }
@@ -30,8 +31,8 @@ const listQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.enum(['updated_desc', 'value_desc', 'probability_desc', 'close_asc']).default('updated_desc'),
-  includeArchived: z.coerce.boolean().default(false),
-  archivedOnly: z.coerce.boolean().default(false),
+  includeArchived: booleanQuerySchema,
+  archivedOnly: booleanQuerySchema,
 })
 
 const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string, metadata: unknown = {}) => {

@@ -7,5 +7,5 @@ type SearchInputProps = Omit<InputProps, 'prefix' | 'type'> & {
 }
 
 export const SearchInput = forwardRef<InputRef, SearchInputProps>(function SearchInput({ ariaLabel, ...props }, ref) {
-  return <Input ref={ref} type="search" allowClear prefix={<Search size={15} aria-hidden="true" />} aria-label={ariaLabel} {...props} className={['app-search-input', props.className].filter(Boolean).join(' ')} />
+  return <Input ref={ref} type="search" allowClear prefix={<Search size={15} aria-hidden="true" />} aria-label={ariaLabel} {...props} className={['ui-search-input', props.className].filter(Boolean).join(' ')} style={{ minWidth: 240, ...props.style }} />
 })

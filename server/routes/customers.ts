@@ -6,57 +6,19 @@ import { auditLogs, campaignAudienceMembers, customerTags, customers, deals, inb
 import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
 import { requireAuth } from '../plugins/auth.js'
-
-const customerInput = z.object({
-  company: z.string().trim().min(1).max(160),
-  region: z.string().trim().max(80).default('待补全'),
-  industry: z.string().trim().max(120).default('待补全'),
-  score: z.number().int().min(0).max(100).default(0),
-  confidence: z.number().int().min(0).max(100).default(0),
-  signal: z.string().trim().max(160).default('待识别'),
-  source: z.string().trim().max(120).default('手动录入'),
-  estimatedValue: z.number().int().min(0).default(0),
-  size: z.string().trim().max(80).default('待补全'),
-  stage: z.string().trim().max(40).default('待补全'),
-  contacts: z.number().int().min(0).default(0),
-  validContacts: z.number().int().min(0).default(0),
-  interaction: z.string().trim().max(160).default('尚无互动'),
-  nextAction: z.string().trim().max(200).default('补全企业档案'),
-  dueAt: z.number().int().nullable().optional(),
-  ownerUserId: z.string().trim().min(1).nullable().optional(),
-})
-const customerPatch = customerInput.partial()
-const importRow = customerInput.extend({
-  contactName: z.string().trim().max(100).optional(),
-  contactTitle: z.string().trim().max(120).optional(),
-  contactEmail: z.string().trim().email().optional(),
-  contactPhone: z.string().trim().max(50).optional(),
-  website: z.string().trim().max(240).optional(),
-})
-const importInput = z.object({
-  sourceName: z.string().trim().min(2).max(100),
-  sourceType: z.enum(['行业目录', '展会名单', '历史客户', '其他']).default('其他'),
-  sourceUrl: z.string().trim().url().max(240).optional(),
-  rows: z.array(importRow).min(1).max(1000),
-})
-const listQuery = z.object({
-  q: z.string().trim().max(100).optional(),
-  region: z.string().trim().optional(),
-  stage: z.string().trim().optional(),
-  minScore: z.coerce.number().int().min(0).max(100).optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  sort: z.enum(['updated_desc', 'updated_asc', 'score_desc', 'score_asc', 'company_asc']).default('updated_desc'),
-  includeArchived: z.coerce.boolean().default(false),
-  archivedOnly: z.coerce.boolean().default(false),
-})
-const mergeInput = z.object({ primaryCustomerId: z.string().trim().min(1), duplicateCustomerId: z.string().trim().min(1) }).refine(value => value.primaryCustomerId !== value.duplicateCustomerId, { message: '请选择两家不同的客户。' })
+import {
+  customerImportInputSchema,
+  customerInputSchema,
+  customerListQuerySchema,
+  customerMergeInputSchema,
+  customerPatchSchema,
+} from '../contracts/customers.js'
 
 const writeAudit = async (workspaceId: string, actorUserId: string, action: string, entityId: string | null, metadata: unknown = {}) => {
   await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType: 'customer', entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() })
 }
 
-const requireMergeCustomers = async (workspaceId: string, input: z.infer<typeof mergeInput>) => {
+const requireMergeCustomers = async (workspaceId: string, input: z.infer<typeof customerMergeInputSchema>) => {
   const rows = await db.select().from(customers).where(and(eq(customers.workspaceId, workspaceId), inArray(customers.id, [input.primaryCustomerId, input.duplicateCustomerId])))
   const primary = rows.find(row => row.id === input.primaryCustomerId)
   const duplicate = rows.find(row => row.id === input.duplicateCustomerId)
@@ -93,7 +55,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
 
   app.get('/', async (request, reply) => {
-    const parsed = listQuery.safeParse(request.query)
+    const parsed = customerListQuerySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_QUERY', message: parsed.error.issues[0]?.message })
     const query = parsed.data
     const conditions = [eq(customers.workspaceId, request.auth.workspaceId)]
@@ -119,7 +81,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   })
 
   app.post('/', async (request, reply) => {
-    const parsed = customerInput.safeParse(request.body)
+    const parsed = customerInputSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const now = Date.now()
     const requestedOwner = parsed.data.ownerUserId ?? request.auth.userId
@@ -131,7 +93,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   })
 
   app.post('/import', async (request, reply) => {
-    const parsed = importInput.safeParse(request.body)
+    const parsed = customerImportInputSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const now = Date.now()
     const existingRows = await db.select({ id: customers.id, company: customers.company, contacts: customers.contacts, validContacts: customers.validContacts }).from(customers).where(eq(customers.workspaceId, request.auth.workspaceId))
@@ -273,7 +235,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   })
 
   app.post('/merge-preview', async (request, reply) => {
-    const parsed = mergeInput.safeParse(request.body)
+    const parsed = customerMergeInputSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const { primary, duplicate } = await requireMergeCustomers(request.auth.workspaceId, parsed.data)
     const [primaryContacts, duplicateContacts, transferTasks, transferDeals, transferThreads, transferAudience] = await Promise.all([
@@ -293,7 +255,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   })
 
   app.post('/merge', async (request, reply) => {
-    const parsed = mergeInput.safeParse(request.body)
+    const parsed = customerMergeInputSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const { primary, duplicate } = await requireMergeCustomers(request.auth.workspaceId, parsed.data)
     const now = Date.now()
@@ -312,7 +274,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
           byName.set(sourceContact.name.trim().toLocaleLowerCase(), sourceContact)
         }
       }
-      // A transaction has one PostgreSQL client. Keep these independent moves serial
+      // Keep these independent moves serial within the transaction
       // so newer pg clients never receive concurrent queries on that client.
       await tx.update(tasks).set({ customerId: primary.id, company: primary.company, updatedAt: now }).where(and(eq(tasks.workspaceId, request.auth.workspaceId), eq(tasks.customerId, duplicate.id)))
       await tx.update(deals).set({ customerId: primary.id, company: primary.company, updatedAt: now }).where(and(eq(deals.workspaceId, request.auth.workspaceId), eq(deals.customerId, duplicate.id)))
@@ -334,7 +296,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
 
   app.patch('/:id', async (request, reply) => {
     const id = z.string().min(1).parse((request.params as { id: string }).id)
-    const parsed = customerPatch.safeParse(request.body)
+    const parsed = customerPatchSchema.safeParse(request.body)
     if (!parsed.success || Object.keys(parsed.data).length === 0) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
     const existing = (await db.$first(db.select().from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })

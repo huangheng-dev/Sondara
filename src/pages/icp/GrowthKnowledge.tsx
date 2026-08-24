@@ -41,7 +41,9 @@ import { Pagination } from "@/components/ui/Pagination";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { usePagination } from "@/hooks/usePagination";
 import { downloadCsv } from "@/utils/download";
-import { Checkbox, Upload } from "antd";
+import { Checkbox, Descriptions, Space, Typography, Upload } from "antd";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { PageContainer, SelectionBar, TableToolbar } from "@/components/ui/PageModules";
 import {
   icpApi,
   type KnowledgeItemApiRecord,
@@ -155,7 +157,7 @@ export const GrowthKnowledge = forwardRef<
   const pagedItems = paging.pageItems;
 
   const sortIcon = (active: boolean, descending: boolean) => (
-    <span className="customer-sort-icon" aria-hidden="true">
+    <span aria-hidden="true">
       {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
     </span>
   );
@@ -274,18 +276,10 @@ export const GrowthKnowledge = forwardRef<
   };
 
   return (
-    <div className={`knowledge-page knowledge-page-inline ${modal ? "knowledge-page-modal" : ""}`}>
+    <PageContainer>
       {!modal && (
-        <section className="knowledge-inline-header">
-          <div>
-            <i><BookOpenText /></i>
-            <span>
-              <h2>客户定位资料</h2>
-              <p>沉淀产品、案例、市场与判断规则，供客户定位和 AI 获客直接引用。</p>
-            </span>
-            <Badge tone="green">已接入定位分析</Badge>
-          </div>
-          <div className="knowledge-inline-actions">
+        <PageHeader title="客户定位资料" description="沉淀产品、案例、市场与判断规则，供客户定位和 AI 获客直接引用。" actions={<>
+          <Badge tone="green">已接入定位分析</Badge>
             <div ref={fileRef}>
               <Upload
                 accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.pdf,.doc,.docx,text/*"
@@ -297,8 +291,7 @@ export const GrowthKnowledge = forwardRef<
             </div>
             <Button onClick={() => setDialog("url")}><Link2 />添加网页</Button>
             <Button variant="primary" onClick={() => setDialog("new")}><Plus />新增资料</Button>
-          </div>
-        </section>
+        </>} />
       )}
       {modal && <div ref={fileRef} hidden>
         <Upload
@@ -310,11 +303,9 @@ export const GrowthKnowledge = forwardRef<
         </Upload>
       </div>}
 
-      <div className="knowledge-workspace knowledge-workspace-inline">
-        <Panel className="knowledge-library customer-workspace standard-list-panel">
-          <div className="knowledge-toolbar customer-toolbar module-toolbar standard-list-toolbar">
-            <div className="customer-filter-controls">
-              <SearchInput className="customer-search module-search" ariaLabel="搜索客户定位资料" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索产品、市场、规则或关键词" />
+      <Panel>
+          <TableToolbar filters={<>
+              <SearchInput ariaLabel="搜索客户定位资料" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索产品、市场、规则或关键词" />
               <CustomSelect ariaLabel="资料类型" value={type} onChange={v => setType(v as typeof type)} options={[
                 { value: "全部类型", label: "全部类型", icon: <Layers3 /> },
                 ...knowledgeTypeOptions,
@@ -325,7 +316,7 @@ export const GrowthKnowledge = forwardRef<
                 { value: "待复核", label: "待复核" },
                 { value: "已停用", label: "已停用" },
               ]} />
-              <CustomSelect className="sort-select" ariaLabel="资料排序" value={sort} onChange={v => setSort(v as SortKey)} options={[
+              <CustomSelect ariaLabel="资料排序" value={sort} onChange={v => setSort(v as SortKey)} options={[
                 { value: "updated_desc", label: "最近更新", icon: <ArrowUpDown /> },
                 { value: "updated_asc", label: "最早更新", icon: <ArrowUpDown /> },
                 { value: "title_asc", label: "标题 A–Z", icon: <ArrowDownAZ /> },
@@ -333,47 +324,41 @@ export const GrowthKnowledge = forwardRef<
                 { value: "references_desc", label: "引用最多", icon: <ArrowUpDown /> },
                 { value: "references_asc", label: "引用最少", icon: <ArrowUpDown /> },
               ]} />
-              <Button className="customer-refresh" disabled={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
-                <RefreshCw className={listQuery.isFetching ? "is-spinning" : undefined} />刷新
+              <Button loading={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
+                {!listQuery.isFetching && <RefreshCw />}刷新
               </Button>
-              <Button className="customer-clear module-clear"
+              <Button
                 disabled={!query && type === "全部类型" && status === "全部状态" && sort === "updated_desc"}
                 onClick={() => { setQuery(""); setType("全部类型"); setStatus("全部状态"); setSort("updated_desc"); }}>
                 清除筛选
               </Button>
-            </div>
-            <div className={`customer-selection-tools${selectedIds.size > 0 ? " has-selection" : " is-empty"}`} aria-hidden={selectedIds.size === 0}>
-              <span><CheckCircle2 /><small>已选择</small><strong>{selectedIds.size}</strong><small>条</small></span>
-              <div>
+            </>} selection={selectedIds.size>0 ? <SelectionBar summary={<Space><CheckCircle2/><span>已选择 {selectedIds.size} 条资料</span></Space>} actions={<>
                 <Button onClick={() => bulkStatus("已启用")}>启用引用</Button>
                 <Button onClick={() => bulkStatus("已停用")}>停用引用</Button>
                 <Button onClick={exportSelected}><Download />导出所选</Button>
-                <Button className="danger" onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>
+                <Button onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>
                 <Button aria-label="取消选择" title="取消选择" onClick={() => setSelectedIds(new Set())}><X /></Button>
-              </div>
-            </div>
-          </div>
+              </>} /> : undefined}/>
           {pagedItems.length ? (
             <>
               <DataTable
-                className="customer-table customer-table-pro knowledge-table knowledge-customer-table"
                 columns={[
-                  { key: "select", title: <span className="customer-check"><Checkbox aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
-                  { key: "title", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
+                  { key: "select", title: <span><Checkbox aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
+                  { key: "title", title: <Button onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
                   { key: "type", title: "类型" }, { key: "status", title: "状态" }, { key: "source", title: "来源" },
-                  { key: "usage", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
-                  { key: "updated", title: <Button className="customer-sort-head" onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
+                  { key: "usage", title: <Button onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
+                  { key: "updated", title: <Button onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
                   { key: "actions", title: "操作", width: 72 },
                 ]}
                 rows={pagedItems.map(item => { const Icon = typeIcons[item.itemType as KnowledgeItemType] ?? Layers3; return { key: item.id, className: selectedIds.has(item.id) ? "selected" : "", cells: [
-                  <span className="customer-check"><Checkbox aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} /></span>,
-                  <Button className="standard-entity" onClick={() => setSelected(item)}><i><Icon /></i><span><strong>{item.title}</strong><small>{item.summary}</small></span></Button>,
+                  <Checkbox aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} />,
+                  <Button type="link" onClick={() => setSelected(item)}><Icon /><Space direction="vertical" size={0}><Typography.Text strong>{item.title}</Typography.Text><Typography.Text type="secondary" ellipsis>{item.summary}</Typography.Text></Space></Button>,
                   <Badge tone="blue">{item.itemType}</Badge>,
                   <Badge tone={item.status === "已启用" ? "green" : item.status === "待复核" ? "orange" : "neutral"}>{item.status}</Badge>,
-                  <div className="standard-cell-stack"><strong>{item.source}</strong><small>{item.sourceUrl || "保留来源记录"}</small></div>,
-                  <div className="standard-value"><strong>{item.referenceCount} 次</strong><small>累计引用</small></div>,
-                  <span>{formatUpdated(item.updatedAt)}</span>,
-                  <div className="standard-row-actions"><Button aria-label={`查看 ${item.title}`} title="查看资料" onClick={() => setSelected(item)}><ChevronRight /></Button></div>,
+                  <Space direction="vertical" size={0}><Typography.Text strong>{item.source}</Typography.Text><Typography.Text type="secondary">{item.sourceUrl || "保留来源记录"}</Typography.Text></Space>,
+                  <Space direction="vertical" size={0}><Typography.Text strong>{item.referenceCount} 次</Typography.Text><Typography.Text type="secondary">累计引用</Typography.Text></Space>,
+                  <Typography.Text>{formatUpdated(item.updatedAt)}</Typography.Text>,
+                  <Button aria-label={`查看 ${item.title}`} title="查看资料" onClick={() => setSelected(item)}><ChevronRight /></Button>,
                 ] }; })}
               />
               <Pagination
@@ -385,10 +370,9 @@ export const GrowthKnowledge = forwardRef<
           ) : listQuery.isLoading ? (
             <EmptyState spinning title="正在加载定位资料" description="从工作区读取中…" icon={RefreshCw} />
           ) : (
-            <EmptyState className="list-empty-state" title="暂无定位资料" icon={BookOpenText} />
+            <EmptyState title="暂无定位资料" icon={BookOpenText} />
           )}
-        </Panel>
-      </div>
+      </Panel>
 
       <CreateDialog open={dialog === "new"} title="新增客户定位资料"
         description="创建后先进入待复核状态，确认无误再用于客户定位和 AI 获客。"
@@ -424,22 +408,22 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="primary" onClick={() => setSelected(null)}>完成</Button>
           </>
         }>
-        <div className="knowledge-detail">
-          <section>
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <Space wrap>
             <Badge tone={selected?.status === "已启用" ? "green" : "orange"}>{selected?.status}</Badge>
-            <span>更新于 {formatUpdated(selected?.updatedAt)}</span>
-            <span>已被客户研究引用 {selected?.referenceCount} 次</span>
-          </section>
-          <p>{selected?.summary}</p>
-          <div>
+            <Typography.Text type="secondary">更新于 {formatUpdated(selected?.updatedAt)}</Typography.Text>
+            <Typography.Text type="secondary">已被客户研究引用 {selected?.referenceCount} 次</Typography.Text>
+          </Space>
+          <Typography.Paragraph>{selected?.summary}</Typography.Paragraph>
+          <Space wrap>
             {selected?.tags.map(tag => <Badge key={tag} tone="blue">{tag}</Badge>)}
-          </div>
-          <dl>
-            <div><dt>参与环节</dt><dd>搜索策略、客户匹配、证据判断、沟通建议</dd></div>
-            <div><dt>来源</dt><dd>{selected?.source}{selected?.sourceUrl ? ` · ${selected.sourceUrl}` : ""}</dd></div>
-            <div><dt>引用原则</dt><dd>仅启用状态参与 AI 判断，所有结论仍需保留外部事实证据。</dd></div>
-          </dl>
-        </div>
+          </Space>
+          <Descriptions bordered column={1} items={[
+            {key:"stages",label:"参与环节",children:"搜索策略、客户匹配、证据判断、沟通建议"},
+            {key:"source",label:"来源",children:`${selected?.source ?? ""}${selected?.sourceUrl ? ` · ${selected.sourceUrl}` : ""}`},
+            {key:"rule",label:"引用原则",children:"仅启用状态参与 AI 判断，所有结论仍需保留外部事实证据。"},
+          ]}/>
+        </Space>
       </Modal>
       <Modal open={confirmDelete} title="删除知识条目" description="删除后不会再参与后续客户研究。"
         onClose={() => setConfirmDelete(false)}
@@ -449,7 +433,7 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="danger" onClick={remove}>确认删除</Button>
           </>
         }>
-        <p className="danger-copy">历史客户研究结果会保留，但将失去这条知识的后续引用。你也可以选择停用，以便将来恢复。</p>
+        <Typography.Paragraph>历史客户研究结果会保留，但将失去这条知识的后续引用。你也可以选择停用，以便将来恢复。</Typography.Paragraph>
       </Modal>
       <Modal open={confirmBulkDelete} title="删除所选资料" description={`将删除已选择的 ${selectedIds.size} 条资料。`}
         onClose={() => setConfirmBulkDelete(false)}
@@ -459,8 +443,8 @@ export const GrowthKnowledge = forwardRef<
             <Button variant="danger" onClick={bulkRemove}>确认删除</Button>
           </>
         }>
-        <p className="danger-copy">删除后这些资料不会再参与客户定位和 AI 获客，历史引用记录仍会保留。</p>
+        <Typography.Paragraph>删除后这些资料不会再参与客户定位和 AI 获客，历史引用记录仍会保留。</Typography.Paragraph>
       </Modal>
-    </div>
+    </PageContainer>
   );
 });

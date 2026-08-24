@@ -16,28 +16,35 @@ const numberFromEnv = (value: string | undefined, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const booleanFromEnv = (value: string | undefined, fallback = false) => {
+const booleanFromEnv = (value: string | undefined, fallback: boolean) => {
   if (value === undefined) return fallback;
   return value === "true" || value === "1";
 };
 
+const isProduction = process.env.NODE_ENV === "production";
 const logLevel = process.env.SONDARA_LOG_LEVEL ??
-  (process.env.NODE_ENV === "production" ? "info" : "warn");
+  (isProduction ? "info" : "warn");
 
+const configuredDatabasePath = process.env.SONDARA_DATABASE_PATH?.trim();
 const databaseUrl = process.env.SONDARA_DATABASE_URL?.trim()
-  ?? "postgresql://sondara:sondara@127.0.0.1:5433/sondara";
-if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
-  throw new Error("SONDARA_DATABASE_URL 必须是 PostgreSQL 连接地址。");
+  ?? `file:${resolve(configuredDatabasePath || resolve(process.cwd(), "data", "sondara.sqlite")).replaceAll("\\", "/")}`;
+if (!databaseUrl.startsWith("file:")) {
+  throw new Error("SONDARA_DATABASE_URL 必须是 file: 开头的 SQLite 地址。");
 }
+const databasePath = resolve(configuredDatabasePath || decodeURIComponent(databaseUrl.slice("file:".length)));
 
 export const config = {
   host: process.env.SONDARA_API_HOST ?? "127.0.0.1",
   port: numberFromEnv(process.env.SONDARA_API_PORT, 4176),
-  databaseDriver: "postgres" as const,
+  databaseDriver: "sqlite" as const,
+  databasePath,
   databaseUrl,
   webOrigin: process.env.SONDARA_WEB_ORIGIN ?? "http://127.0.0.1:4175",
   sessionDays: numberFromEnv(process.env.SONDARA_SESSION_DAYS, 30),
-  secureCookies: booleanFromEnv(process.env.SONDARA_SECURE_COOKIES),
+  secureCookies: booleanFromEnv(process.env.SONDARA_SECURE_COOKIES, isProduction),
+  autoMigrate: booleanFromEnv(process.env.SONDARA_AUTO_MIGRATE, true),
+  workerLeaderLock: booleanFromEnv(process.env.SONDARA_WORKER_LEADER_LOCK, true),
+  workerLeaderElectionIntervalMs: numberFromEnv(process.env.SONDARA_WORKER_LEADER_ELECTION_INTERVAL_MS, 30_000),
   radarWorkerEnabled: booleanFromEnv(process.env.SONDARA_RADAR_WORKER_ENABLED, true),
   radarWorkerIntervalMs: numberFromEnv(
     process.env.SONDARA_RADAR_WORKER_INTERVAL_MS,
@@ -48,7 +55,7 @@ export const config = {
     process.env.SONDARA_OUTBOX_WORKER_INTERVAL_MS,
     5000,
   ),
-  backupEnabled: booleanFromEnv(process.env.SONDARA_BACKUP_ENABLED),
+  backupEnabled: booleanFromEnv(process.env.SONDARA_BACKUP_ENABLED, false),
   backupIntervalMs: numberFromEnv(process.env.SONDARA_BACKUP_INTERVAL_MS, 86_400_000),
   backupRetentionCount: numberFromEnv(process.env.SONDARA_BACKUP_RETENTION_COUNT, 7),
   backupDirectory: process.env.SONDARA_BACKUP_DIRECTORY?.trim() ?? resolve(process.cwd(), "data", "backups"),
@@ -58,11 +65,11 @@ export const config = {
   imapUser: process.env.SONDARA_IMAP_USER?.trim() ?? "",
   imapPassword: process.env.SONDARA_IMAP_PASSWORD ?? "",
   imapPollIntervalMs: numberFromEnv(process.env.SONDARA_IMAP_POLL_INTERVAL_MS, 60_000),
-  allowPrivateConnectors: booleanFromEnv(process.env.SONDARA_ALLOW_PRIVATE_CONNECTORS),
-  trustProxy: booleanFromEnv(process.env.SONDARA_TRUST_PROXY),
+  allowPrivateConnectors: booleanFromEnv(process.env.SONDARA_ALLOW_PRIVATE_CONNECTORS, false),
+  trustProxy: booleanFromEnv(process.env.SONDARA_TRUST_PROXY, false),
   rateLimitMax: numberFromEnv(process.env.SONDARA_RATE_LIMIT_MAX, 300),
   logLevel,
-  isProduction: process.env.NODE_ENV === "production",
+  isProduction,
   version: process.env.SONDARA_VERSION ?? "0.1.0",
   sentryDsn: process.env.SONDARA_SENTRY_DSN?.trim() ?? "",
   sentryTracesSampleRate: (() => { const parsed = Number(process.env.SONDARA_SENTRY_TRACES_SAMPLE_RATE); return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0.1; })(),

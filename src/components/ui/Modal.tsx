@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Modal as AntModal } from 'antd'
+import { Flex, Modal as AntModal, Space, Typography } from 'antd'
 
 type ModalProps = {
   open: boolean
@@ -14,13 +14,13 @@ type ModalProps = {
 
 export function Modal({ open, title, description, children, onClose, footer, actions, width = 560 }: ModalProps) {
   return <AntModal
-    className="app-modal"
+    className="ui-modal"
     open={open}
     width={width}
     centered
     destroyOnHidden
     onCancel={onClose}
-    footer={footer ?? null}
-    title={<div className="app-modal-title"><span><strong>{title}</strong>{description && <small>{description}</small>}</span>{actions && <div className="app-modal-title-actions">{actions}</div>}</div>}
-  >{children}</AntModal>
+    footer={footer ? <Flex justify="flex-end" wrap gap={8}>{footer}</Flex> : null}
+    title={<Flex align="flex-start" justify="space-between" gap={16}><Space direction="vertical" size={0}><Typography.Text strong>{title}</Typography.Text>{description && <Typography.Text type="secondary">{description}</Typography.Text>}</Space>{actions && <Space wrap>{actions}</Space>}</Flex>}
+  ><div className="ui-modal__body">{children}</div></AntModal>
 }

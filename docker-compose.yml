@@ -1,23 +1,6 @@
 name: sondara
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-sondara}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sondara}
-      POSTGRES_DB: ${POSTGRES_DB:-sondara}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sondara} -d ${POSTGRES_DB:-sondara}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   app:
     build: .
     image: sondara:latest
@@ -26,9 +9,6 @@ services:
       - "4176:4176"
     volumes:
       - app-data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
     env_file:
       - path: .env
         required: false
@@ -36,10 +16,12 @@ services:
       - NODE_ENV=production
       - SONDARA_API_HOST=0.0.0.0
       - SONDARA_API_PORT=4176
-      - SONDARA_DATABASE_URL=postgresql://${POSTGRES_USER:-sondara}:${POSTGRES_PASSWORD:-sondara}@postgres:5432/${POSTGRES_DB:-sondara}
+      - SONDARA_DATABASE_PATH=/app/data/sondara.sqlite
       - SONDARA_WEB_ORIGIN=${SONDARA_WEB_ORIGIN:-http://localhost:4176}
-      - SONDARA_SECURE_COOKIES=${SONDARA_SECURE_COOKIES:-false}
+      - SONDARA_SECURE_COOKIES=${SONDARA_SECURE_COOKIES:-true}
       - SONDARA_TRUST_PROXY=true
+      - SONDARA_AUTO_MIGRATE=${SONDARA_AUTO_MIGRATE:-true}
+      - SONDARA_WORKER_LEADER_LOCK=${SONDARA_WORKER_LEADER_LOCK:-true}
       - SONDARA_BACKUP_ENABLED=${SONDARA_BACKUP_ENABLED:-true}
       - SONDARA_BACKUP_INTERVAL_MS=${SONDARA_BACKUP_INTERVAL_MS:-86400000}
       - SONDARA_BACKUP_RETENTION_COUNT=${SONDARA_BACKUP_RETENTION_COUNT:-7}
@@ -52,4 +34,3 @@ services:
 
 volumes:
   app-data:
-  postgres-data:

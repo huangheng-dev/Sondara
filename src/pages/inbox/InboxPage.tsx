@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, LoaderCircle, Mail, MessageCircle, MoreHorizontal, RadioTower, Send, Sparkles, UserRound, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, Mail, MessageCircle, MoreHorizontal, RadioTower, Send, Sparkles, UserRound, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -11,7 +11,8 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { authApi, dealApi, inboxApi, taskApi, type InboxMessageApiRecord, type InboxThreadApiRecord } from '@/lib/api'
-import { Input, Segmented } from 'antd'
+import { Alert, Card, Col, Descriptions, Flex, Input, List, Row, Segmented, Space, Timeline, Typography } from 'antd'
+import { PageContainer } from '@/components/ui/PageModules'
 
 type InboxFilter = '全部' | '未读' | '高意向' | '待跟进'
 type DialogName = 'quick' | 'timeline' | 'deal' | 'task' | 'confirm' | null
@@ -29,14 +30,14 @@ const messageStatus = (message: InboxMessageApiRecord) => message.status === 'co
 export function InboxPage() {
   const [activeId, setActiveId] = useState('')
   const [reply, setReply] = useState('')
-  const [mobileConversation, setMobileConversation] = useState(false)
+  const [, setMobileConversation] = useState(false)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [filter, setFilter] = useState<InboxFilter>('全部')
   const [channelFilter, setChannelFilter] = useState('全部渠道')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [dialog, setDialog] = useState<DialogName>(null)
-  const threadListRef = useRef<HTMLElement>(null)
+  const threadListRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const threadBodyRef = useRef<HTMLDivElement>(null)
   const showToast = useUiStore(state => state.showToast)
@@ -115,48 +116,40 @@ export function InboxPage() {
   }
   const tone = activeThread?.intent === '高意向' ? 'green' : activeThread?.intent === '待跟进' ? 'orange' : 'blue'
 
-  return <div className="page-content inbox-page">
+  return <PageContainer>
     <PageHeader title="客户消息" description="统一处理客户回复、判断意向，并把确认后的对话转成明确的跟进动作。" actions={<Button disabled={!threadMeta?.unreadTotal || markAllMutation.isPending} onClick={() => markAllMutation.mutate()}><CheckCircle2 size={16} />{markAllMutation.isPending ? '正在处理…' : `全部已读${threadMeta?.unreadTotal ? ` · ${threadMeta.unreadTotal}` : ''}`}</Button>} />
-    <div className={`inbox-pro-shell ${mobileConversation ? 'show-conversation' : ''} ${detailsOpen ? 'show-details' : ''}`}>
-      <aside className="inbox-list">
-        <header>
-          <SearchInput className="app-search-input" ariaLabel="搜索消息" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索联系人、企业或内容" />
-          <section className="message-filter-row">
-            <CustomSelect className="message-channel-filter" ariaLabel="消息渠道" value={channelFilter} onChange={setChannelFilter} options={channelOptions} />
-            <Segmented className="message-state-tabs" aria-label="消息状态" value={filter} options={['全部', '未读', '高意向', '待跟进']} onChange={value=>setFilter(value as InboxFilter)}/>
-          </section>
-        </header>
-        <section ref={threadListRef}>
-          {(threadsQuery.isLoading || threads.length > 0) && <div className="inbox-result-meta">{threadsQuery.isLoading ? '正在加载' : `${threadMeta?.total ?? 0} 条消息`}</div>}
-          {threadsQuery.isError ? <div className="inbox-list-state"><AlertCircle /><strong>消息加载失败</strong><Button onClick={() => threadsQuery.refetch()}>重新加载</Button></div> : threads.map(thread => <Button className={`${thread.id === activeThread?.id ? 'active' : ''} ${thread.unreadCount ? 'unread' : 'read'}`} onClick={() => openThread(thread)} key={thread.id}>
-            <i>{thread.contact.name[0]}{thread.unreadCount > 0 && <u />}</i>
-            <span><header><strong>{thread.contact.name}</strong><time>{formatTime(thread.lastMessageAt)}</time></header><small>{thread.contact.company} · {thread.channel}</small><p>{thread.lastMessagePreview}</p><footer><Badge tone={thread.intent === '高意向' ? 'green' : thread.intent === '待跟进' ? 'orange' : 'blue'}>{thread.intent}</Badge><em>{thread.unreadCount ? `${thread.unreadCount} 条未读` : thread.intent === '高意向' ? '建议今天回复' : '待判断需求'}</em></footer></span>
-          </Button>)}
-          {!threadsQuery.isLoading && !threadsQuery.isError && !threads.length && <EmptyState className="list-empty-state" title="暂无消息" description="客户回复进入连接渠道后，会集中显示在这里。" icon={MessageCircle} />}
-          {threads.length > 0 && <div ref={loadMoreRef} className="inbox-load-state" role="status">{threadsQuery.isFetchingNextPage ? '正在加载更多…' : threadsQuery.hasNextPage ? '继续向下滚动加载' : '已加载全部消息'}</div>}
-        </section>
-      </aside>
+    <Row gutter={[16, 16]}>
+      <Col xs={24} xl={7}>
+        <Card className="inbox-list-card" title="消息列表" extra={threadMeta?.total ? `${threadMeta.total} 条` : undefined}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <SearchInput ariaLabel="搜索消息" value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索联系人、企业或内容" />
+            <Flex wrap gap={8}><CustomSelect ariaLabel="消息渠道" value={channelFilter} onChange={setChannelFilter} options={channelOptions} /><Segmented aria-label="消息状态" value={filter} options={['全部', '未读', '高意向', '待跟进']} onChange={value=>setFilter(value as InboxFilter)}/></Flex>
+          </Space>
+          <div ref={threadListRef} style={{ marginTop: 16 }}>
+            {threadsQuery.isError ? <EmptyState title="消息加载失败" action={<Button onClick={() => threadsQuery.refetch()}>重新加载</Button>}/> : <List loading={threadsQuery.isLoading} dataSource={threads} locale={{emptyText:<EmptyState title="暂无消息" description="客户回复进入连接渠道后，会集中显示在这里。" icon={MessageCircle}/>}} renderItem={thread=><List.Item className={activeThread?.id===thread.id?'is-active':undefined} onClick={()=>openThread(thread)} style={{ cursor: 'pointer' }}><List.Item.Meta title={<Flex justify="space-between"><Typography.Text strong>{thread.contact.name}</Typography.Text><Typography.Text type="secondary">{formatTime(thread.lastMessageAt)}</Typography.Text></Flex>} description={<Space direction="vertical" size={2}><Typography.Text type="secondary">{thread.contact.company} · {thread.channel}</Typography.Text><Typography.Text ellipsis>{thread.lastMessagePreview}</Typography.Text><Badge tone={thread.intent === '高意向' ? 'green' : thread.intent === '待跟进' ? 'orange' : 'blue'}>{thread.intent}</Badge></Space>}/></List.Item>}/>}
+            {threads.length > 0 && <div ref={loadMoreRef} role="status"><Typography.Text type="secondary">{threadsQuery.isFetchingNextPage ? '正在加载更多…' : threadsQuery.hasNextPage ? '继续向下滚动加载' : '已加载全部消息'}</Typography.Text></div>}
+          </div>
+        </Card>
+      </Col>
+      <Col xs={24} xl={activeThread&&detailsOpen?11:17}>
+        <Card className="inbox-conversation-card" title={activeThread ? `${activeThread.contact.name} · ${activeThread.contact.company}` : '对话'} extra={activeThread&&<Space><Badge tone={tone}>{activeThread.intent}</Badge><Button aria-label="查看客户详情" onClick={() => setDetailsOpen(true)}><UserRound /></Button></Space>}>
+          {activeThread ? <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Flex justify="center">{messagesQuery.hasNextPage && <Button disabled={messagesQuery.isFetchingNextPage} onClick={() => messagesQuery.fetchNextPage()}>{messagesQuery.isFetchingNextPage ? '正在加载…' : '加载更早消息'}</Button>}</Flex>
+            <div ref={threadBodyRef}>{messagesQuery.isError ? <EmptyState title="对话加载失败" action={<Button onClick={() => messagesQuery.refetch()}>重试</Button>}/> : <List loading={messagesQuery.isLoading} dataSource={threadMessages} locale={{emptyText:<EmptyState title="线程暂无消息" icon={MessageCircle}/>}} renderItem={message=><List.Item><List.Item.Meta title={message.direction==='inbound'?'客户回复':'主动触达'} description={<><Typography.Paragraph>{message.body}</Typography.Paragraph><Typography.Text type="secondary">{formatTime(message.createdAt)} · {messageStatus(message)}</Typography.Text></>}/></List.Item>}/>}</div>
+            <Card size="small" title={<Space><Sparkles/>AI 意向判断：{activeThread.intent}</Space>}><Typography.Text type="secondary">{activeThread.intent === '高意向' ? '客户提出具体资料或沟通需求，建议在 4 小时内回复。' : '需要结合下一次回复继续判断需求与采购时机。'}</Typography.Text></Card>
+            <Flex wrap gap={8}><Button onClick={() => setReply('您好，感谢您的回复。我们已经整理好相关项目案例与验证资料摘要，请确认接收方式。')}><Mail />发送资料</Button><Button onClick={() => setReply('您好，建议本周安排一次 20 分钟技术交流，您周四或周五方便吗？')}><CalendarPlus />安排会议</Button><Button onClick={() => setDialog('quick')}><MoreHorizontal />更多</Button></Flex>
+            <Input.TextArea rows={5} value={reply} onChange={event => setReply(event.target.value)} maxLength={1000} showCount placeholder="输入回复内容…" aria-label="回复内容" />
+            <Flex justify="flex-end" wrap gap={8}><Button onClick={() => setReply(`您好 ${activeThread.contact.name}，感谢回复。我们可以根据贵司的应用场景准备案例、验证文件和交付计划。建议本周安排一次 20 分钟技术交流。`)}><Bot />AI 建议</Button><Button variant="primary" onClick={openConfirm}><Send />预览并确认</Button></Flex>
+          </Space> : <EmptyState title="选择一条客户消息" description="选中左侧会话后，可查看上下文、判断意向并创建跟进动作。" icon={MessageCircle}/>}
+        </Card>
+      </Col>
+      {activeThread&&detailsOpen&&<Col xs={24} xl={6}><Card className="inbox-details-card" title="客户信息" extra={<Button aria-label="关闭客户详情" onClick={() => setDetailsOpen(false)}><X /></Button>}><Descriptions column={1} items={[{key:'job',label:'职位',children:activeThread.contact.jobTitle},{key:'region',label:'地区',children:activeThread.contact.region},{key:'source',label:'来源',children:activeThread.contact.source},{key:'channel',label:'渠道',children:activeThread.channel}]}/><Space direction="vertical" style={{ width: '100%', marginTop: 16 }}><Button block onClick={() => setDialog('task')}><CalendarPlus />创建跟进任务</Button><Button block onClick={() => setDialog('timeline')}><Clock3 />查看客户时间线</Button><Button block variant="primary" disabled={converted.has(activeThread.contact.company)} onClick={() => setDialog('deal')}>{converted.has(activeThread.contact.company) ? '已创建商机' : '转为商机'}</Button></Space></Card></Col>}
+    </Row>
 
-      {activeThread ? <section className="inbox-conversation">
-        <header><Button className="conversation-back" onClick={() => setMobileConversation(false)} aria-label="返回消息列表"><ArrowLeft /></Button><i>{activeThread.contact.name[0]}</i><span><h2>{activeThread.contact.name}</h2><p>{activeThread.contact.company} · {activeThread.channel} · 最近活跃 {formatTime(activeThread.lastMessageAt)}</p></span><Badge tone={tone}>{activeThread.intent}</Badge><Button className="inbox-detail-toggle" aria-label="查看客户详情" onClick={() => setDetailsOpen(true)}><UserRound /></Button></header>
-        <div className="inbox-thread" ref={threadBodyRef}>
-          {messagesQuery.hasNextPage && <Button className="inbox-load-older" disabled={messagesQuery.isFetchingNextPage} onClick={() => messagesQuery.fetchNextPage()}>{messagesQuery.isFetchingNextPage ? <><LoaderCircle className="is-spinning"/>正在加载…</> : '加载更早消息'}</Button>}
-          {messagesQuery.isLoading && <div className="inbox-thread-state"><LoaderCircle className="is-spinning"/>正在加载对话…</div>}
-          {messagesQuery.isError && <div className="inbox-thread-state error"><AlertCircle />对话加载失败 <Button onClick={() => messagesQuery.refetch()}>重试</Button></div>}
-          {threadMessages.map(message => <article className={message.direction === 'outbound' ? 'outgoing' : 'incoming'} key={message.id}><p>{message.body}</p><small>{formatTime(message.createdAt)} · {messageStatus(message)}</small></article>)}
-          {!messagesQuery.isLoading && !threadMessages.length && <EmptyState className="list-empty-state compact" title="线程暂无消息" icon={MessageCircle} />}
-          <div className="inbox-intent"><Sparkles /><span><strong>AI 意向判断：{activeThread.intent}</strong><small>{activeThread.intent === '高意向' ? '客户提出具体资料或沟通需求，建议在 4 小时内回复。' : '需要结合下一次回复继续判断需求与采购时机。'}</small></span></div>
-        </div>
-        <footer className="inbox-composer"><div><Button onClick={() => setReply('您好，感谢您的回复。我们已经整理好相关项目案例与验证资料摘要，请确认接收方式。')}><Mail />发送资料</Button><Button onClick={() => setReply('您好，建议本周安排一次 20 分钟技术交流，您周四或周五方便吗？')}><CalendarPlus />安排会议</Button><Button onClick={() => setDialog('quick')}><MoreHorizontal />更多</Button></div><Input.TextArea value={reply} onChange={event => setReply(event.target.value)} maxLength={1000} placeholder="输入回复内容…" aria-label="回复内容" /><footer><span>{reply.length}/1000 · 发送前需要再次确认</span><div><Button onClick={() => setReply(`您好 ${activeThread.contact.name}，感谢回复。我们可以根据贵司的应用场景准备案例、验证文件和交付计划。建议本周安排一次 20 分钟技术交流。`)}><Bot />AI 建议</Button><Button variant="primary" onClick={openConfirm}><Send />预览并确认</Button></div></footer></footer>
-      </section> : <section className="inbox-conversation inbox-no-thread"><EmptyState title="选择一条客户消息" description="选中左侧会话后，可查看上下文、判断意向并创建跟进动作。" icon={MessageCircle}/></section>}
-
-      {activeThread && <aside className="inbox-contact"><header><Button aria-label="关闭客户详情" onClick={() => setDetailsOpen(false)}><X /></Button><div>{activeThread.contact.name[0]}</div><h3>{activeThread.contact.name}</h3><p>{activeThread.contact.company}</p><Badge tone={tone}>{activeThread.intent}</Badge></header><section><h4>客户信息</h4><dl><div><dt>职位</dt><dd>{activeThread.contact.jobTitle}</dd></div><div><dt>地区</dt><dd>{activeThread.contact.region}</dd></div><div><dt>来源</dt><dd>{activeThread.contact.source}</dd></div><div><dt>渠道</dt><dd>{activeThread.channel}</dd></div></dl></section><section><h4>建议动作</h4><Button onClick={() => setDialog('task')}><CalendarPlus /><span><strong>创建跟进任务</strong><small>安排技术交流或资料发送</small></span></Button><Button onClick={() => setDialog('timeline')}><Clock3 /><span><strong>查看客户时间线</strong><small>{threadMessages.length} 条当前已加载互动</small></span></Button></section><footer><Button variant="primary" className="full-width" disabled={converted.has(activeThread.contact.company)} onClick={() => setDialog('deal')}>{converted.has(activeThread.contact.company) ? '已创建商机' : '转为商机'}</Button></footer></aside>}
-    </div>
-
-    <Modal open={dialog === 'quick'} title="更多快捷回复" description="选择后可继续编辑，再由你预览确认。" onClose={() => setDialog(null)}><div className="quick-replies">{['感谢回复，我会在今天内整理完整资料发给您。', '为了准备更准确的方案，方便补充一下当前项目时间计划吗？', '收到，我先确认技术资料与交付周期，稍后回复您。'].map(item => <Button key={item} onClick={() => { setReply(item); setDialog(null) }}>{item}<ArrowLeft /></Button>)}</div></Modal>
-    <Modal open={dialog === 'timeline'} title={`${activeThread?.contact.company ?? ''} · 客户时间线`} description="按时间查看当前已加载的真实对话记录" onClose={() => setDialog(null)}><div className="inbox-timeline-dialog">{threadMessages.slice().reverse().map(message => <article key={message.id}><i /><time>{new Date(message.createdAt).toLocaleString('zh-CN')}</time><span><strong>{message.direction === 'inbound' ? '客户回复' : message.status === 'confirmed' ? '回复已确认' : '主动触达'}</strong><small>{message.body}</small></span></article>)}</div></Modal>
-    <Modal open={dialog === 'confirm'} title="确认回复内容" description="确认后会写入服务端外发队列，并按当前渠道与连接状态执行。" onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)} disabled={replyMutation.isPending}>返回编辑</Button><Button variant="primary" disabled={replyMutation.isPending} onClick={() => replyMutation.mutate()}>{replyMutation.isPending ? '正在确认…' : '确认并加入待发送'}</Button></>}><div className="inbox-confirm-reply"><span><strong>{activeThread?.contact.name}</strong><small>{activeThread?.contact.company} · {activeThread?.channel}</small></span><p>{reply}</p><div><AlertCircle /><span><strong>当前交付方式：服务端外发队列</strong><small>邮件会在 SMTP 可用时进入发送队列；其他渠道保留可追踪的待执行记录，不会虚假标记为已送达。</small></span></div></div></Modal>
+    <Modal open={dialog === 'quick'} title="更多快捷回复" description="选择后可继续编辑，再由你预览确认。" onClose={() => setDialog(null)}><List dataSource={['感谢回复，我会在今天内整理完整资料发给您。', '为了准备更准确的方案，方便补充一下当前项目时间计划吗？', '收到，我先确认技术资料与交付周期，稍后回复您。']} renderItem={item=><List.Item actions={[<ArrowLeft key="use"/>]} onClick={() => { setReply(item); setDialog(null) }}><Typography.Text>{item}</Typography.Text></List.Item>}/></Modal>
+    <Modal open={dialog === 'timeline'} title={`${activeThread?.contact.company ?? ''} · 客户时间线`} description="按时间查看当前已加载的真实对话记录" onClose={() => setDialog(null)}><Timeline items={threadMessages.slice().reverse().map(message=>({children:<Space direction="vertical" size={2}><Typography.Text type="secondary">{new Date(message.createdAt).toLocaleString('zh-CN')}</Typography.Text><Typography.Text strong>{message.direction === 'inbound' ? '客户回复' : message.status === 'confirmed' ? '回复已确认' : '主动触达'}</Typography.Text><Typography.Text>{message.body}</Typography.Text></Space>}))}/></Modal>
+    <Modal open={dialog === 'confirm'} title="确认回复内容" description="确认后会写入服务端外发队列，并按当前渠道与连接状态执行。" onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)} disabled={replyMutation.isPending}>返回编辑</Button><Button variant="primary" loading={replyMutation.isPending} onClick={() => replyMutation.mutate()}>确认并加入待发送</Button></>}><Space direction="vertical" size="middle" style={{width:'100%'}}><Descriptions column={1} bordered items={[{key:'contact',label:'联系人',children:activeThread?.contact.name},{key:'company',label:'企业与渠道',children:`${activeThread?.contact.company??''} · ${activeThread?.channel??''}`} ]}/><Typography.Paragraph>{reply}</Typography.Paragraph><Alert type="info" showIcon icon={<AlertCircle/>} message="当前交付方式：服务端外发队列" description="邮件会在 SMTP 可用时进入发送队列；其他渠道保留可追踪的待执行记录，不会虚假标记为已送达。"/></Space></Modal>
     <CreateDialog open={dialog === 'task'} title={`创建跟进任务 · ${activeThread?.contact.company ?? ''}`} description="任务会进入经营总览和客户跟进计划。" submitLabel="创建任务" successMessage="跟进任务已创建" onClose={() => setDialog(null)} onSubmit={async values => { await taskApi.create({ customerId: activeThread?.customerId ?? null, title: values.title, priority: values.priority as '高' | '中' | '低', dueAt: Date.parse(values.date), dueLabel: values.date, company: activeThread?.contact.company ?? '客户', nextAction: values.title, source: '客户消息' }); await queryClient.invalidateQueries({ queryKey: ['tasks'] }) }} fields={[{ name: 'title', label: '任务名称', required: true }, { name: 'priority', label: '优先级', type: 'select', required: true, options: ['高', '中', '低'] }, { name: 'date', label: '完成时间', type: 'datetime', required: true }]} />
     <CreateDialog open={dialog === 'deal'} title={`转为商机 · ${activeThread?.contact.company ?? ''}`} description="补齐金额、阶段和下一步，创建后会同步进入商机跟进和客户库。" submitLabel="创建商机" successMessage="已转为销售商机" onClose={() => setDialog(null)} onSubmit={async values => { await dealApi.create({ customerId: activeThread?.customerId ?? null, company: activeThread?.contact.company ?? '', stage: values.stage as '线索确认' | '需求确认' | '方案评估', valueAmount: Number(values.value), currency: values.currency as 'CNY' | 'EUR' | 'USD', ownerLabel: '我', nextAction: values.next, expectedCloseAt: Date.parse(values.date), risk: '新回复商机，待确认需求范围', source: `客户消息 · ${activeThread?.channel ?? ''}` }); await Promise.all([dealQuery.refetch(), queryClient.invalidateQueries({ queryKey: ['customers'] })]) }} fields={[{ name: 'value', label: '预计金额', type: 'number', required: true }, { name: 'currency', label: '币种', type: 'select', required: true, options: ['CNY', 'EUR', 'USD'] }, { name: 'stage', label: '阶段', type: 'select', required: true, options: ['线索确认', '需求确认', '方案评估'] }, { name: 'date', label: '预计成交日', type: 'date', required: true }, { name: 'next', label: '下一步动作', required: true }]} />
-  </div>
+  </PageContainer>
 }

@@ -54,3 +54,8 @@ Thumbs.db
 PROJECT_ANALYSIS.md
 design-qa.md
 docs/PROJECT_EXECUTION.md
+
+# Codex local review and QA artifacts can contain screenshots/customer data.
+.codex-audit/
+.codex-qa/
+ui-style-audit.md

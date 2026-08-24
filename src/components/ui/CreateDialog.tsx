@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Form, Input, Upload } from 'antd'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -15,10 +15,17 @@ export function CreateDialog({ open, title, description, submitLabel = '创建',
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm<DialogValues>()
+  const initialValuesRef = useRef(initialValues)
+  initialValuesRef.current = initialValues
   const showToast = useUiStore(s => s.showToast)
-  const compactFields = fields.filter(field => field.type !== 'textarea')
-  const trailingCompactField = compactFields.length % 2 === 1 ? compactFields.at(-1)?.name : undefined
-  useEffect(() => { if (open) { setFiles({}); setError(''); setSubmitting(false); form.setFieldsValue(initialValues) } }, [form, open, initialValues])
+  useEffect(() => {
+    if (!open) return
+    setFiles({})
+    setError('')
+    setSubmitting(false)
+    form.resetFields()
+    form.setFieldsValue(initialValuesRef.current)
+  }, [form, open])
   const submit = async (formValues: DialogValues) => {
     const missing = fields.find(field => field.required && !(field.type === 'file' ? files[field.name] : formValues[field.name]?.trim()))
     if (missing) return setError(`请填写${missing.label}`)
@@ -37,11 +44,11 @@ export function CreateDialog({ open, title, description, submitLabel = '创建',
     }
   }
   return <Modal open={open} title={title} description={description} onClose={onClose} footer={<><Button onClick={onClose} disabled={submitting}>取消</Button><Button variant="primary" type="submit" form="create-dialog-form" disabled={submitting}>{submitting ? '正在保存…' : submitLabel}</Button></>}>
-    <Form id="create-dialog-form" form={form} className="dialog-form" layout="vertical" initialValues={initialValues} onFinish={submit}>
-      {fields.map((field, index) => <Form.Item className={field.type === 'textarea' || field.name === trailingCompactField ? 'dialog-field-full' : undefined} key={field.name} name={field.type === 'file' ? undefined : field.name} required={field.required} rules={field.type === 'file' ? undefined : [{ required: field.required, whitespace: true, message: `请填写${field.label}` }]} label={<span className="field-label">{field.label}{!field.required && <small>选填</small>}</span>}>
+    <Form className="ui-form" id="create-dialog-form" form={form} layout="vertical" initialValues={initialValues} onFinish={submit}>
+      {fields.map((field, index) => <Form.Item key={field.name} name={field.type === 'file' ? undefined : field.name} required={field.required} rules={field.type === 'file' ? undefined : [{ required: field.required, whitespace: true, message: `请填写${field.label}` }]} label={<span>{field.label}{!field.required && '（选填）'}</span>}>
         {field.type === 'textarea' ? <Input.TextArea autoFocus={index === 0} aria-required={field.required} placeholder={field.placeholder} /> : field.type === 'select' ? <CustomSelect required={field.required} ariaLabel={field.label} placeholder="请选择" options={field.options || []} /> : field.type === 'date' || field.type === 'datetime' ? <DatePicker showTime={field.type === 'datetime'} required={field.required} ariaLabel={field.label} /> : field.type === 'file' ? <Upload accept={field.accept} maxCount={1} beforeUpload={file => { setFiles(v => ({...v,[field.name]:file})); return false }} onRemove={() => setFiles(v => ({...v,[field.name]:null}))}><Button>选择文件</Button></Upload> : <Input autoFocus={index === 0} aria-required={field.required} type={field.type || 'text'} placeholder={field.placeholder} />}
       </Form.Item>)}
-      {error && <Alert className="form-error" type="error" showIcon message={error} />}
+      {error && <Alert type="error" showIcon message={error} />}
     </Form>
   </Modal>
 }
