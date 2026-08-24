@@ -2,7 +2,7 @@
 
 ## 本机启动（推荐）
 
-只需要 Node.js 24 LTS，不需要 Docker，也不需要单独启动数据库服务：
+只需要 Node.js 24 LTS，不需要单独启动数据库服务：
 
 ```bash
 npm install
@@ -35,15 +35,7 @@ NODE_ENV=production npm start
 | `SONDARA_SECURE_COOKIES` | HTTPS 部署设为 true | `true` |
 | `SONDARA_TRUST_PROXY` | 位于可信反代后设为 true | `true` |
 
-SQLite 版本面向单机、单实例部署。不要让多个容器或多台服务器同时挂载同一个 SQLite 文件，也不要把数据库放在网络文件系统中。
-
-## 可选 Docker 部署
-
-```bash
-docker compose up -d --build
-```
-
-Compose 只创建 `sondara-app-1`，不再创建数据库容器。数据库、主密钥和备份都保存在 `sondara_app-data` 持久卷中。日常本地开发不需要 Docker。
+SQLite 版本面向单机、单实例部署。不要让多个应用实例或多台服务器同时挂载同一个 SQLite 文件，也不要把数据库放在网络文件系统中。
 
 ## PostgreSQL 旧数据迁移
 

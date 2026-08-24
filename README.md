@@ -41,16 +41,15 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 
 ## 技术栈
 
-- React 19 + TypeScript + Vite 7
+- React 19 + TypeScript + Vite 8
 - React Router 7、TanStack Query、Zustand
 - Ant Design 6、Lucide React
 - Fastify 5 + SQLite + Drizzle ORM
 - 多 AI 服务密钥池轮转、AES-256-GCM 密钥保险箱
-- Docker 多阶段构建支持
 
 ## 本地启动
 
-需要 Node.js 24 LTS，不需要 Docker 或独立数据库服务。首次启动：
+只需要 Node.js 24 LTS，无需安装独立数据库服务。首次启动：
 
 ```bash
 npm install
@@ -86,15 +85,7 @@ NODE_ENV=production npm start
 
 生产模式下，API 在同一端口（默认 4176）同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。自动备份会生成经过完整性校验的 SQLite 快照，默认每日一次、保留最近 7 份。
 
-### Docker
-
-```bash
-docker compose up -d --build
-```
-
-Docker 是可选部署方式，Compose 只运行 `sondara-app-1` 一个容器；SQLite 数据和备份保存在 `sondara_app-data` 持久卷。日常本地开发不需要 Docker。
-
-完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含 Docker、手动部署、systemd、Nginx 反代、备份恢复和升级流程；版本升级与数据库迁移见 [docs/UPGRADE.md](./docs/UPGRADE.md)。
+完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含本机部署、进程管理、反向代理、备份恢复和升级流程；版本升级与数据库迁移见 [docs/UPGRADE.md](./docs/UPGRADE.md)。
 
 ## 测试
 

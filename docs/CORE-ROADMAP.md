@@ -93,7 +93,7 @@
 ## 开源发布前检查
 
 - [x] 密钥、客户信息、公司信息不进入仓库
-- [x] `.env.example`、SQLite 路径和可选单容器 Docker 配置
+- [x] `.env.example`、SQLite 路径和本机启动配置
 - [x] 公共仓库安全扫描
 - [x] 补齐 GitHub Actions、升级说明、数据库迁移说明、贡献指南
 
