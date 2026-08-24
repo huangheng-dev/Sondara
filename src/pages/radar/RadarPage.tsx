@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Card, Col, Descriptions, List, Progress, Row, Space, Statistic, Typography } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import {
   Activity,
@@ -45,6 +46,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { authApi, customerApi, icpApi, radarApi, taskApi, type CustomerApiRecord, type RadarTaskStatus } from '@/lib/api'
 import { parseCsv } from '@/utils/csv'
+import { PageContainer, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
 
 type Filter = '全部' | '高匹配' | '强信号'
 type Mode = '智能多渠道' | '地图找客' | '企业官网' | '搜索引擎' | '行业名录' | '展会协会' | '招投标项目' | '招聘扩产' | '新闻融资' | '贸易海关' | '社交网络' | '种子名单'
@@ -139,14 +141,14 @@ export function RadarPage() {
   const createCandidateTask=async(candidate:Candidate)=>{const customer=(await ensureCandidateCustomer(candidate)).record;const title='完成首次触达并记录结果';const dueAt=Date.now()+48*60*60*1000;await taskApi.create({customerId:customer.id,title,priority:'高',dueAt,dueLabel:'48 小时内',company:customer.company,nextAction:title,impact:customer.estimatedValue?`¥${customer.estimatedValue.toLocaleString('zh-CN')}`:'待评估',source:'AI 获客'});await customerQuery.refetch()}
   const archiveCandidates=async(ids:string[], archived:boolean)=>{try{await Promise.all(ids.map(id=>radarApi.archiveCandidate(id,archived)));await candidateQuery.refetch();setCheckedCandidates(new Set());setSelected(null);showToast(archived?`已归档 ${ids.length} 家候选`:`已恢复 ${ids.length} 家候选`)}catch(cause){showToast(cause instanceof Error?cause.message:'归档操作失败')}
   }
-  const createRadarTask=async(values:Record<string,string>)=>{const seedUrls=values.seedUrls.split(/[\n,，]+/).map(value=>value.trim()).filter(Boolean);if(/企业官网|种子名单/.test(values.mode)&&!seedUrls.length)throw new Error('该获客方式必须填写至少一个企业官网或公开来源网址');await radarApi.createTask({name:values.name,icp:values.icp,mode:values.mode,depth:values.depth,candidateLimit:Number(values.limit),knowledgeScope:values.knowledge,targetRegion:values.region,researchLanguage:values.language,inputSource:'AI 获客',seedUrls});await Promise.all([radarTaskQuery.refetch(),queueQuery.refetch()])}
+  const createRadarTask=async(values:Record<string,string>)=>{const seedUrls=(values.seedUrls??'').split(/[\n,，]+/).map(value=>value.trim()).filter(Boolean);if(/企业官网|种子名单/.test(values.mode)&&!seedUrls.length)throw new Error('该获客方式必须填写至少一个企业官网或公开来源网址');await radarApi.createTask({name:values.name,icp:values.icp,mode:values.mode,depth:values.depth,candidateLimit:Number(values.limit),knowledgeScope:values.knowledge,targetRegion:values.region,researchLanguage:values.language||'自动识别',inputSource:'AI 获客',seedUrls});await Promise.all([radarTaskQuery.refetch(),queueQuery.refetch()])}
   const importRadarTask=async(values:Record<string,string>)=>{const file=values.file as unknown;if(!(file instanceof File))throw new Error('请选择名单文件');if(/\.xlsx?$/i.test(file.name))throw new Error('当前版本支持 CSV/TXT，Excel 请另存为 CSV 后导入。');const text=await file.text();const rows=parseCsv(text);const valuesToCheck=rows.flatMap(row=>Object.values(row));const urls:string[]=valuesToCheck.map((value:string)=>value.trim()).filter(Boolean).map((value:string)=>{if(/^https?:\/\//i.test(value))return value;if(/^[\w-]+(\.[\w-]+)+(\/|$)/i.test(value))return `https://${value.replace(/^\/+/,'')}`;return ''}).filter(Boolean);const seedUrls=[...new Set(urls)];if(!seedUrls.length)throw new Error('未在 CSV/TXT 中识别到官网或域名列，请包含 website、domain、官网、网站或网址列。');await radarApi.createTask({name:`种子名单研究 · ${file.name}`,icp:values.market,mode:'种子名单',depth:'标准研究',candidateLimit:100,knowledgeScope:'全部已启用知识',targetRegion:'按名单识别',researchLanguage:'自动识别',inputSource:`种子名单 · ${file.name}`,seedUrls});await Promise.all([radarTaskQuery.refetch(),queueQuery.refetch()])}
   const changeTaskStatus=async(action:'pause'|'resume'|'cancel'|'retry')=>{if(!activeTask)return;try{await radarApi.taskAction(activeTask.id,action);await Promise.all([radarTaskQuery.refetch(),queueQuery.refetch()]);showToast(action==='pause'?'任务已暂停':action==='resume'?'任务已继续':action==='cancel'?'任务已取消':'任务已重新进入队列')}catch(cause){showToast(cause instanceof Error?cause.message:'任务状态更新失败。')}}
   const latestQueue=queueQuery.data?.items[0]
   const researchCandidates=candidateRecords.filter(candidate=>candidate.status==='candidate'||candidate.status==='review').slice(0,3)
   const savedCount=candidateRecords.filter(candidate=>candidate.status==='saved').length
 
-  return <div>
+  return <PageContainer>
     <PageHeader title="AI 获客" description="从多渠道持续发现、研究和筛选值得跟进的目标企业。" actions={<>
       <Button onClick={()=>setArchiveView(value=>!value)}><Layers3 size={16}/>{archiveView?'返回候选':'已归档'}</Button>
       <Button onClick={()=>activeTask?setTaskDetail(true):showToast('暂无雷达任务，请先创建任务。')}><Activity size={16}/>任务详情</Button>
@@ -154,10 +156,8 @@ export function RadarPage() {
       <Button variant="primary" onClick={() => setDialog('task')}><Plus size={16} />创建雷达任务</Button>
     </>} />
 
-    <div id="radar-candidates">
-      <Panel>
-        <div>
-          <div>
+    <Panel>
+        <TableToolbar filters={<>
             <SearchInput ariaLabel="搜索候选客户" value={query} onChange={event=>setQuery(event.target.value)} placeholder="搜索企业、行业或信号"/>
             <CustomSelect ariaLabel="筛选获客渠道" value={mode} onChange={value=>setMode(value as Mode)} options={modes.map(({label,icon:Icon})=>({value:label,label,icon:<Icon/>}))}/>
             <CustomSelect ariaLabel="筛选候选状态" value={filter} onChange={value=>setFilter(value as Filter)} options={[{value:'全部',label:'全部候选',icon:<ListFilter/>},{value:'高匹配',label:'高匹配',icon:<Target/>},{value:'强信号',label:'强信号',icon:<Zap/>}]}/>
@@ -168,34 +168,30 @@ export function RadarPage() {
               {value:'预计价值最高',label:'预计价值最高',icon:<HandCoins/>},{value:'预计价值最低',label:'预计价值最低',icon:<HandCoins/>},
               {value:'最近发现',label:'最近发现',icon:<CalendarDays/>},{value:'最早发现',label:'最早发现',icon:<CalendarDays/>},
             ]}/>
-            <Button disabled={candidateQuery.isFetching||radarTaskQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),radarTaskQuery.refetch()]);showToast('候选客户列表已刷新')}}><RefreshCw className="is-spinning"/>刷新</Button>
+            <Button loading={candidateQuery.isFetching||radarTaskQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),radarTaskQuery.refetch()]);showToast('候选客户列表已刷新')}}>{!candidateQuery.isFetching&&!radarTaskQuery.isFetching&&<RefreshCw/>}刷新</Button>
             <Button disabled={!query&&filter==='全部'&&mode==='智能多渠道'&&sort==='匹配分最高'} onClick={()=>{setQuery('');setFilter('全部');setMode('智能多渠道');setSort('匹配分最高')}}>清除筛选</Button>
-          </div>
-          <div aria-hidden={checkedCandidates.size===0}><span><CheckCircle2/><small>已选择</small><strong>{checkedCandidates.size}</strong><small>家</small></span><div><Button disabled={archiveView} onClick={saveChecked}><Bookmark/>保存客户</Button><Button disabled={archiveView} onClick={()=>setBatchTaskOpen(true)}><CheckCircle2/>创建任务</Button><Button onClick={()=>archiveCandidates([...checkedCandidates],!archiveView)}><Layers3/>{archiveView?'恢复所选':'归档所选'}</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setCheckedCandidates(new Set())}><X/></Button></div></div>
-        </div>
+          </>} selection={checkedCandidates.size>0?<SelectionBar summary={<Space><CheckCircle2/>已选择 {checkedCandidates.size} 家候选</Space>} actions={<><Button disabled={archiveView} onClick={saveChecked}><Bookmark/>保存客户</Button><Button disabled={archiveView} onClick={()=>setBatchTaskOpen(true)}><CheckCircle2/>创建任务</Button><Button onClick={()=>archiveCandidates([...checkedCandidates],!archiveView)}><Layers3/>{archiveView?'恢复所选':'归档所选'}</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setCheckedCandidates(new Set())}><X/></Button></>}/>:undefined}/>
         <CandidateList candidates={candidatePaging.pageItems} saved={saved} selected={checkedCandidates} sort={sort} onSortChange={setSort} onSelectionChange={setCheckedCandidates} onOpen={setSelected} onSave={archiveView?async()=>showToast('请先恢复候选，再保存至客户库。'):save} />
         {filtered.length>0&&<Pagination page={candidatePaging.page} pageSize={candidatePaging.pageSize} total={filtered.length} onPageChange={candidatePaging.setPage} onPageSizeChange={candidatePaging.setPageSize} itemName="家候选"/>}
-      </Panel>
-    </div>
+    </Panel>
 
     <CompanyDecisionDrawer candidate={selected} open={Boolean(selected)} onClose={() => setSelected(null)} onSave={archiveView?async()=>showToast('请先恢复候选，再保存至客户库。'):save} onEnrich={enrichCandidate} onCreateTask={createCandidateTask} />
     <CreateDialog open={dialog==='task'} title="创建雷达任务" description="系统会按所选渠道复用搜索、地图和公开行业来源；也可以直接填写企业官网、行业名录、协会名单或招投标页面。后台会提取证据、合并多来源、去重并写入候选列表。" successMessage="雷达任务已创建并进入研究队列" onClose={()=>setDialog(null)} onSubmit={createRadarTask} initialValues={{icp:selectedMarketName,knowledge:`全部已启用知识（${enabledKnowledge} 条）`,mode:'智能多渠道',language:'自动识别',depth:'标准研究',limit:'100'}} fields={[{name:'name',label:'任务名称',required:true},{name:'icp',label:'客户定位结果',type:'select',required:true,options:targetMarkets},{name:'knowledge',label:'增长知识范围',type:'select',required:true,options:[`全部已启用知识（${enabledKnowledge} 条）`,'仅产品与客户判断规则','产品、案例与市场知识','不引用增长知识']},{name:'mode',label:'获客渠道',type:'select',required:true,options:modes.map(channel=>channel.label)},{name:'region',label:'目标地区',required:true},{name:'language',label:'研究语言',type:'select',options:['自动识别','中文','英语','德语']},{name:'depth',label:'研究深度',type:'select',required:true,options:['快速发现','标准研究','深度核验']},{name:'limit',label:'候选上限',type:'number',required:true},{name:'seedUrls',label:'公开来源网址（可选，每行一个）',type:'textarea',placeholder:'企业官网、行业名录、协会名单或招投标页面网址'}]} />
     <CreateDialog open={dialog==='import'} title="导入种子名单" description="导入 CSV/TXT 名单；系统会识别官网或域名列，并进入种子 URL 研究队列。" submitLabel="进入导入队列" successMessage="名单导入任务已进入队列" onClose={()=>setDialog(null)} onSubmit={importRadarTask} fields={[{name:'file',label:'名单文件',type:'file',accept:'.csv,.txt,text/csv,text/plain',required:true},{name:'market',label:'关联客户定位',type:'select',required:true,options:targetMarkets}]}/>
     <CreateDialog open={batchTaskOpen} title={`为 ${checkedCandidates.size} 家候选创建任务`} description="候选会先保存至客户库，再生成统一的跟进任务。" submitLabel="创建任务" successMessage="候选已保存并创建跟进任务" onClose={()=>setBatchTaskOpen(false)} onSubmit={createCheckedTask} fields={[{name:'title',label:'任务名称',required:true,placeholder:'例如：复核联系人并完成首次触达'},{name:'due',label:'截止时间',required:true},{name:'priority',label:'优先级',type:'select',required:true,options:['高','中','低']},{name:'note',label:'执行说明',type:'textarea'}]}/>
     <Modal open={taskDetail&&Boolean(activeTask)} width={780} title={activeTask?.name??'雷达任务'} description="雷达任务详情与当前执行状态" onClose={()=>setTaskDetail(false)} footer={<>{activeTask&&['queued','running'].includes(activeTask.status)&&<Button onClick={()=>changeTaskStatus('pause')}>暂停任务</Button>}{activeTask?.status==='paused'&&<Button onClick={()=>changeTaskStatus('resume')}>继续任务</Button>}{activeTask?.status==='failed'&&<Button onClick={()=>changeTaskStatus('retry')}>失败重试</Button>}{activeTask&&['queued','running','paused','failed'].includes(activeTask.status)&&<Button variant="danger" onClick={()=>changeTaskStatus('cancel')}>取消任务</Button>}<Button onClick={()=>setTaskDetail(false)}>关闭</Button><Button variant="primary" onClick={()=>{setTaskDetail(false);setDialog('task')}}>复制为新任务</Button></>}>
-      {activeTask&&
-      <div>
-        <section><article><i><Activity/></i><span><small>任务进度</small><strong>{activeTask.progress}%</strong><em>{activeTask.currentStage}</em></span></article><article><i><Target/></i><span><small>高匹配候选</small><strong>{activeTask.highMatchCount}</strong><em>匹配分 90 以上</em></span></article><article><i><ListTree/></i><span><small>队列重试</small><strong>{latestQueue?.attempts??0}/{latestQueue?.maxAttempts??3}</strong><em>{latestQueue?statusLabels[latestQueue.status]:'暂无队列记录'}</em></span></article></section>
-        <dl><div><dt>客户定位</dt><dd>{activeTask.icp}</dd></div><div><dt>发现方式</dt><dd>{activeTask.mode}</dd></div><div><dt>研究深度</dt><dd>{activeTask.depth}</dd></div><div><dt>候选上限</dt><dd>{activeTask.candidateLimit} 家</dd></div><div><dt>目标地区</dt><dd>{activeTask.targetRegion}</dd></div><div><dt>运行状态</dt><dd>{statusLabels[activeTask.status]}</dd></div></dl>
-        <div><CheckCircle2 size={16}/><span><h3>当前阶段 · {activeTask.currentStage}</h3><p>{activeTask.lastError??'任务状态由服务端队列维护；数据源接入后会写入候选、证据和研究进度。'}</p></span></div>
-        <div>
-          <section><header><span><h3>处理流水线</h3><p>从发现、研究到保存至客户库</p></span><Badge tone={activeTask.status==='failed'?'orange':activeTask.status==='completed'?'green':'blue'}>{statusLabels[activeTask.status]}</Badge></header><div>{[
+      {activeTask&&<Space direction="vertical" size="middle" style={{width:'100%'}}>
+        <Row gutter={[16,16]}><Col xs={24} md={8}><Card><Statistic title="任务进度" value={activeTask.progress} suffix="%"/><Typography.Text type="secondary">{activeTask.currentStage}</Typography.Text></Card></Col><Col xs={24} md={8}><Card><Statistic title="高匹配候选" value={activeTask.highMatchCount}/><Typography.Text type="secondary">匹配分 90 以上</Typography.Text></Card></Col><Col xs={24} md={8}><Card><Statistic title="队列重试" value={`${latestQueue?.attempts??0}/${latestQueue?.maxAttempts??3}`}/><Typography.Text type="secondary">{latestQueue?statusLabels[latestQueue.status]:'暂无队列记录'}</Typography.Text></Card></Col></Row>
+        <Descriptions bordered column={{xs:1,sm:2}} items={[{key:'icp',label:'客户定位',children:activeTask.icp},{key:'mode',label:'发现方式',children:activeTask.mode},{key:'depth',label:'研究深度',children:activeTask.depth},{key:'limit',label:'候选上限',children:`${activeTask.candidateLimit} 家`},{key:'region',label:'目标地区',children:activeTask.targetRegion},{key:'status',label:'运行状态',children:statusLabels[activeTask.status]}]}/>
+        <Card size="small" title={<Space><CheckCircle2/>当前阶段 · {activeTask.currentStage}</Space>}><Typography.Text>{activeTask.lastError??'任务状态由服务端队列维护；数据源接入后会写入候选、证据和研究进度。'}</Typography.Text></Card>
+        <Row gutter={[16,16]}>
+          <Col xs={24} lg={14}><Card title="处理流水线" extra={<Badge tone={activeTask.status==='failed'?'orange':activeTask.status==='completed'?'green':'blue'}>{statusLabels[activeTask.status]}</Badge>}><List dataSource={[
             ['发现与采集',String(activeTask.candidatesFound),'已发现',activeTask.progress],['高匹配筛选',String(activeTask.highMatchCount),'90 分以上',activeTask.candidatesFound?Math.round(activeTask.highMatchCount/activeTask.candidatesFound*100):0],['AI 企业研究',String(researchCandidates.length),'待研究',researchCandidates.length?Math.round(researchCandidates.reduce((sum,item)=>sum+item.confidence,0)/researchCandidates.length):0],['人工复核',String(candidateRecords.filter(item=>item.status==='review').length),'等待确认',candidateRecords.length?Math.round(candidateRecords.filter(item=>item.status==='review').length/candidateRecords.length*100):0],['保存至客户库',String(savedCount),'已保存',candidateRecords.length?Math.round(savedCount/candidateRecords.length*100):0],
-          ].map((item,index)=><div key={item[0]}><i>{index+1}</i><span><strong>{item[0]}</strong><small>{item[2]}</small></span><b>{item[1]}</b><em><u style={{width:`${item[3]}%`}}/></em></div>)}</div></section>
-          <section><header><span><h3>研究队列</h3><p>等待核验证据与联系人</p></span><Button aria-label="刷新研究队列" disabled={candidateQuery.isFetching||queueQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),queueQuery.refetch()]);showToast('研究队列已刷新')}}><RefreshCw size={14} className="is-spinning"/></Button></header><div>{researchCandidates.length?researchCandidates.map(item=><div key={item.id}><span><i><Activity size={15}/></i><strong>{item.company}</strong><small>{item.evidence.length} 条证据待核验</small></span><b>{item.confidence}%</b><em><u style={{width:`${item.confidence}%`}}/></em></div>):<EmptyState title="暂无研究队列" icon={Activity} />}</div></section>
-        </div>
-        <section><header><span><h3>执行记录</h3><p>连接器、重试和完成状态均由服务端记录</p></span></header><div>{taskEventQuery.data?.items.length?taskEventQuery.data.items.slice(0,8).map(event=><article key={event.id}><i/><span><strong>{event.message}</strong><small>{new Date(event.createdAt).toLocaleString('zh-CN')}</small></span></article>):<EmptyState title="暂无执行记录" icon={Activity} />}</div></section>
-      </div>}
+          ]} renderItem={(item,index)=><List.Item extra={<Typography.Text strong>{item[1]}</Typography.Text>}><List.Item.Meta avatar={<Badge tone="blue">{index+1}</Badge>} title={item[0]} description={<Space direction="vertical" size={2}><Typography.Text type="secondary">{item[2]}</Typography.Text><Progress aria-label={`${item[0]}进度`} percent={Number(item[3])} showInfo={false}/></Space>}/></List.Item>}/></Card></Col>
+          <Col xs={24} lg={10}><Card title="研究队列" extra={<Button aria-label="刷新研究队列" loading={candidateQuery.isFetching||queueQuery.isFetching} onClick={async()=>{await Promise.all([candidateQuery.refetch(),queueQuery.refetch()]);showToast('研究队列已刷新')}}>{!candidateQuery.isFetching&&!queueQuery.isFetching&&<RefreshCw size={14}/>}</Button>}>{researchCandidates.length?<List dataSource={researchCandidates} renderItem={item=><List.Item extra={<Typography.Text strong>{item.confidence}%</Typography.Text>}><List.Item.Meta avatar={<Activity/>} title={item.company} description={<Space direction="vertical" size={2}><Typography.Text type="secondary">{item.evidence.length} 条证据待核验</Typography.Text><Progress aria-label={`${item.company}研究置信度`} percent={item.confidence} showInfo={false}/></Space>}/></List.Item>}/>:<EmptyState title="暂无研究队列" icon={Activity}/>}</Card></Col>
+        </Row>
+        <Card title={<Space direction="vertical" size={0}><Typography.Text strong>执行记录</Typography.Text><Typography.Text type="secondary">连接器、重试和完成状态均由服务端记录</Typography.Text></Space>}>{taskEventQuery.data?.items.length?<List dataSource={taskEventQuery.data.items.slice(0,8)} renderItem={event=><List.Item><List.Item.Meta avatar={<Activity/>} title={event.message} description={new Date(event.createdAt).toLocaleString('zh-CN')}/></List.Item>}/>:<EmptyState title="暂无执行记录" icon={Activity}/>}</Card>
+      </Space>}
     </Modal>
-  </div>
+  </PageContainer>
 }

@@ -25,16 +25,19 @@ const isProduction = process.env.NODE_ENV === "production";
 const logLevel = process.env.SONDARA_LOG_LEVEL ??
   (isProduction ? "info" : "warn");
 
+const configuredDatabasePath = process.env.SONDARA_DATABASE_PATH?.trim();
 const databaseUrl = process.env.SONDARA_DATABASE_URL?.trim()
-  ?? "postgresql://sondara:sondara@127.0.0.1:5433/sondara";
-if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
-  throw new Error("SONDARA_DATABASE_URL 必须是 PostgreSQL 连接地址。");
+  ?? `file:${resolve(configuredDatabasePath || resolve(process.cwd(), "data", "sondara.sqlite")).replaceAll("\\", "/")}`;
+if (!databaseUrl.startsWith("file:")) {
+  throw new Error("SONDARA_DATABASE_URL 必须是 file: 开头的 SQLite 地址。");
 }
+const databasePath = resolve(configuredDatabasePath || decodeURIComponent(databaseUrl.slice("file:".length)));
 
 export const config = {
   host: process.env.SONDARA_API_HOST ?? "127.0.0.1",
   port: numberFromEnv(process.env.SONDARA_API_PORT, 4176),
-  databaseDriver: "postgres" as const,
+  databaseDriver: "sqlite" as const,
+  databasePath,
   databaseUrl,
   webOrigin: process.env.SONDARA_WEB_ORIGIN ?? "http://127.0.0.1:4175",
   sessionDays: numberFromEnv(process.env.SONDARA_SESSION_DAYS, 30),

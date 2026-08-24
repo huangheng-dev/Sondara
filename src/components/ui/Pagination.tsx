@@ -1,4 +1,4 @@
-import { Pagination as AntPagination } from 'antd'
+import { Flex, Pagination as AntPagination, Typography } from 'antd'
 
 type PaginationProps = {
   page: number
@@ -15,8 +15,8 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
   const safePage = Math.min(page, pageCount)
   const start = total ? (safePage - 1) * pageSize + 1 : 0
   const end = Math.min(safePage * pageSize, total)
-  return <nav className="app-pagination-ant" aria-label="列表分页">
-    <span className="pagination-summary">第 {start}–{end} 条，共 {total} {itemName}</span>
+  return <Flex className="ui-pagination" component="nav" aria-label="列表分页" align="center" justify="space-between" wrap gap={16}>
+    <Typography.Text type="secondary">第 {start}–{end} 条，共 {total} {itemName}</Typography.Text>
     <AntPagination
       current={safePage}
       pageSize={pageSize}
@@ -30,5 +30,5 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
         else onPageChange(nextPage)
       }}
     />
-  </nav>
+  </Flex>
 }

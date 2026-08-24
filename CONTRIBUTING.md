@@ -14,13 +14,13 @@
    ```bash
    npm install
    ```
-3. 准备 PostgreSQL 15+（推荐 17）。本地默认连接为：
+3. 数据库无需单独安装，默认使用：
 
    ```text
-   postgresql://sondara:sondara@127.0.0.1:5433/sondara
+   data/sondara.sqlite
    ```
 
-   也可通过 `SONDARA_DATABASE_URL` 指定隔离数据库。
+   也可通过 `SONDARA_DATABASE_PATH` 指定其他本地文件。
 4. 初始化开发库：
 
    ```bash
@@ -65,7 +65,7 @@ E2E 会自动创建临时数据库；集成测试应使用隔离数据库，不�
 - 外发、导入、合并、删除、备份恢复等高风险操作要有审计日志。
 - 自动外发必须保留人工确认、抑制名单、退订/退信/投诉停止逻辑。
 - 不接受绕过人机验证、登录限制、平台反爬规则或非官方批量私信/加好友的实现。
-- 新增数据表必须同时添加 Drizzle schema 和 PostgreSQL migration。
+- 新增数据表必须同时添加 Drizzle schema 和 SQLite migration。
 - 新增后端能力优先补集成测试；修复缺陷时优先加能复现问题的测试。
 
 ## 数据库变更

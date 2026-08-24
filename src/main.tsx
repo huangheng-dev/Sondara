@@ -5,7 +5,7 @@ import { RouterProvider } from 'react-router-dom'
 import { router } from '@/app/router'
 import { AntDesignProvider } from '@/app/AntDesignProvider'
 import 'antd/dist/reset.css'
-import '@/styles/global.css'
+import '@/styles/design-system.css'
 
 const queryClient = new QueryClient()
 

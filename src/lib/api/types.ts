@@ -3,7 +3,7 @@ export type AuthSession = {
   workspace: { id: string; name: string; role: string };
 };
 
-export type AuthTwoFactorRequired = {
+type AuthTwoFactorRequired = {
   twoFactorRequired: true;
   maskedEmail: string;
 };
@@ -52,25 +52,8 @@ export type CustomerApiRecord = {
   updatedAt: number;
 };
 
-export type CustomerApiInput = {
-  company: string;
-  region?: string;
-  industry?: string;
-  score?: number;
-  confidence?: number;
-  signal?: string;
-  source?: string;
-  estimatedValue?: number;
-  size?: string;
-  stage?: string;
-  contacts?: number;
-  validContacts?: number;
-  interaction?: string;
-  nextAction?: string;
-  dueAt?: number | null;
-  ownerUserId?: string | null;
-};
-export type CustomerImportRow = CustomerApiInput & { contactName?: string; contactTitle?: string; contactEmail?: string; contactPhone?: string; website?: string };
+export type CustomerApiInput = import('../../../server/contracts/customers').CustomerInput;
+export type CustomerImportRow = import('../../../server/contracts/customers').CustomerImportRowInput;
 export type CustomerImportResult = { total: number; created: number; duplicates: number; contactsCreated: number; invalid: number };
 export type CustomerImportHistory = { id: string; createdAt: number; sourceName: string; sourceType: string; sourceUrl: string | null; total: number; created: number; duplicates: number; contactsCreated: number };
 export type LeadSourceConnection = { id: string; provider: 'linkedin-lead-gen' | 'meta-lead-ads'; name: string; accountRef: string | null; formRef: string | null; clientId: string | null; enabled: boolean; status: string; hasAccessToken: boolean; accessTokenEnding: string | null; lastError: string | null; lastSyncedAt: number | null; createdAt: number; updatedAt: number; webhookPath: string };
@@ -578,7 +561,7 @@ export type KnowledgeItemApiInput = {
 };
 
 export type CampaignStatus = "草稿" | "运行中" | "已暂停" | "已完成" | "已归档";
-export type CampaignStepApiRecord = {
+type CampaignStepApiRecord = {
   id: string;
   campaignId: string;
   position: number;
@@ -786,7 +769,7 @@ export type AttributionChannel = {
   currency: string;
 };
 
-export type AttributionFunnelStage = {
+type AttributionFunnelStage = {
   key: string;
   label: string;
   value: number;

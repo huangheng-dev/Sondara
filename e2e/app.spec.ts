@@ -61,6 +61,23 @@ test.describe('authenticated smoke, accessibility and performance', () => {
     })
   }
 
+  test('handles an empty optional radar source and creates after a source is supplied', async ({ page }) => {
+    await page.goto('/radar')
+    await page.getByRole('button', { name: '创建雷达任务' }).click()
+    const dialog = page.getByRole('dialog', { name: /创建雷达任务/ })
+    await dialog.getByRole('textbox', { name: /任务名称/ }).fill('无来源网址回归任务')
+    await dialog.getByRole('textbox', { name: /目标地区/ }).fill('德国')
+    await dialog.getByRole('button', { name: /创\s*建/ }).click()
+    await expect(dialog.getByRole('alert')).toContainText('配置并测试搜索 API，或填写可直接研究的公开来源网址')
+    await expect(dialog.getByRole('alert')).not.toContainText('Cannot read properties')
+    await dialog.getByRole('textbox', { name: /公开来源网址/ }).fill('https://www.example.com')
+    await dialog.getByRole('button', { name: /创\s*建/ }).click()
+    await expect(dialog).toBeHidden()
+    await page.getByRole('button', { name: '任务详情' }).click()
+    await expect(page.getByRole('dialog', { name: /无来源网址回归任务/ })).toBeVisible()
+    expect(pageErrors.filter(message => !message.includes('status of 409'))).toEqual([])
+  })
+
   test('dashboard stays within local performance budget', async ({ page }) => {
     await page.goto('/dashboard')
     await page.waitForLoadState('networkidle')

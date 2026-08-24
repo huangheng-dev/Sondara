@@ -1,8 +1,9 @@
 import { useEffect, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useLocation } from 'react-router-dom'
-import { Button, Result } from 'antd'
+import { Result } from 'antd'
 import { ShieldCheck } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
 import { ApiError, authApi } from '@/lib/api'
 import { useBusinessStore } from '@/stores/business-store'
 

@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
-import { databaseRuntime, pool } from "../db/client.js";
+import { databaseRuntime } from "../db/client.js";
 import { withMigrationLock } from "../db/migration-lock.js";
 import { acquireLeaderLease, LEADER_KEYS } from "../lib/leader-lock.js";
-
-const MIGRATION_LOCK_KEY = 0x534f4e44;
 
 const run = async () => {
   const outboxLease = await acquireLeaderLease(LEADER_KEYS.outbox);
@@ -21,25 +19,15 @@ const run = async () => {
   assert.ok(reacquiredLease, "leader lock should become available after release");
   await reacquiredLease.release();
 
-  const migrationOwner = await pool.connect();
-  try {
-    await migrationOwner.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
-    await assert.rejects(
-      withMigrationLock(async () => {
-        throw new Error("protected migration operation should not run");
-      }),
-      /另一个实例正在执行数据库迁移/,
-    );
-  } finally {
-    await migrationOwner.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-    migrationOwner.release();
-  }
-
-  let migrationRan = false;
-  await withMigrationLock(async () => {
-    migrationRan = true;
-  });
-  assert.equal(migrationRan, true);
+  let releaseFirst: () => void = () => undefined;
+  const first = withMigrationLock(() => new Promise<void>(resolve => { releaseFirst = resolve; }));
+  let secondRan = false;
+  const second = withMigrationLock(async () => { secondRan = true; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(secondRan, false, "migration operations must be serialized");
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.equal(secondRan, true);
 
   await databaseRuntime.close();
   console.log("Worker lock integration passed: leader lease exclusivity, release/reacquire and migration lock verified.");

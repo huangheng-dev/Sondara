@@ -2,46 +2,22 @@ export type LeaderLease = {
   release: () => Promise<void>;
 };
 
+const activeLeases = new Set<number>();
+
 export const acquireLeaderLease = async (
   key: number,
   onLost?: () => void,
 ): Promise<LeaderLease | null> => {
-  const { pool } = await import("../db/client.js");
-  const client = await pool.connect();
+  void onLost;
+  if (activeLeases.has(key)) return null;
+  activeLeases.add(key);
   let released = false;
-
-  const handleError = () => {
-    if (!released) onLost?.();
-  };
-
-  client.on("error", handleError);
-
-  try {
-    const result = await client.query<{ locked: boolean }>(
-      "select pg_try_advisory_lock($1) as locked",
-      [key],
-    );
-    if (!result.rows[0]?.locked) {
-      client.release();
-      return null;
-    }
-  } catch (error) {
-    client.release(error instanceof Error ? error : undefined);
-    throw error;
-  }
 
   return {
     release: async () => {
       if (released) return;
       released = true;
-      client.off("error", handleError);
-      try {
-        await client.query("select pg_advisory_unlock($1)", [key]);
-      } catch {
-        // Closing the connection also releases the session-level advisory lock.
-      } finally {
-        client.release();
-      }
+      activeLeases.delete(key);
     },
   };
 };

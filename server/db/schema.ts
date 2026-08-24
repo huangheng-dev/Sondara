@@ -1,11 +1,12 @@
 import {
-  bigint,
-  boolean,
   index,
-  pgTable,
+  integer as bigint,
+  sqliteTable as pgTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
+
+const boolean = <TName extends string>(name: TName) => bigint(name, { mode: "boolean" });
 
 export const users = pgTable(
   "users",

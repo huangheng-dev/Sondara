@@ -1,155 +1,79 @@
 # Sondara 部署指南
 
-## 系统要求
+## 本机启动（推荐）
 
-- Docker Compose（推荐），或 Node.js 24 LTS 与 PostgreSQL 15+
-- 内存建议 1 GB 以上
-- HTTPS 域名用于公开部署
-
-## Docker 一键部署
-
-开发机可直接启动：
+只需要 Node.js 24 LTS，不需要 Docker，也不需要单独启动数据库服务：
 
 ```bash
-docker compose up -d --build
+npm install
+npm run setup -- --non-interactive
+npm run db:seed:dev
+npm run start:local
 ```
 
-Compose 项目固定命名为 `sondara`。Docker Desktop 中会看到：
+以后启动只运行 `npm run start:local`。前端地址为 `http://localhost:4175`，API 为 `http://127.0.0.1:4176`，默认 SQLite 文件位于 `data/sondara.sqlite`。
 
-- `sondara-app-1`：前端静态文件、API 和后台 worker；
-- `sondara-postgres-1`：独立 PostgreSQL 17；
-- `sondara_postgres-data`：数据库持久卷；
-- `sondara_app-data`：主密钥与 worker 状态等本地运行数据。
-
-应用地址为 `http://localhost:4176`，启动时会自动应用数据库迁移。
-PostgreSQL 只绑定本机 `127.0.0.1:5433`，用于本地维护与备份，不对局域网或公网开放。
-
-公开部署前：
-
-```bash
-cp .env.example .env
-```
-
-至少修改 `POSTGRES_PASSWORD`、`SONDARA_DATABASE_URL` 中对应密码、`SONDARA_ENCRYPTION_KEY`、`SONDARA_WEB_ORIGIN`，并设置 `SONDARA_SECURE_COOKIES=true`。生成主密钥：
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-常用操作：
-
-```bash
-docker compose ps
-docker compose logs -f app
-docker compose restart app
-docker compose down
-```
-
-`docker compose down` 不删除数据卷；只有明确执行 `docker compose down -v` 才会删除数据库数据。
-
-## 手动部署
+## 生产部署
 
 ```bash
 npm ci
-npm run setup
+npm run setup -- --non-interactive
 npm run db:migrate
 npm run build
 NODE_ENV=production npm start
 ```
 
-`npm run setup` 会测试 PostgreSQL 连接并更新 `.env`；自动化环境可使用：
-
-```bash
-npm run setup -- --non-interactive --database-url=postgresql://user:password@host:5432/sondara
-```
-
-只检查连接、不修改 `.env` 时增加 `--check-only`。
+生产模式由 4176 端口同时提供前端静态文件、API 和后台 worker。运行用户必须对 `data/` 目录拥有读写权限。
 
 关键变量：
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `SONDARA_DATABASE_URL` | PostgreSQL 连接地址 | `postgresql://user:pass@db:5432/sondara` |
-| `SONDARA_DATABASE_POOL_MAX` | 进程连接池上限 | `10` |
+| `SONDARA_DATABASE_PATH` | SQLite 数据文件 | `/opt/sondara/data/sondara.sqlite` |
 | `SONDARA_WEB_ORIGIN` | 允许携带 Cookie 的站点来源 | `https://app.example.com` |
 | `SONDARA_ENCRYPTION_KEY` | 密钥保险箱主密钥 | 64 位 hex |
 | `SONDARA_SECURE_COOKIES` | HTTPS 部署设为 true | `true` |
 | `SONDARA_TRUST_PROXY` | 位于可信反代后设为 true | `true` |
 
-systemd 的 `ExecStart` 可使用 `/usr/bin/node /opt/sondara/server-dist/index.js`，并通过 `EnvironmentFile=/opt/sondara/.env` 注入配置。
+SQLite 版本面向单机、单实例部署。不要让多个容器或多台服务器同时挂载同一个 SQLite 文件，也不要把数据库放在网络文件系统中。
 
-## Nginx 反向代理
+## 可选 Docker 部署
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name app.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/app.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:4176;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+```bash
+docker compose up -d --build
 ```
+
+Compose 只创建 `sondara-app-1`，不再创建数据库容器。数据库、主密钥和备份都保存在 `sondara_app-data` 持久卷中。日常本地开发不需要 Docker。
+
+## PostgreSQL 旧数据迁移
+
+旧 PostgreSQL 仍可访问时，可一次性复制到 SQLite：
+
+```bash
+npm run db:migrate:postgres-to-sqlite
+```
+
+默认读取 `postgresql://sondara:sondara@127.0.0.1:5433/sondara`。自定义地址使用 `--postgres-url=...`。脚本只读 PostgreSQL，导入后执行完整性校验，并在替换现有 SQLite 前保留备份。
 
 ## 备份与恢复
 
-设置页“数据与备份”提供当前工作区脱敏 JSON 导出，以及工作区所有者可下载的 PostgreSQL custom-format 全库备份。镜像已包含 `pg_dump` 和 `pg_restore`。Docker 默认每日自动持久化备份一次、保留最近 7 份，并在每次生成后运行 `pg_restore --list` 校验；备份保存在 `sondara_app-data` 卷的 `backups/` 中。
+设置页“数据与备份”可下载完整 SQLite 快照。自动备份默认每日运行一次、保留最近 7 份，每份备份都会执行 `PRAGMA quick_check`。
 
-可用环境变量调整策略：`SONDARA_BACKUP_ENABLED`、`SONDARA_BACKUP_INTERVAL_MS`、`SONDARA_BACKUP_RETENTION_COUNT`、`SONDARA_BACKUP_DIRECTORY`。恢复操作仍必须由部署管理员手动执行，避免运行中的应用被意外覆盖。
+恢复时先停止应用，再将备份文件复制为 `data/sondara.sqlite`，最后重新启动。恢复前也应保存当前数据库文件和稳定的 `SONDARA_ENCRYPTION_KEY`。
 
-也可从数据库容器备份：
-
-```bash
-docker compose exec -T postgres pg_dump -U sondara -d sondara --format=custom --no-owner --no-acl > sondara.dump
-```
-
-恢复到空数据库：
-
-```bash
-docker compose exec -T postgres pg_restore -U sondara -d sondara --clean --if-exists --no-owner --no-acl < sondara.dump
-```
-
-升级前必须生成并实际验证备份。Drizzle migration 不自动回滚，失败时应恢复备份后再回滚代码。完整步骤见 [UPGRADE.md](./UPGRADE.md)。
-
-## 健康与可观测性
+## 健康检查
 
 | 端点 | 用途 |
 |------|------|
 | `GET /api/healthz` | 进程存活 |
-| `GET /api/ready` | PostgreSQL 与服务就绪 |
+| `GET /api/ready` | SQLite 与服务就绪 |
 | `GET /api/health` | 兼容 readiness |
-
-Sentry 与 OpenTelemetry SDK 已作为可选依赖随锁文件提供。未设置变量时不会连接第三方；配置以下变量并重启即可：
-
-```bash
-SONDARA_SENTRY_DSN=https://public@sentry.example/1
-SONDARA_SENTRY_TRACES_SAMPLE_RATE=0.1
-SONDARA_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-SONDARA_OTEL_SERVICE_NAME=sondara
-```
-
-## 安全清单
-
-- 使用独立强数据库密码和稳定随机的 `SONDARA_ENCRYPTION_KEY`；
-- 使用 HTTPS、Secure Cookie 和精确的 `SONDARA_WEB_ORIGIN`；
-- 不提交 `.env`、数据库 dump、客户导出、日志和截图；
-- 仅在可信内网确有需要时启用 `SONDARA_ALLOW_PRIVATE_CONNECTORS`；
-- 定期执行 `npm audit`、`npm run qa:public-repo` 和恢复演练；
-- PostgreSQL 端口不要直接暴露到公网。
 
 ## 故障排查
 
 | 问题 | 检查项 |
 |------|--------|
-| 应用未就绪 | `docker compose logs app`、`docker compose logs postgres`、连接 URL |
+| 应用未就绪 | 数据目录写权限、SQLite 文件路径和应用日志 |
+| `database is locked` | 是否启动了多个应用实例、数据库是否位于网络盘 |
 | 无法登录 | Cookie secure、CORS origin、代理头和系统时间 |
-| 邮件收发失败 | SMTP/API、每邮箱 IMAP、连接测试和外发任务事件 |
-| 连接数过多 | `SONDARA_DATABASE_POOL_MAX` 与 PostgreSQL `max_connections` |
-| 备份失败 | `pg_dump` 版本、数据库权限和临时目录空间 |
+| 备份失败 | `data/` 与备份目录磁盘空间和写权限 |

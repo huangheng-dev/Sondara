@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { Card, Col, Descriptions, Flex, List, Progress, Row, Space, Statistic, Typography } from 'antd'
 import {
   ArrowRight,
   BookOpenText,
@@ -18,9 +19,9 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Panel } from '@/components/ui/Panel'
+import { PageContainer, PageState } from '@/components/ui/PageModules'
 import { CreateDialog } from '@/components/ui/CreateDialog'
 import { useUiStore } from '@/stores/ui-store'
 import { Modal } from '@/components/ui/Modal'
@@ -176,14 +177,10 @@ export function IcpPage() {
   }
 
   if (profileQuery.isLoading) {
-    return <div><Panel title="客户定位" subtitle="正在读取业务资料…"><EmptyState spinning title="正在读取业务资料…" icon={RefreshCw}/></Panel></div>
+    return <PageContainer><PageState status="loading" title="正在读取业务资料…" description="正在读取客户定位和增长知识。"/></PageContainer>
   }
   if (profileQuery.isError || !profile) {
-    return <div>
-      <Panel title="客户定位" subtitle="业务资料读取失败。">
-        <Button onClick={() => profileQuery.refetch()}>重试</Button>
-      </Panel>
-    </div>
+    return <PageContainer><PageState status="error" title="业务资料读取失败" description="请确认 API 服务可用后重试。" onRetry={() => profileQuery.refetch()}/></PageContainer>
   }
 
   const lastAnalyzedLabel = formatAnalyzedAt(profile.analyzedAt)
@@ -192,62 +189,40 @@ export function IcpPage() {
     : customerProfile.map(([, v]) => v)
   ).slice(0, 5)
 
-  return <div>
+  return <PageContainer>
     <PageHeader title="客户定位" description="提供你的业务资料，AI 自动分析应该开发哪些市场和客户。" actions={<>
       <Button onClick={() => setBusinessDialog(true)}><FileText size={16} />编辑业务资料</Button>
       <Button onClick={() => setKnowledgeOpen(true)}><BookOpenText size={16} />定位资料</Button>
-      <Button variant="primary" disabled={analysisRunning} onClick={runAnalysis}><RefreshCw size={16} className="is-spinning" />{analysisRunning ? '正在分析…' : '重新分析'}</Button>
+      <Button variant="primary" loading={analysisRunning} onClick={runAnalysis}>{!analysisRunning && <RefreshCw size={16} />}{analysisRunning ? '正在分析…' : '重新分析'}</Button>
     </>} />
 
-    <section aria-label="当前业务资料">
-      <div>
-        <div>
-          <i><FileText /></i>
-          <span>
-            <small>当前业务资料</small>
-            <strong>{profile.company || '尚未填写公司或品牌名称'}</strong>
-            <em>{profile.website || `最近分析：${lastAnalyzedLabel}`}</em>
-          </span>
-        </div>
-        <Badge tone={profile.analysisStatus === 'complete' ? 'green' : 'neutral'}>
-          {profile.analysisStatus === 'complete' ? `已分析 · ${lastAnalyzedLabel}` : profile.analysisStatus === 'running' ? '分析中…' : '尚未分析'}
-        </Badge>
-      </div>
-      <dl>
-        <div>
-          <dt><i><Boxes /></i><span>产品与解决方案</span></dt>
-          <dd title={profile.products}>{profile.products || '待补充'}</dd>
-        </div>
-        <div>
-          <dt><i><Globe2 /></i><span>主要销售地区</span></dt>
-          <dd title={profile.regions}>{profile.regions || '待补充'}</dd>
-        </div>
-        <div>
-          <dt><i><Target /></i><span>理想客户</span></dt>
-          <dd title={profile.customers}>{profile.customers || '待补充'}</dd>
-        </div>
-        <div>
-          <dt><i><UserX /></i><span>排除对象</span></dt>
-          <dd title={profile.exclusions}>{profile.exclusions || '未设置'}</dd>
-        </div>
-      </dl>
-    </section>
+    <Card title={<Space><FileText/>当前业务资料 · {profile.company || '尚未填写公司或品牌名称'}</Space>} extra={<Badge tone={profile.analysisStatus === 'complete' ? 'green' : 'neutral'}>{profile.analysisStatus === 'complete' ? `已分析 · ${lastAnalyzedLabel}` : profile.analysisStatus === 'running' ? '分析中…' : '尚未分析'}</Badge>}>
+      <Descriptions bordered column={{ xs: 1, md: 2, xl: 4 }} items={[
+        {key:'products',label:<Space><Boxes/>产品与解决方案</Space>,children:profile.products||'待补充'},
+        {key:'regions',label:<Space><Globe2/>主要销售地区</Space>,children:profile.regions||'待补充'},
+        {key:'customers',label:<Space><Target/>理想客户</Space>,children:profile.customers||'待补充'},
+        {key:'exclusions',label:<Space><UserX/>排除对象</Space>,children:profile.exclusions||'未设置'},
+      ]}/>
+    </Card>
 
-    <section aria-label="客户定位结果">
-      <Panel title="推荐市场排行" subtitle={analysis?.recommendedMarkets?.length ? '由业务资料和启用中的知识生成' : '根据你的业务资料自动排序'} action={<Badge tone="blue">{markets.length} 个候选市场</Badge>}>
-        <div>{markets.map((market, index) => <Button aria-pressed={selectedMarket?.name === market.name} key={market.name} onClick={() => setSelectedMarketName(market.name)}>
-          <i>{index + 1}</i><span><strong>{market.name}</strong><small>{market.region} · {market.profile.join(' · ')}</small></span><b>{market.score}</b><ArrowRight />
-        </Button>)}</div>
-      </Panel>
-
-      <Panel title={`${selectedMarket?.name ?? '待选择市场'} · 理想客户画像`} subtitle="系统自动归纳，无需手动设置评分参数" action={<Badge tone={selectedMarket?.status === '优先开发' ? 'green' : selectedMarket?.status === '继续验证' ? 'orange' : 'neutral'}>{selectedMarket?.status}</Badge>}>
-        <div>
-          <section><div aria-busy={analysisRunning}><i><Sparkles /></i><span><small>AI 定位结论</small><strong>{analysisRunning ? '正在重新分析业务资料…' : analysis?.summary || `优先开发${selectedMarket?.name ?? '目标市场'}相关企业`}</strong><p>{analysisRunning ? '正在结合产品、案例和市场资料生成最新结果。' : (selectedReason || `该市场与你的产品能力和既有客户特征匹配，当前机会强度为${selectedMarket?.opportunity ?? '中'}。`)}</p></span><div><small>定位置信度</small><strong>{analysisRunning ? '—' : selectedMarket?.score}</strong></div></div><div><span><small>潜在企业</small><strong>{selectedMarket?.companies ?? '—'}</strong></span><span><small>市场规模</small><strong>{selectedMarket?.tam ?? '—'}</strong></span><span><small>机会强度</small><strong>{selectedMarket?.opportunity ?? '—'}</strong></span></div><div>{selectedMarket?.profile.map(tag => <Badge key={tag} tone="blue">{tag}</Badge>)}</div></section>
-          <section><header><span><strong>客户筛选条件</strong><small>用于 AI 获客和候选客户排序</small></span><Badge>{criteriaRows.length} 项条件</Badge></header><div>{criteriaRows.map(value => <article key={value}><i><CheckCircle2 /></i><span><strong>{value}</strong></span></article>)}</div></section>
-        </div>
-        <footer><Button onClick={() => setMarketDetail(selectedMarket ?? null)}>查看完整画像</Button><Button variant="primary" disabled={analysisRunning || !selectedMarket} onClick={() => selectedMarket && startRadar(selectedMarket)}>按此定位找客户<ArrowRight size={14} /></Button></footer>
-      </Panel>
-    </section>
+    <Row gutter={[16, 16]} aria-label="客户定位结果">
+      <Col xs={24} xl={8}>
+        <Panel title="推荐市场排行" subtitle={analysis?.recommendedMarkets?.length ? '由业务资料和启用中的知识生成' : '根据你的业务资料自动排序'} action={<Badge tone="blue">{markets.length} 个候选市场</Badge>}>
+          <List dataSource={markets} renderItem={(market,index)=><List.Item actions={[<Button key="open" type="link" aria-label={`查看${market.name}`} onClick={()=>setSelectedMarketName(market.name)}><ArrowRight/></Button>]}><Flex align="center" justify="space-between" gap={12} style={{width:'100%'}}><Space direction="vertical" size={0}><Typography.Text strong>{index+1}. {market.name}</Typography.Text><Typography.Text type="secondary">{market.region} · {market.profile.join(' · ')}</Typography.Text></Space><Statistic value={market.score}/></Flex></List.Item>}/>
+        </Panel>
+      </Col>
+      <Col xs={24} xl={16}>
+        <Panel title={`${selectedMarket?.name ?? '待选择市场'} · 理想客户画像`} subtitle="系统自动归纳，无需手动设置评分参数" action={<Badge tone={selectedMarket?.status === '优先开发' ? 'green' : selectedMarket?.status === '继续验证' ? 'orange' : 'neutral'}>{selectedMarket?.status}</Badge>}>
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Card size="small" title={<Space><Sparkles/>AI 定位结论</Space>}><Typography.Text strong>{analysisRunning ? '正在重新分析业务资料…' : analysis?.summary || `优先开发${selectedMarket?.name ?? '目标市场'}相关企业`}</Typography.Text><Typography.Paragraph type="secondary">{analysisRunning ? '正在结合产品、案例和市场资料生成最新结果。' : (selectedReason || `该市场与你的产品能力和既有客户特征匹配，当前机会强度为${selectedMarket?.opportunity ?? '中'}。`)}</Typography.Paragraph></Card>
+            <Flex wrap gap={32}><Statistic title="定位置信度" value={analysisRunning?'—':selectedMarket?.score??'—'}/><Statistic title="潜在企业" value={selectedMarket?.companies??'—'}/><Statistic title="市场规模" value={selectedMarket?.tam??'—'}/><Statistic title="机会强度" value={selectedMarket?.opportunity??'—'}/></Flex>
+            <Flex wrap gap={8}>{selectedMarket?.profile.map(tag => <Badge key={tag} tone="blue">{tag}</Badge>)}</Flex>
+            <List header={<Typography.Text strong>客户筛选条件 · {criteriaRows.length} 项</Typography.Text>} dataSource={criteriaRows} renderItem={value=><List.Item><CheckCircle2/><Typography.Text>{value}</Typography.Text></List.Item>}/>
+            <Flex justify="flex-end" wrap gap={8}><Button onClick={() => setMarketDetail(selectedMarket ?? null)}>查看完整画像</Button><Button variant="primary" disabled={analysisRunning || !selectedMarket} onClick={() => selectedMarket && startRadar(selectedMarket)}>按此定位找客户<ArrowRight size={14} /></Button></Flex>
+          </Space>
+        </Panel>
+      </Col>
+    </Row>
 
     <CreateDialog open={businessDialog} title="编辑业务资料" description="只需提供你知道的信息，系统会自动提取市场和客户特征。" submitLabel="保存并分析" successMessage="业务资料已保存，正在重新分析客户定位" onClose={() => setBusinessDialog(false)} onSubmit={saveBusinessProfile} initialValues={{
       company: profile.company,
@@ -267,6 +242,20 @@ export function IcpPage() {
 
     <Modal open={knowledgeOpen} width={1360} title="客户定位资料" description="管理供客户定位、AI 获客和客户研究引用的产品、案例、市场与判断规则。" onClose={() => setKnowledgeOpen(false)} actions={<><Button onClick={() => knowledgeManagerRef.current?.openFile()}><Import size={16} />导入资料</Button><Button onClick={() => knowledgeManagerRef.current?.openUrl()}><Link2 size={16} />添加网页</Button><Button variant="primary" onClick={() => knowledgeManagerRef.current?.openNew()}><Plus size={16} />新增资料</Button></>}><GrowthKnowledge ref={knowledgeManagerRef} showToast={showToast} modal /></Modal>
 
-    <Modal open={Boolean(marketDetail)} title={`${marketDetail?.name ?? ''} · 理想客户画像`} description="以下结论由你的业务资料自动生成，AI 获客会据此判断匹配度。" onClose={() => setMarketDetail(null)} footer={<><Button onClick={() => setMarketDetail(null)}>关闭</Button><Button variant="primary" onClick={() => marketDetail && startRadar(marketDetail)}>按此画像找客户</Button></>}><div><section><span><small>定位置信度</small><strong>{marketDetail?.score}</strong></span><span><small>潜在企业</small><strong>{marketDetail?.companies}</strong></span><span><small>市场规模</small><strong>{marketDetail?.tam}</strong></span></section><div><h3>企业特征</h3>{marketDetail?.profile.map(x => <Badge key={x} tone="blue">{x}</Badge>)}</div><dl><div><dt>重点信号</dt><dd>{analysis?.signals?.join('、') || '扩产、新建项目、技术升级、经销网络调整'}</dd></div><div><dt>优先联系人</dt><dd>采购负责人、技术负责人、工厂负责人</dd></div><div><dt>排除条件</dt><dd>{profile.exclusions || '无官网、业务范围不匹配、近 12 个月停止经营'}</dd></div></dl></div></Modal>
-  </div>
+    <Modal open={Boolean(marketDetail)} title={`${marketDetail?.name ?? ''} · 理想客户画像`} description="以下结论由你的业务资料自动生成，AI 获客会据此判断匹配度。" onClose={() => setMarketDetail(null)} footer={<><Button onClick={() => setMarketDetail(null)}>关闭</Button><Button variant="primary" onClick={() => marketDetail && startRadar(marketDetail)}>按此画像找客户</Button></>}>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Row gutter={[16,16]}>
+          <Col span={8}><Statistic title="定位置信度" value={marketDetail?.score ?? 0} suffix="%"/><Progress aria-label="定位置信度" percent={marketDetail?.score ?? 0} showInfo={false}/></Col>
+          <Col span={8}><Statistic title="潜在企业" value={marketDetail?.companies ?? '—'}/></Col>
+          <Col span={8}><Statistic title="市场规模" value={marketDetail?.tam ?? '—'}/></Col>
+        </Row>
+        <Space direction="vertical"><Typography.Text strong>企业特征</Typography.Text><Space wrap>{marketDetail?.profile.map(x => <Badge key={x} tone="blue">{x}</Badge>)}</Space></Space>
+        <Descriptions bordered column={1} items={[
+          {key:'signals',label:'重点信号',children:analysis?.signals?.join('、') || '扩产、新建项目、技术升级、经销网络调整'},
+          {key:'contacts',label:'优先联系人',children:'采购负责人、技术负责人、工厂负责人'},
+          {key:'exclude',label:'排除条件',children:profile.exclusions || '无官网、业务范围不匹配、近 12 个月停止经营'},
+        ]}/>
+      </Space>
+    </Modal>
+  </PageContainer>
 }

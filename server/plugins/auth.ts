@@ -20,7 +20,7 @@ export const requireAdmin = async (request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-export const permissions = {
+const permissions = {
   owner: ['workspace.manage', 'members.manage', 'settings.manage', 'data.write', 'data.export', 'approvals.review'],
   admin: ['members.manage', 'settings.manage', 'data.write', 'data.export', 'approvals.review'],
   member: ['data.write', 'approvals.request'],

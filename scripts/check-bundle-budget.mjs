@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises'
+import { access, readFile, readdir } from 'node:fs/promises'
 import { constants, readFileSync, statSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import { resolve } from 'node:path'
@@ -16,8 +16,16 @@ try {
 const html = await readFile(indexPath, 'utf8')
 const assetUrls = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map((match) => match[1])
 const assets = [...new Set(assetUrls)].map((url) => resolve(distDir, url.replace(/^\//, '')))
+const allAssetFiles = (await readdir(resolve(distDir, 'assets'), { withFileTypes: true }))
+  .filter((entry) => entry.isFile())
+  .map((entry) => resolve(distDir, 'assets', entry.name))
 
 const result = assets.map((file) => {
+  const raw = statSync(file).size
+  const gzip = gzipSync(readFileSync(file)).length
+  return { file: file.replaceAll(root, '.'), raw, gzip }
+})
+const allAssets = allAssetFiles.map((file) => {
   const raw = statSync(file).size
   const gzip = gzipSync(readFileSync(file)).length
   return { file: file.replaceAll(root, '.'), raw, gzip }
@@ -41,7 +49,7 @@ const totalKb = sum(result) / 1024
 if (initialJsKb > limits.maxInitialJsGzipKb) failures.push(`initial JS ${initialJsKb.toFixed(1)} KB exceeds ${limits.maxInitialJsGzipKb} KB gzip`)
 if (initialCssKb > limits.maxInitialCssGzipKb) failures.push(`initial CSS ${initialCssKb.toFixed(1)} KB exceeds ${limits.maxInitialCssGzipKb} KB gzip`)
 if (totalKb > limits.maxInitialTotalGzipKb) failures.push(`initial total ${totalKb.toFixed(1)} KB exceeds ${limits.maxInitialTotalGzipKb} KB gzip`)
-for (const asset of result) {
+for (const asset of allAssets) {
   const rawKb = asset.raw / 1024
   if (rawKb > limits.maxAnyAssetRawKb) failures.push(`${asset.file} ${rawKb.toFixed(1)} KB exceeds ${limits.maxAnyAssetRawKb} KB raw`)
 }

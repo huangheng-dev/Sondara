@@ -4,7 +4,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { migrate } from "drizzle-orm/libsql/migrator";
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
 import { config } from "./config.js";
@@ -35,7 +35,7 @@ import { captureObservabilityException } from "./lib/observability.js";
 export const buildApp = async () => {
   if (config.autoMigrate) {
     await withMigrationLock(() => migrate(db, {
-      migrationsFolder: resolve(process.cwd(), "server/db/migrations-pg"),
+      migrationsFolder: resolve(process.cwd(), "server/db/migrations-sqlite"),
     }));
   }
   const app = Fastify({

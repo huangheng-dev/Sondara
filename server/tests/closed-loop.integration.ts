@@ -29,6 +29,11 @@ const run = async () => {
     assert.equal(profile.statusCode, 200, profile.body)
     assert.equal(profile.json().workspace.name, '闭环测试工作区')
 
+    const currentSession = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: ownerCookie } })
+    assert.equal(currentSession.statusCode, 200, currentSession.body)
+    assert.deepEqual(currentSession.json().user, { id: ownerId, email: ownerEmail, displayName: '闭环负责人', locale: 'zh-CN', timezone: 'Asia/Shanghai', currency: 'CNY' })
+    assert.equal(currentSession.json().workspace.name, '闭环测试工作区')
+
     const sessions = await app.inject({ method: 'GET', url: '/api/auth/sessions', headers: { cookie: ownerCookie } })
     assert.equal(sessions.statusCode, 200, sessions.body)
     assert.equal(sessions.json().items.length, 1)

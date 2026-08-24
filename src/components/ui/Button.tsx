@@ -4,27 +4,15 @@ import type { ButtonProps as AntButtonProps } from 'antd'
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type Size = 'sm' | 'md' | 'lg'
 
-interface ButtonProps {
+interface ButtonProps extends Omit<AntButtonProps, 'size' | 'type' | 'danger' | 'variant'> {
   variant?: Variant
   size?: Size | 'small' | 'middle' | 'large'
   danger?: boolean
   loading?: boolean
   disabled?: boolean
   icon?: React.ReactNode
-  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void
-  children?: React.ReactNode
   type?: 'button' | 'submit' | 'reset' | 'primary' | 'default' | 'text' | 'link'
-  className?: string
-  style?: React.CSSProperties
-  block?: boolean
-  href?: string
-  target?: string
-  htmlType?: 'button' | 'submit' | 'reset'
-  form?: string
-  title?: string
   ariaLabel?: string
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
 }
 
 const variantToType: Record<Variant, AntButtonProps['type']> = {
@@ -43,8 +31,9 @@ const sizeToAnt: Record<string, AntButtonProps['size']> = {
   large: 'large',
 }
 
-export function Button({ variant = 'secondary', size = 'md', danger, type, htmlType, ...props }: ButtonProps) {
+export function Button({ variant = 'secondary', size = 'md', danger, type, htmlType, ariaLabel, className, ...props }: ButtonProps) {
   const isDanger = danger || variant === 'danger'
+  const accessibleLabel = ariaLabel ?? props['aria-label']
   // Allow direct Ant Design type values to pass through
   const antType = (type && ['primary', 'default', 'text', 'link', 'dashed'].includes(type)
     ? type
@@ -52,9 +41,11 @@ export function Button({ variant = 'secondary', size = 'md', danger, type, htmlT
   return (
     <AntButton
       {...props}
+      className={['ui-button', className].filter(Boolean).join(' ')}
       type={antType}
       size={sizeToAnt[size] || 'middle'}
       danger={isDanger}
+      aria-label={accessibleLabel}
       htmlType={htmlType || (['button', 'submit', 'reset'].includes(type as string) ? type as 'button' | 'submit' | 'reset' : undefined) || 'button'}
     />
   )

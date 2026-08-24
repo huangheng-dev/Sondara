@@ -22,15 +22,11 @@ WORKDIR /app
 ENV NODE_ENV=production \
     SONDARA_API_HOST=0.0.0.0 \
     SONDARA_API_PORT=4176 \
-    SONDARA_DATABASE_URL=postgresql://sondara:sondara@postgres:5432/sondara \
+    SONDARA_DATABASE_PATH=/app/data/sondara.sqlite \
     SONDARA_WEB_ORIGIN=http://localhost:4176
 
-# Install tini and a pg_dump client matching the PostgreSQL 17 service.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tini \
-    && install -d /usr/share/postgresql-common/pgdg \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
+# Install the process supervisor only; SQLite runs in-process.
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
@@ -39,7 +35,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 # Copy built artifacts
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server-dist ./server-dist
-COPY --from=builder /app/server/db/migrations-pg ./server/db/migrations-pg
+COPY --from=builder /app/server/db/migrations-sqlite ./server/db/migrations-sqlite
 
 # Data volume
 RUN mkdir -p /app/data

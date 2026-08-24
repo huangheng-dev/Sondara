@@ -42,7 +42,9 @@ const normalizeRecoveryCode = (value: string) => value.replace(/\s|-/g, '').toUp
 
 const getPrimaryWorkspace = async (userId: string) => (await db.$first(db.select({ workspaceId: workspaces.id, workspaceName: workspaces.name, role: workspaceMembers.role })
   .from(workspaceMembers).innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
-  .where(eq(workspaceMembers.userId, userId)).limit(1)))
+  .where(eq(workspaceMembers.userId, userId))
+  .orderBy(asc(workspaceMembers.createdAt), asc(workspaces.id))
+  .limit(1)))
 
 const getTotpSecret = (user: typeof users.$inferSelect) => {
   if (!user.totpSecretCiphertext || !user.totpSecretIv || !user.totpSecretTag) return null
@@ -204,13 +206,13 @@ export const authRoutes: FastifyPluginAsync = async app => {
     return reply.code(204).send()
   })
 
-  app.get('/session', { preHandler: requireAuth }, async request => ({
-    user: (async () => {
-      const user = (await db.$first(db.select({ locale: users.locale, timezone: users.timezone, currency: users.currency }).from(users).where(eq(users.id, request.auth.userId))))
-      return { id: request.auth.userId, email: request.auth.email, displayName: request.auth.displayName, locale: user?.locale ?? 'zh-CN', timezone: user?.timezone ?? 'Asia/Shanghai', currency: user?.currency ?? 'CNY' }
-    })(),
-    workspace: { id: request.auth.workspaceId, name: request.auth.workspaceName, role: request.auth.role },
-  }))
+  app.get('/session', { preHandler: requireAuth }, async request => {
+    const user = await db.$first(db.select({ locale: users.locale, timezone: users.timezone, currency: users.currency }).from(users).where(eq(users.id, request.auth.userId)))
+    return {
+      user: { id: request.auth.userId, email: request.auth.email, displayName: request.auth.displayName, locale: user?.locale ?? 'zh-CN', timezone: user?.timezone ?? 'Asia/Shanghai', currency: user?.currency ?? 'CNY' },
+      workspace: { id: request.auth.workspaceId, name: request.auth.workspaceName, role: request.auth.role },
+    }
+  })
 
   app.post('/forgot-password', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async (request, reply) => {
     const parsed = z.object({ email: z.string().trim().toLowerCase().email() }).safeParse(request.body)
@@ -283,7 +285,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
   })
 
   app.delete('/sessions', { preHandler: requireAuth }, async request => {
-    const removed = (await db.delete(sessions).where(and(eq(sessions.userId, request.auth.userId), ne(sessions.id, request.auth.sessionId)))).rowCount ?? 0
+    const removed = (await db.delete(sessions).where(and(eq(sessions.userId, request.auth.userId), ne(sessions.id, request.auth.sessionId)))).rowsAffected ?? 0
     return { removed }
   })
 

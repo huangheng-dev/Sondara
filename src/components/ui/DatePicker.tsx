@@ -1,5 +1,6 @@
 import { DatePicker as AntDatePicker } from 'antd'
 import dayjs from 'dayjs'
+import { useMemo } from 'react'
 
 type DatePickerProps = {
   value?: string
@@ -12,7 +13,7 @@ type DatePickerProps = {
 }
 
 export function DatePicker({ value, onChange, ariaLabel, placeholder = '选择日期', required, disabled, showTime = false }: DatePickerProps) {
-  const parsed = value ? dayjs(value) : null
+  const parsed = useMemo(() => value ? dayjs(value) : null, [value])
   return <AntDatePicker
     aria-label={ariaLabel}
     aria-required={required}

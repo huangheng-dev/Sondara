@@ -96,7 +96,7 @@ export const createRadarWorker = (intervalMs: number) => {
       }
       const claimedAttempts = queue.attempts + 1
       const claim = (await db.update(radarQueueItems).set({ status: 'running', attempts: claimedAttempts, startedAt: now, lastError: null, updatedAt: now }).where(and(eq(radarQueueItems.id, queue.id), eq(radarQueueItems.status, 'queued'))))
-      if (!(claim.rowCount ?? 0)) return false
+      if (!(claim.rowsAffected ?? 0)) return false
       activeQueueId = queue.id
       await db.update(radarTasks).set({ status: 'running', progress: 5, currentStage: '正在连接数据源', lastError: null, startedAt: task.startedAt ?? now, completedAt: null, updatedAt: now }).where(eq(radarTasks.id, task.id))
       await addEvent(task.workspaceId, task.id, queue.id, 'task.started', `开始第 ${claimedAttempts} 次执行`)

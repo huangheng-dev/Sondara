@@ -8,22 +8,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: sondara
-          POSTGRES_PASSWORD: sondara-ci
-          POSTGRES_DB: sondara_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U sondara -d sondara_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
     env:
-      SONDARA_DATABASE_URL: postgresql://sondara:sondara-ci@127.0.0.1:5432/sondara_ci
+      SONDARA_DATABASE_PATH: .tmp/sondara-ci.sqlite
       SONDARA_RADAR_WORKER_ENABLED: "false"
       SONDARA_OUTBOX_WORKER_ENABLED: "false"
     steps:
@@ -34,12 +20,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run qa:public-repo
-      - run: npm run qa:ui-framework
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm run qa:bundle-budget
-      - run: node scripts/run-e2e.mjs
-      - run: npm run smoke:production
-      - run: npm run db:migrate
-      - run: npm run test:all
+      - run: npm run qa:all

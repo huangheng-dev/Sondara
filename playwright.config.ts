@@ -35,9 +35,6 @@ export default defineConfig({
       SONDARA_API_HOST: '127.0.0.1',
       SONDARA_API_PORT: String(port),
       SONDARA_E2E_DATABASE_URL: process.env.SONDARA_E2E_DATABASE_URL ?? '',
-      SONDARA_E2E_DATABASE_ADMIN_URL: process.env.SONDARA_E2E_DATABASE_ADMIN_URL
-        ?? process.env.SONDARA_DATABASE_URL
-        ?? 'postgresql://sondara:sondara@127.0.0.1:5433/postgres',
       SONDARA_RADAR_WORKER_ENABLED: 'false',
       SONDARA_OUTBOX_WORKER_ENABLED: 'false',
       SONDARA_RATE_LIMIT_MAX: '3000',
