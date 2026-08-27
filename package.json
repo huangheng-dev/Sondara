@@ -76,7 +76,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.2",
-    "read-excel-file": "^5.8.5",
+    "read-excel-file": "^9.3.10",
     "zod": "4.4.3",
     "zustand": "5.0.15"
   },
