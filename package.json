@@ -70,7 +70,7 @@
     "lucide-react": "1.33.0",
     "mailparser": "^3.9.15",
     "nodemailer": "^9.0.5",
-    "pdfjs-dist": "^5.4.624",
+    "pdfjs-dist": "^6.2.108",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
     "react": "19.2.8",
