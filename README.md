@@ -6,7 +6,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 
 它围绕跨境获客场景设计：
 
-- 客户雷达扫描海外企业官网、Google Places、海外行业名录和展会名单，默认排除中国境内企业进入线索池；
+- 客户雷达根据用户设置的目标地区，扫描企业官网、Google Places、行业名录和展会名单；系统不再硬编码排除某个国家或地区；
 - 外发以邮件（SMTP/SendGrid/Mailgun）和 WhatsApp 为主，IMAP 多邮箱收件自动验证联系人；
 - 支持多语言、多时区、多货币（默认中文/Asia/Shanghai/CNY，可在账户设置中切换）；
 - 所有公开数据采集遵守目标站条款、GDPR/反垃圾规则，不做登录绕过或验证码绕过。
@@ -21,7 +21,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 
 - 个人增长工作台与经营总览
 - 市场与 ICP（业务资料、定位知识、AI 画像分析）
-- 统一客户雷达（官网种子、搜索、Google Places、行业名录/展会/招投标）
+- 统一客户雷达：获客策略、真实数据源和意向信号分开配置，支持官网种子、搜索、Google Places、行业名录、展会和公开采购页面
 - 企业决策详情、评分拆解和证据链
 - ICP 匹配分分档解释、置信度展示与人工修正记录（含原因、操作人、审计日志）
 - 客户库和批量操作
@@ -29,6 +29,9 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 - 内容资产生成、编辑、质量检查和版本管理
 - 增长活动编排和执行追踪
 - 客户收件箱与人工确认外发
+- 网站表单、通用 Webhook、Google Ads、LinkedIn 与 Meta 线索接入；有效事件可自动创建客户、联系人和 24 小时跟进任务
+- 采购机会中心：TED 官方公开 API，以及可配置凭据的 SAM.gov、UNGM 连接器；支持订阅、去重、截止时间和转跟进任务
+- 有来源的意向信号：招聘、扩张、融资、管理层、采购公告和技术变化只作为客户排序依据，不脱离企业证据单独造线索
 - SMTP、SendGrid、Mailgun 与合规 Webhook 外发队列，多邮箱 IMAP 收件
 - 送达/退信/退订回调、抑制名单和人工确认发送门禁
 - 100+ 收件人外发审批、500+ 客户批量导出审批
@@ -54,11 +57,20 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 ```bash
 npm install
 npm run setup -- --non-interactive
-npm run db:seed:dev
 npm run start:local
 ```
 
 以后只需运行 `npm run start:local`。它会自动执行未应用的 SQLite migration，再同时启动前端和 API。默认数据库文件为 `data/sondara.sqlite`。
+
+Windows 长期运行推荐安装登录自启动：
+
+```powershell
+npm run autostart:install
+```
+
+安装后会通过当前用户的计划任务运行；若系统不允许注册计划任务，则自动回退到用户启动目录。登录 Windows 时会以隐藏窗口运行 `npm run start:managed`：自动迁移、构建并以生产模式在 `http://localhost:4175` 提供网页和 API，后台 worker 与本地自动备份默认启用，服务异常会自动恢复。当前手动启动的服务不会被中断；自启动从下次登录开始接管。需要取消时运行 `npm run autostart:uninstall`。
+
+需要体验完整演示数据时，可在启动前运行 `npm run db:seed:dev`。该命令只允许用于非生产环境；演示客户、联系人、消息和经营数字均为虚构数据。正式环境不要运行该命令，应在空白数据库中录入或导入正式业务数据。
 
 默认地址：
 
@@ -66,7 +78,9 @@ npm run start:local
 - API：`http://127.0.0.1:4176`
 - 健康检查：`http://127.0.0.1:4176/api/healthz`
 
-本地开发登录：`demo@sondara.local` / `Sondara@2026`。登录页仅在 Vite 开发模式自动预填，生产构建不会预填。
+托管模式将网页、API 和健康检查统一到 `http://localhost:4175`。
+
+本地开发登录：`demo@donjoy.local` / `Sondara@2026`。登录页仅在 Vite 开发模式自动预填，生产构建不会预填。
 
 仅启动前端或后端：
 
@@ -77,19 +91,30 @@ npm run dev:api
 
 ## 生产部署
 
+Linux/macOS：
+
 ```bash
 npm install
 npm run build
 NODE_ENV=production npm start
 ```
 
-生产模式下，API 在同一端口（默认 4176）同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。自动备份会生成经过完整性校验的 SQLite 快照，默认每日一次、保留最近 7 份。
+Windows PowerShell：
+
+```powershell
+npm install
+npm run build
+$env:NODE_ENV = "production"
+npm start
+```
+
+生产模式下，API 在同一端口（默认 4176）同时服务 `/api/*` 和前端静态文件，无需独立 Web 服务器。自动备份默认关闭；设置 `SONDARA_BACKUP_ENABLED=true` 后会按配置生成经过完整性校验的 SQLite 快照，默认间隔为每日一次、保留最近 7 份。
 
 完整部署指南见 [docs/DEPLOY.md](./docs/DEPLOY.md)，包含本机部署、进程管理、反向代理、备份恢复和升级流程；版本升级与数据库迁移见 [docs/UPGRADE.md](./docs/UPGRADE.md)。
 
 ## 测试
 
-全部 20 组本地集成验收（第三方服务均使用 mock，每组测试使用隔离 SQLite 文件）：
+全部 27 组本地集成验收（第三方服务均使用 mock，每组测试使用隔离 SQLite 文件）：
 
 ```bash
 npm run test:auth-2fa        # TOTP 双重验证、恢复码、登录验证
@@ -102,7 +127,14 @@ npm run test:team-invitations # 邀请链接、接受邀请与撤销
 npm run test:map-connector    # Google Places 连接器
 npm run test:contact-enrichment # 公开联系人补全
 npm run test:industry-source  # 行业名录/展会/招投标
-npm run test:lead-sources      # 官方线索 Webhook、幂等与令牌轮换
+npm run test:lead-sources      # 网站/广告 Webhook、官方签名、LinkedIn 表单拉取、自动入库与人工补全
+npm run test:procurement       # TED/SAM.gov/UNGM 边界、订阅、去重与采购任务闭环
+npm run test:signal-engine     # 证据型意向信号、加分、去重与客户继承
+npm run test:external-connectors # P2 连接器配置槽位、加密凭据、隔离与删除
+npm run test:external-connector-adapters # Apollo、Hunter、Twilio、HubSpot、Generic REST/Webhook 适配器
+npm run test:external-connector-scheduler # 定时同步、额度、退避重试、自动暂停与恢复
+npm run test:acquisition-plans # 持续获客计划、错过补跑、重叠保护与首页简报
+npm run test:hubspot-crm-sync # HubSpot 企业、联系人、商机和任务双向同步
 npm run test:content-assets   # 内容资产 CRUD
 npm run test:customer-governance # 客户归档、恢复与重复合并
 npm run test:campaigns        # 营销活动
@@ -150,7 +182,7 @@ src/
 server/
 ├─ db/           # SQLite 数据表、连接和迁移
 ├─ ai/           # 统一 AI 调用、密钥轮转和降级
-├─ radar/        # 雷达任务、连接器、AI 富化和后台 worker
+├─ radar/        # 持续获客计划、运行队列、连接器、AI 富化和后台 worker
 ├─ outbox/       # 外发队列、邮件/Webhook 适配器和后台执行器
 ├─ integrations/ # 搜索、地图客户端
 ├─ routes/       # API 路由

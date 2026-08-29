@@ -13,7 +13,6 @@ const CampaignsPage = lazy(() => import('@/pages/campaigns/CampaignsPage').then(
 const InboxPage = lazy(() => import('@/pages/inbox/InboxPage').then(m => ({ default: m.InboxPage })))
 const PipelinePage = lazy(() => import('@/pages/pipeline/PipelinePage').then(m => ({ default: m.PipelinePage })))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
-const LeadSourcesPage = lazy(() => import('@/pages/settings/LeadSourcesPage').then(m => ({ default: m.LeadSourcesPage })))
 const ContentPage = lazy(() => import('@/pages/content/ContentPage').then(m => ({ default: m.ContentPage })))
 const IcpPage = lazy(() => import('@/pages/icp/IcpPage').then(m => ({ default: m.IcpPage })))
 const AttributionPage = lazy(() => import('@/pages/attribution/AttributionPage').then(m => ({ default: m.AttributionPage })))
@@ -35,6 +34,7 @@ export const router = createBrowserRouter([
     { path: 'icp', element: withSuspense(<IcpPage />) },
     { path: 'knowledge', element: <Navigate to="/icp" replace /> },
     { path: 'radar', element: withSuspense(<RadarPage />) },
+    { path: 'procurement', element: <Navigate to="/radar" replace /> },
     { path: 'customers', element: withSuspense(<CustomersPage />) },
     { path: 'content', element: withSuspense(<ContentPage />) },
     { path: 'content/assets', element: <Navigate to="/content" replace /> },
@@ -43,7 +43,8 @@ export const router = createBrowserRouter([
     { path: 'pipeline', element: withSuspense(<PipelinePage />) },
     { path: 'attribution', element: withSuspense(<AttributionPage />) },
     { path: 'settings', element: <Navigate to="/settings/ai" replace /> },
-    { path: 'settings/lead-sources', element: <SettingsGuard>{withSuspense(<LeadSourcesPage />)}</SettingsGuard> },
+    { path: 'settings/lead-sources', element: <Navigate to="/settings/integrations#lead-source-settings" replace /> },
+    { path: 'settings/connectors', element: <Navigate to="/settings/integrations#external-service-settings" replace /> },
     { path: 'settings/:section', element: <SettingsGuard>{withSuspense(<SettingsPage />)}</SettingsGuard> },
     { path: 'admin', element: <Navigate to="/admin/users" replace /> },
     { path: 'admin/system', element: <Navigate to="/admin/users" replace /> },

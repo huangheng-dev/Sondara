@@ -11,6 +11,7 @@ import {
   messageThreads,
   outboundChannelConnections,
   outboxJobs,
+  whatsappMessageTemplates,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { encryptSecret } from "../lib/secret-vault.js";
@@ -25,6 +26,7 @@ import {
 } from "../outbox/service.js";
 import { requireAdmin, requireAuth } from "../plugins/auth.js";
 import { generateWebhookSecret } from "../outbox/webhook-signature.js";
+import { serializeWhatsappTemplate, syncWhatsappTemplates } from "../outbox/whatsapp-templates.js";
 
 const connectionInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -33,6 +35,9 @@ const connectionInput = z.object({
   port: z.coerce.number().int().min(1).max(65535),
   secure: z.boolean().default(false),
   username: z.string().trim().min(1).max(255),
+  whatsappBusinessAccountId: z.string().trim().max(255).nullable().optional(),
+  whatsappDefaultTemplateName: z.string().trim().max(512).nullable().optional(),
+  whatsappDefaultTemplateLanguage: z.string().trim().max(50).nullable().optional(),
   password: z.string().min(1).max(1000),
   fromName: z.string().trim().min(1).max(120),
   fromEmail: z.string().trim().email(),
@@ -141,6 +146,9 @@ export const outboxRoutes: FastifyPluginAsync = async (app) => {
       port: parsed.data.port,
       secure: parsed.data.secure,
       username: parsed.data.username,
+      whatsappBusinessAccountId: parsed.data.whatsappBusinessAccountId ?? null,
+      whatsappDefaultTemplateName: parsed.data.whatsappDefaultTemplateName ?? null,
+      whatsappDefaultTemplateLanguage: parsed.data.whatsappDefaultTemplateLanguage ?? null,
       fromName: parsed.data.fromName,
       fromEmail: parsed.data.fromEmail,
       replyTo: parsed.data.replyTo ?? null,
@@ -193,6 +201,27 @@ export const outboxRoutes: FastifyPluginAsync = async (app) => {
       ),
       webhookSecret,
     });
+  });
+
+  app.get("/connections/:id/whatsapp/templates", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const connection = await db.$first(db.select().from(outboundChannelConnections).where(and(eq(outboundChannelConnections.id, id), eq(outboundChannelConnections.workspaceId, request.auth.workspaceId))));
+    if (!connection) return reply.code(404).send({ error: "NOT_FOUND", message: "发送服务不存在。" });
+    if (connection.provider !== "whatsapp-cloud") return reply.code(409).send({ error: "NOT_WHATSAPP", message: "当前连接不是 WhatsApp Cloud API。" });
+    return { items: (await db.select().from(whatsappMessageTemplates).where(and(eq(whatsappMessageTemplates.workspaceId, request.auth.workspaceId), eq(whatsappMessageTemplates.connectionId, id))).orderBy(asc(whatsappMessageTemplates.name))).map(serializeWhatsappTemplate) };
+  });
+
+  app.post("/connections/:id/whatsapp/templates/sync", { preHandler: requireAdmin }, async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const connection = await db.$first(db.select().from(outboundChannelConnections).where(and(eq(outboundChannelConnections.id, id), eq(outboundChannelConnections.workspaceId, request.auth.workspaceId))));
+    if (!connection) return reply.code(404).send({ error: "NOT_FOUND", message: "发送服务不存在。" });
+    try {
+      const items = await syncWhatsappTemplates(connection);
+      await audit(request.auth.workspaceId, request.auth.userId, "outbound.whatsapp_templates_synced", id, { count: items.length });
+      return { items, syncedAt: Date.now() };
+    } catch (cause) {
+      return reply.code(502).send({ error: "WHATSAPP_TEMPLATE_SYNC_FAILED", message: cause instanceof Error ? cause.message : "WhatsApp 模板同步失败。" });
+    }
   });
 
   app.patch("/connections/:id", { preHandler: requireAdmin }, async (request, reply) => {

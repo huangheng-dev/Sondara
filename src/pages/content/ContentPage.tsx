@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
   Activity,
   ArrowDown,
@@ -27,7 +28,6 @@ import {
   Newspaper,
   PenLine,
   Presentation,
-  RefreshCw,
   Send,
   Sparkles,
   Target,
@@ -49,10 +49,13 @@ import { Modal } from '@/components/ui/Modal'
 import { downloadText } from '@/utils/download'
 import { Pagination } from '@/components/ui/Pagination'
 import { SearchInput } from '@/components/ui/SearchInput'
+import { List } from '@/components/ui/List'
 import { usePagination } from '@/hooks/usePagination'
-import { campaignApi, contentApi, type ContentAssetApiRecord, type ContentAssetStatus, type ContentQualityResult } from '@/lib/api'
-import { Alert, Card, Checkbox, Col, Flex, Form, Input, List, Progress, Row, Space, Statistic, Typography } from 'antd'
+import { campaignApi, contentApi, icpApi, type ContentAssetApiRecord, type ContentAssetStatus, type ContentQualityResult } from '@/lib/api'
+import { Card, Checkbox, Col, Flex, Form, Input, Progress, Row, Space, Statistic, Typography } from 'antd'
 import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
+import { StatusNotice } from '@/components/ui/StatusNotice'
+import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 type ContentTemplate = {label:string;icon:typeof Mail;desc:string}
 type AssetSort = '最近更新' | '最早更新' | '标题 A–Z' | '标题 Z–A' | '市场 A–Z'
 type AssetItem = [title:string,market:string,role:string,status:ContentAssetStatus,updatedAt:string,id:string,body:string,version:number,quality:number]
@@ -98,15 +101,18 @@ const sourceMethods = [
 ] as const
 
 export function ContentPage() {
+  const { canWrite } = useWorkspaceAccess()
+  const [searchParams,setSearchParams]=useSearchParams()
   const showToast=useUiStore(s=>s.showToast)
   const queryClient=useQueryClient()
   const [creatorOpen,setCreatorOpen]=useState(false)
+  const [contextCustomer,setContextCustomer]=useState('')
   const [template,setTemplate]=useState('首次触达邮件')
   const [creationGroup,setCreationGroup]=useState('客户触达')
   const [sourceMethod,setSourceMethod]=useState<(typeof sourceMethods)[number]['label']>('客户信号')
-  const [title,setTitle]=useState('德国食品设备首次触达')
-  const [editor,setEditor]=useState('您好，\n\n我们注意到贵司正在扩充卫生级食品设备产品线。针对食品工厂在验证文件、交付稳定性和本地响应方面的要求，我们整理了一份同类项目的验证清单与交付案例。\n\n如果这与您当前的产品规划相关，我可以先发送两页摘要供您内部评估。')
-  const [market,setMarket]=useState('德国食品设备')
+  const [title,setTitle]=useState('DONJOY 高洁净流体解决方案首次触达')
+  const [editor,setEditor]=useState('您好，\n\n我们注意到贵司正在推进高洁净生产、过程设备或流体控制相关项目。DONJOY 提供卫生级泵、无菌与卫生级阀门、阀门控制和高洁净管路解决方案，可根据介质、流量、压力、温度、清洗要求及适用标准提供针对性的选型资料。\n\n如果这与你们当前的项目、设备配套或区域渠道规划相关，我可以先发送一份简要的英文产品与应用资料供内部评估。')
+  const [market,setMarket]=useState('全球油气与石化项目业主及 EPC')
   const [role,setRole]=useState('采购负责人')
   const [stage,setStage]=useState('问题认知')
   const [signal,setSignal]=useState('产品线扩张')
@@ -126,15 +132,29 @@ export function ContentPage() {
   const [assetSort,setAssetSort]=useState<AssetSort>('最近更新')
   const [selectedAssets,setSelectedAssets]=useState<Set<string>>(new Set())
   const [campaignAssetIds,setCampaignAssetIds]=useState<string[]|null>(null)
+  useEffect(()=>{
+    if(searchParams.get('create')!=='1'||!canWrite)return
+    const customer=searchParams.get('customer')?.trim()
+    const customerMarket=searchParams.get('market')?.trim()
+    if(customer){setContextCustomer(customer);setTitle(`${customer} · 首次触达`)}
+    if(customerMarket)setMarket(customerMarket)
+    setSourceMethod('客户信号')
+    setActiveAssetId(null)
+    setCreatorOpen(true)
+    setSearchParams({}, {replace:true})
+  },[searchParams,setSearchParams,canWrite])
   const contentQuery=useQuery({queryKey:['content-assets'],queryFn:()=>contentApi.list({pageSize:100,sort:'updated_desc'}),retry:1})
   const campaignQuery=useQuery({queryKey:['campaigns'],queryFn:()=>campaignApi.list({pageSize:100,sort:'updated_desc'}),retry:1})
+  const profileQuery=useQuery({queryKey:['icp-profile'],queryFn:icpApi.getProfile,retry:1,staleTime:30_000})
+  const marketOptions=useMemo(()=>{try{const parsed=JSON.parse(profileQuery.data?.analysisSummary??'{}') as {recommendedMarkets?:Array<{name?:unknown}>};return [...new Set([profileQuery.data?.selectedMarket,...(parsed.recommendedMarkets??[]).map(item=>String(item.name??'').trim())].filter((value):value is string=>Boolean(value)))]}catch{return profileQuery.data?.selectedMarket?[profileQuery.data.selectedMarket]:[]}},[profileQuery.data])
+  useEffect(()=>{if(contextCustomer)return;const selected=profileQuery.data?.selectedMarket;if(selected&&market!==selected){setMarket(selected);if(title==='DONJOY 高洁净流体解决方案首次触达')setTitle(`${selected}首次触达`)}},[profileQuery.data?.selectedMarket,contextCustomer,market,title])
   const campaigns=campaignQuery.data?.items??[]
   const versionsQuery=useQuery({queryKey:['content-versions',versionAssetId],queryFn:()=>contentApi.versions(versionAssetId!),enabled:Boolean(versionAssetId&&assetDialog==='versions'),retry:1})
   const contentAssets=contentQuery.data?.items??[]
   const formatUpdated=(value:number)=>{const diff=Date.now()-value;if(diff<60_000)return '刚刚';if(diff<3_600_000)return `${Math.max(1,Math.floor(diff/60_000))} 分钟前`;if(diff<86_400_000)return `${Math.floor(diff/3_600_000)} 小时前`;return new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric'}).format(value)}
   const allAssetItems=useMemo<AssetItem[]>(()=>contentAssets.map(asset=>[asset.title,asset.targetMarket,asset.customerRole,asset.status,formatUpdated(asset.updatedAt),asset.id,asset.body,asset.currentVersion,asset.qualityScore]),[contentAssets])
   const assetItems=useMemo(()=>{const filtered=allAssetItems.filter(item=>(!assetQuery||`${item[0]}${item[1]}${item[2]}`.toLowerCase().includes(assetQuery.toLowerCase()))&&(assetStatus==='全部状态'||item[3]===assetStatus));if(assetSort==='最早更新')return [...filtered].reverse();if(assetSort==='标题 A–Z')return [...filtered].sort((a,b)=>a[0].localeCompare(b[0],'zh-CN'));if(assetSort==='标题 Z–A')return [...filtered].sort((a,b)=>b[0].localeCompare(a[0],'zh-CN'));if(assetSort==='市场 A–Z')return [...filtered].sort((a,b)=>a[1].localeCompare(b[1],'zh-CN'));return filtered},[allAssetItems,assetQuery,assetStatus,assetSort])
-  const assetPaging=usePagination(assetItems,6,`${assetQuery}|${assetStatus}|${assetSort}`)
+  const assetPaging=usePagination(assetItems,10,`${assetQuery}|${assetStatus}|${assetSort}`)
   const linkedCampaigns=contentAssets.find(asset=>asset.id===activeAssetId)?.linkedCampaignIds.length??0
   const wordCount=useMemo(()=>editor.replace(/\s/g,'').length,[editor])
   const selectTemplate=(next:string)=>{setTemplate(next);setTitle(`${market}${next}`);setEditor(`${next}草稿：围绕“${signal}”信号，向${role}说明验证依据、业务价值和低阻力下一步。`);setPreview(false)}
@@ -148,36 +168,38 @@ export function ContentPage() {
   const clearAssetFilters=()=>{setAssetQuery('');setAssetStatus('全部状态');setAssetSort('最近更新')}
 
   return <PageContainer>
-    <PageHeader title="内容创作" description="集中管理、复用和发布已经生成的营销内容。" actions={<Button variant="primary" onClick={()=>{setActiveAssetId(null);setCreatorOpen(true)}}><WandSparkles size={16}/>AI 创作</Button>}/>
+    <PageHeader title="内容创作" description="集中管理、复用和发布已经生成的营销内容。" actions={<Button variant="primary" disabled={!canWrite} onClick={()=>{setActiveAssetId(null);setCreatorOpen(true)}}><WandSparkles size={16}/>AI 创作</Button>}/>
 
-    <Modal open={creatorOpen} title="AI 创作" description="选择创作方式、生成内容并保存到内容资产。" width={1440} onClose={()=>setCreatorOpen(false)}>
+    <Modal open={creatorOpen} title="AI 创作" description="选择创作方式、生成内容并保存到内容资产。" width={1440} onClose={()=>{setCreatorOpen(false);setContextCustomer('')}}>
+      {contextCustomer&&<StatusNotice className="content-context-notice" tone="info" title={`正在为 ${contextCustomer} 创建内容`} description="客户名称和市场上下文已自动带入；保存后可以继续加入营销活动。"/>}
       <Row gutter={[16,16]}>
-        <Col xs={24} xl={6}><Space direction="vertical" size="middle" style={{width:'100%'}}><Card title="生成手段" extra={<Badge tone="blue">{sourceMethods.length} 种</Badge>}><Space wrap>{sourceMethods.map(({label,icon:Icon})=><Button variant={sourceMethod===label?'primary':'secondary'} onClick={()=>{setSourceMethod(label);showToast(`已切换为${label}`)}} key={label}><Icon size={14}/>{label}</Button>)}</Space></Card><Card title="内容形式" extra={<Badge tone="blue">{activeTemplates.length} 种</Badge>}><Space direction="vertical" style={{width:'100%'}}><CustomSelect ariaLabel="内容形式分类" value={creationGroup} onChange={setCreationGroup} options={creationGroups.map(group=>({value:group.label,label:group.label,icon:group.label==='客户触达'?<MessageSquareText/>:group.label==='专业内容'?<BookOpenText/>:group.label==='销售资料'?<ClipboardList/>:<Video/>}))}/><List dataSource={activeTemplates} renderItem={({label,icon:Icon,desc})=><List.Item actions={template===label?[<CheckCircle2 key="selected"/>]:undefined} onClick={()=>selectTemplate(label)}><List.Item.Meta avatar={<Icon/>} title={label} description={desc}/></List.Item>}/></Space></Card></Space></Col>
-        <Col xs={24} xl={12}><Card title={<Space direction="vertical" size={0}><Typography.Text strong>编辑与发布</Typography.Text><Typography.Text type="secondary">{template} · {activeAssetId?'已载入服务端版本':'尚未保存'}</Typography.Text></Space>} extra={<Space><Button onClick={()=>setPreview(value=>!value)}>{preview?'继续编辑':'预览'}</Button><Button variant="primary" loading={saving} onClick={saveDraft}>保存草稿</Button></Space>}><Space direction="vertical" size="middle" style={{width:'100%'}}><Input aria-label="内容标题" value={title} onChange={e=>setTitle(e.target.value)}/><Flex wrap gap={8}><Button aria-label="加粗" onClick={()=>setEditor(value=>`**${value}**`)}><Bold size={15}/></Button><Button aria-label="插入链接" onClick={()=>setAssetDialog('link')}><Link2 size={15}/></Button><Button loading={generating} onClick={refineContent}>{!generating&&<WandSparkles size={14}/>}AI 优化</Button><Button onClick={openLanguageCheck}><Languages size={14}/>语言检查</Button></Flex>{preview?<Card size="small"><Badge tone="blue">预览</Badge><Typography.Title level={2}>{title}</Typography.Title>{editor.split('\n').map((line,index)=><Typography.Paragraph key={index}>{line||' '}</Typography.Paragraph>)}</Card>:<Input.TextArea rows={20} aria-label="内容编辑器" value={editor} onChange={e=>setEditor(e.target.value)}/>}<Flex justify="space-between" align="center" wrap gap={8}><Typography.Text type="secondary">{wordCount} 字 · {language} · 版本 {contentAssets.find(asset=>asset.id===activeAssetId)?.currentVersion??'未保存'}</Typography.Text><Space wrap><Button onClick={async()=>{if(activeAssetId){const copy=await contentApi.duplicate(activeAssetId);loadAsset(copy);await queryClient.invalidateQueries({queryKey:['content-assets']});showToast('已创建并打开服务端副本')}else{setTitle(`${title}（副本）`);showToast('已创建未保存副本')}}}>创建副本</Button><Button onClick={()=>{downloadText(`${title}.txt`,`${title}\n\n${editor}`);showToast('内容文档已下载')}}><Download size={14}/>导出</Button><Button onClick={()=>{setCampaignAssetIds(null);setAssetDialog('campaign')}}><Send size={14}/>加入营销活动{linkedCampaigns>0?` · ${linkedCampaigns}`:''}</Button></Space></Flex></Space></Card></Col>
-        <Col xs={24} xl={6}><Space direction="vertical" size="middle" style={{width:'100%'}}><Card title="生成设置"><Form layout="vertical"><Form.Item label="目标市场"><CustomSelect ariaLabel="目标市场" value={market} onChange={setMarket} options={['德国食品设备','华东制药装备','北美阀门经销']}/></Form.Item><Form.Item label="客户角色"><CustomSelect ariaLabel="客户角色" value={role} onChange={setRole} options={['采购负责人','技术负责人','企业负责人']}/></Form.Item><Form.Item label="购买阶段"><CustomSelect ariaLabel="购买阶段" value={stage} onChange={setStage} options={['问题认知','方案比较','采购决策']}/></Form.Item><Form.Item label="客户信号"><CustomSelect ariaLabel="客户信号" value={signal} onChange={setSignal} options={['产品线扩张','新建产线','招投标活跃','访问产品页']}/></Form.Item><Form.Item label="输出语言"><CustomSelect ariaLabel="输出语言" value={language} onChange={setLanguage} options={['中文','English','Deutsch']}/></Form.Item><Button block variant="primary" loading={generating} onClick={generate}>{!generating&&<WandSparkles size={15}/>}根据设置重新生成</Button></Form></Card><Card title="内容质量" extra={<Statistic value={quality.overallScore} suffix="分"/>}><Space direction="vertical" style={{width:'100%'}}>{[['客户相关性',quality.customerRelevance],['证据充分度',quality.evidenceScore],['行动清晰度',quality.actionClarity]].map(item=><Flex vertical gap={2} key={item[0]}><Flex justify="space-between"><Typography.Text>{item[0]}</Typography.Text><Typography.Text strong>{item[1]}</Typography.Text></Flex><Progress aria-label={`${item[0]}评分`} percent={Number(item[1])} showInfo={false}/></Flex>)}<Alert type="info" showIcon icon={<Target/>} message={quality.findings[0]??'内容结构完整，可进入审核。'}/></Space></Card></Space></Col>
+        <Col xs={24} xl={6}><Space orientation="vertical" size="middle" style={{width:'100%'}}><Card title="生成手段" extra={<Badge tone="blue">{sourceMethods.length} 种</Badge>}><Space wrap>{sourceMethods.map(({label,icon:Icon})=><Button variant={sourceMethod===label?'primary':'secondary'} onClick={()=>{setSourceMethod(label);showToast(`已切换为${label}`)}} key={label}><Icon size={14}/>{label}</Button>)}</Space></Card><Card title="内容形式" extra={<Badge tone="blue">{activeTemplates.length} 种</Badge>}><Space orientation="vertical" style={{width:'100%'}}><CustomSelect ariaLabel="内容形式分类" value={creationGroup} onChange={setCreationGroup} options={creationGroups.map(group=>({value:group.label,label:group.label,icon:group.label==='客户触达'?<MessageSquareText/>:group.label==='专业内容'?<BookOpenText/>:group.label==='销售资料'?<ClipboardList/>:<Video/>}))}/><List dataSource={activeTemplates} renderItem={({label,icon:Icon,desc})=><List.Item actions={template===label?[<CheckCircle2 key="selected"/>]:undefined} onClick={()=>selectTemplate(label)}><List.Item.Meta avatar={<Icon/>} title={label} description={desc}/></List.Item>}/></Space></Card></Space></Col>
+        <Col xs={24} xl={12}><Card title={<Space orientation="vertical" size={0}><Typography.Text strong>编辑与发布</Typography.Text><Typography.Text type="secondary">{template} · {activeAssetId?'已载入服务端版本':'尚未保存'}</Typography.Text></Space>} extra={<Space><Button onClick={()=>setPreview(value=>!value)}>{preview?'继续编辑':'预览'}</Button><Button variant="primary" loading={saving} onClick={saveDraft}>保存草稿</Button></Space>}><Space orientation="vertical" size="middle" style={{width:'100%'}}><Input aria-label="内容标题" value={title} onChange={e=>setTitle(e.target.value)}/><Flex wrap gap={8}><Button aria-label="加粗" onClick={()=>setEditor(value=>`**${value}**`)}><Bold size={15}/></Button><Button aria-label="插入链接" onClick={()=>setAssetDialog('link')}><Link2 size={15}/></Button><Button loading={generating} onClick={refineContent}>{!generating&&<WandSparkles size={14}/>}AI 优化</Button><Button onClick={openLanguageCheck}><Languages size={14}/>语言检查</Button></Flex>{preview?<Card size="small"><Badge tone="blue">预览</Badge><Typography.Title level={2}>{title}</Typography.Title>{editor.split('\n').map((line,index)=><Typography.Paragraph key={index}>{line||' '}</Typography.Paragraph>)}</Card>:<Input.TextArea rows={20} aria-label="内容编辑器" value={editor} onChange={e=>setEditor(e.target.value)}/>}<Flex justify="space-between" align="center" wrap gap={8}><Typography.Text type="secondary">{wordCount} 字 · {language} · 版本 {contentAssets.find(asset=>asset.id===activeAssetId)?.currentVersion??'未保存'}</Typography.Text><Space wrap><Button onClick={async()=>{if(activeAssetId){const copy=await contentApi.duplicate(activeAssetId);loadAsset(copy);await queryClient.invalidateQueries({queryKey:['content-assets']});showToast('已创建并打开服务端副本')}else{setTitle(`${title}（副本）`);showToast('已创建未保存副本')}}}>创建副本</Button><Button onClick={()=>{downloadText(`${title}.txt`,`${title}\n\n${editor}`);showToast('内容文档已下载')}}><Download size={14}/>导出</Button><Button onClick={()=>{setCampaignAssetIds(null);setAssetDialog('campaign')}}><Send size={14}/>加入营销活动{linkedCampaigns>0?` · ${linkedCampaigns}`:''}</Button></Space></Flex></Space></Card></Col>
+        <Col xs={24} xl={6}><Space orientation="vertical" size="middle" style={{width:'100%'}}><Card title="生成设置"><Form layout="vertical"><Form.Item label="目标市场"><CustomSelect ariaLabel="目标市场" value={market} onChange={setMarket} options={marketOptions.length?marketOptions:[market]}/></Form.Item><Form.Item label="客户角色"><CustomSelect ariaLabel="客户角色" value={role} onChange={setRole} options={['采购负责人','技术负责人','企业负责人']}/></Form.Item><Form.Item label="购买阶段"><CustomSelect ariaLabel="购买阶段" value={stage} onChange={setStage} options={['问题认知','方案比较','采购决策']}/></Form.Item><Form.Item label="客户信号"><CustomSelect ariaLabel="客户信号" value={signal} onChange={setSignal} options={['项目建设','检修替换','招投标活跃','渠道合作']}/></Form.Item><Form.Item label="输出语言"><CustomSelect ariaLabel="输出语言" value={language} onChange={setLanguage} options={['中文','English','Deutsch']}/></Form.Item><Button block variant="primary" loading={generating} onClick={generate}>{!generating&&<WandSparkles size={15}/>}根据设置重新生成</Button></Form></Card><Card title="内容质量" extra={<Statistic value={quality.overallScore} suffix="分"/>}><Space orientation="vertical" style={{width:'100%'}}>{[['客户相关性',quality.customerRelevance],['证据充分度',quality.evidenceScore],['行动清晰度',quality.actionClarity]].map(item=><Flex vertical gap={2} key={item[0]}><Flex justify="space-between"><Typography.Text>{item[0]}</Typography.Text><Typography.Text strong>{item[1]}</Typography.Text></Flex><Progress aria-label={`${item[0]}评分`} percent={Number(item[1])} showInfo={false}/></Flex>)}<StatusNotice tone="info" icon={<Target size={17}/>} title="质量建议" description={quality.findings[0]??'内容结构完整，可进入审核。'}/></Space></Card></Space></Col>
       </Row>
     </Modal>
 
-    <Panel title="内容资产" subtitle="统一管理草稿、审核、发布、复用和归档状态">
+    <Panel>
       <TableToolbar filters={<>
           <SearchInput ariaLabel="搜索内容资产" value={assetQuery} onChange={event=>setAssetQuery(event.target.value)} placeholder="搜索标题、市场或角色"/>
-          <CustomSelect ariaLabel="内容状态" value={assetStatus} onChange={setAssetStatus} options={['全部状态','草稿','待审核','已发布','可复用','已归档'].map(label=>({value:label,label,icon:label==='全部状态'?<Activity/>:label==='已发布'?<CheckCircle2/>:label==='待审核'?<ClipboardList/>:label==='可复用'?<CopyPlus/>:label==='已归档'?<Files/>:<FileText/>}))}/>
-          <CustomSelect ariaLabel="内容资产排序" value={assetSort} onChange={value=>setAssetSort(value as AssetSort)} options={(['最近更新','最早更新','标题 A–Z','标题 Z–A','市场 A–Z'] as AssetSort[]).map(label=>({value:label,label,icon:<ArrowUpDown/>}))}/>
-          <Button loading={contentQuery.isFetching} onClick={async()=>{await contentQuery.refetch();showToast('内容资产已刷新')}}>{!contentQuery.isFetching&&<RefreshCw/>}刷新</Button>
-          <Button disabled={!assetQuery&&assetStatus==='全部状态'&&assetSort==='最近更新'} onClick={clearAssetFilters}>清除筛选</Button>
-        </>} selection={selectedAssets.size>0?<SelectionBar summary={<Space><CheckCircle2/>已选择 {selectedAssets.size} 个内容资产</Space>} actions={<><Button onClick={()=>{setCampaignAssetIds([...selectedAssets]);setAssetDialog('campaign')}}><Send/>加入活动</Button><Button onClick={()=>{const chosen=contentAssets.filter(asset=>selectedAssets.has(asset.id));downloadText('sondara-content-assets.txt',chosen.map(asset=>`${asset.title}\n\n${asset.body}`).join('\n\n---\n\n'));showToast(`已导出 ${chosen.length} 个内容资产`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelectedAssets(new Set())}><X/></Button></>}/>:undefined}/>
-      {contentQuery.isLoading?<PageState status="loading" title="正在载入内容资产" description="从当前工作区读取服务端内容与版本信息。"/>:contentQuery.isError?<PageState status="error" title="内容资产载入失败" description={contentQuery.error instanceof Error?contentQuery.error.message:'请稍后重试。'} onRetry={()=>contentQuery.refetch()}/>:assetItems.length?<><DataTable
+          {contentAssets.length>4&&<><CustomSelect ariaLabel="内容状态" value={assetStatus} onChange={setAssetStatus} options={['全部状态','草稿','待审核','已发布','可复用','已归档'].map(label=>({value:label,label,icon:label==='全部状态'?<Activity/>:label==='已发布'?<CheckCircle2/>:label==='待审核'?<ClipboardList/>:label==='可复用'?<CopyPlus/>:label==='已归档'?<Files/>:<FileText/>}))}/>
+          <CustomSelect ariaLabel="内容资产排序" value={assetSort} onChange={value=>setAssetSort(value as AssetSort)} options={(['最近更新','最早更新','标题 A–Z','标题 Z–A','市场 A–Z'] as AssetSort[]).map(label=>({value:label,label,icon:<ArrowUpDown/>}))}/></>}
+          {(assetQuery||assetStatus!=='全部状态'||assetSort!=='最近更新')&&<Button onClick={clearAssetFilters}>清除筛选</Button>}
+        </>} selection={selectedAssets.size>0?<SelectionBar count={selectedAssets.size} unit="个内容资产" actions={<><Button onClick={()=>{setCampaignAssetIds([...selectedAssets]);setAssetDialog('campaign')}}><Send/>加入活动</Button><Button onClick={()=>{const chosen=contentAssets.filter(asset=>selectedAssets.has(asset.id));downloadText('sondara-content-assets.txt',chosen.map(asset=>`${asset.title}\n\n${asset.body}`).join('\n\n---\n\n'));showToast(`已导出 ${chosen.length} 个内容资产`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelectedAssets(new Set())}><X/></Button></>}/>:undefined}/>
+      {contentQuery.isError?<PageState status="error" title="内容资产载入失败" description={contentQuery.error instanceof Error?contentQuery.error.message:'请稍后重试。'} onRetry={()=>contentQuery.refetch()}/>:<><DataTable
+        loading={contentQuery.isFetching}
+        emptyText={<EmptyState title={assetQuery||assetStatus!=='全部状态'?"没有符合条件的内容资产":"暂无内容资产"} description={assetQuery||assetStatus!=='全部状态'?"可以调整搜索词或状态筛选后重新查看。":"从客户定位或营销目标开始，让 AI 生成第一份可复用内容。"} icon={Files}/>}
         columns={[
-          {key:'select',title:<Checkbox aria-label="选择本页全部内容资产" checked={assetPaging.pageItems.length>0&&assetPaging.pageItems.every(item=>selectedAssets.has(item[5]))} onChange={event=>setSelectedAssets(current=>{const next=new Set(current);assetPaging.pageItems.forEach(item=>event.target.checked?next.add(item[5]):next.delete(item[5]));return next})}/>,width:52},
+          {key:'select',title:<Checkbox disabled={!canWrite} aria-label="选择本页全部内容资产" checked={assetPaging.pageItems.length>0&&assetPaging.pageItems.every(item=>selectedAssets.has(item[5]))} onChange={event=>setSelectedAssets(current=>{const next=new Set(current);assetPaging.pageItems.forEach(item=>event.target.checked?next.add(item[5]):next.delete(item[5]));return next})}/>,width:52},
           {key:'title',title:<Button onClick={()=>setAssetSort(assetSort==='标题 A–Z'?'标题 Z–A':'标题 A–Z')}>内容标题{assetSortIcon(assetSort==='标题 A–Z'||assetSort==='标题 Z–A',assetSort==='标题 Z–A')}</Button>},
           {key:'market',title:<Button onClick={()=>setAssetSort('市场 A–Z')}>目标市场{assetSortIcon(assetSort==='市场 A–Z',false)}</Button>},
           {key:'role',title:'客户角色'},
           {key:'status',title:'状态'},
           {key:'updated',title:<Button onClick={()=>setAssetSort(assetSort==='最近更新'?'最早更新':'最近更新')}>更新时间{assetSortIcon(assetSort==='最近更新'||assetSort==='最早更新',assetSort==='最近更新')}</Button>},
-          {key:'actions',title:'操作',width:72},
+          {key:'actions',title:'操作',width:104},
         ]}
         rows={assetPaging.pageItems.map(item=>({key:item[5],className:selectedAssets.has(item[5])?'selected':'',cells:[
-          <Checkbox aria-label={`选择 ${item[0]}`} checked={selectedAssets.has(item[5])} onChange={event=>setSelectedAssets(current=>{const next=new Set(current);event.target.checked?next.add(item[5]):next.delete(item[5]);return next})}/>,
+          <Checkbox disabled={!canWrite} aria-label={`选择 ${item[0]}`} checked={selectedAssets.has(item[5])} onChange={event=>setSelectedAssets(current=>{const next=new Set(current);event.target.checked?next.add(item[5]):next.delete(item[5]);return next})}/>,
           <Button type="link" onClick={()=>setSelectedAsset(item)}><FileText/><Typography.Text strong>{item[0]}</Typography.Text></Button>,
           <Typography.Text strong>{item[1]}</Typography.Text>,
           <Typography.Text>{item[2]}</Typography.Text>,
@@ -185,12 +207,12 @@ export function ContentPage() {
           <Typography.Text strong>{item[4]}</Typography.Text>,
           <Button aria-label={`打开${item[0]}`} title="查看内容" onClick={()=>setSelectedAsset(item)}><ChevronRight/></Button>,
         ]}))}
-      /><Pagination page={assetPaging.page} pageSize={assetPaging.pageSize} total={assetItems.length} onPageChange={assetPaging.setPage} onPageSizeChange={assetPaging.setPageSize} itemName="个内容资产"/></>:<EmptyState title="暂无内容资产" description="从客户定位或营销目标开始，让 AI 生成第一份可复用内容。" icon={Files} action={<Button variant="primary" onClick={()=>{setActiveAssetId(null);setCreatorOpen(true)}}><WandSparkles/>AI 创作</Button>}/>}
+      />{!contentQuery.isLoading&&assetItems.length>0&&<Pagination page={assetPaging.page} pageSize={assetPaging.pageSize} total={assetItems.length} onPageChange={assetPaging.setPage} onPageSizeChange={assetPaging.setPageSize} itemName="个内容资产"/>}</>}
     </Panel>
     <CreateDialog open={assetDialog==='link'} title="插入链接" description="补充链接地址与显示文本，链接会追加到当前编辑内容。" submitLabel="插入链接" successMessage="链接已插入内容" onClose={()=>setAssetDialog(null)} onSubmit={values=>{const url=values.url.trim();const linkText=values.text.trim()||url;setEditor(value=>`${value}\n\n[${linkText}](${url})`)}} initialValues={{url:'https://'}} fields={[{name:'url',label:'链接地址',placeholder:'https://example.com',required:true},{name:'text',label:'显示文本',placeholder:'例如：查看产品资料'}]}/>
     <CreateDialog open={assetDialog==='campaign'} title="加入营销活动" description={campaignAssetIds?.length?`将所选 ${campaignAssetIds.length} 个内容分别创建为真实活动执行节点。`:'选择活动与执行节点，内容会加入对应序列。'} submitLabel="加入活动" successMessage="内容已加入营销活动待执行队列" onClose={()=>{setAssetDialog(null);setCampaignAssetIds(null)}} onSubmit={async values=>{const campaign=campaigns.find(item=>item.name===values.campaign);if(!campaign)throw new Error('请选择有效活动');const scheduledAt=values.date?new Date(values.date).getTime():null;let assetIds=campaignAssetIds??[];if(!assetIds.length){let assetId=activeAssetId;if(!assetId){const created=await contentApi.create({title,contentType:template,channel:'内容资产',status:'草稿',language,body:editor,targetMarket:market,customerRole:role,buyingStage:stage,customerSignal:signal,sourceMethod});assetId=created.id;setActiveAssetId(assetId)}assetIds=[assetId]}for(const [index,assetId] of assetIds.entries()){const asset=contentAssets.find(item=>item.id===assetId);await campaignApi.addStep(campaign.id,{name:assetIds.length>1?`${values.step} · ${asset?.title??index+1}`:values.step,channel:campaign.channel,contentAssetId:assetId,scheduledAt:Number.isFinite(scheduledAt)?scheduledAt:null})}setSelectedAssets(new Set());setCampaignAssetIds(null);await Promise.all([queryClient.invalidateQueries({queryKey:['content-assets']}),queryClient.invalidateQueries({queryKey:['campaigns']}),queryClient.invalidateQueries({queryKey:['campaign-schedule']})])}} fields={[{name:'campaign',label:'营销活动',type:'select',required:true,options:campaigns.map(item=>item.name)},{name:'step',label:'执行节点',type:'select',required:true,options:['首次触达','第二轮案例','高意向跟进']},{name:'date',label:'计划日期',type:'date'}]}/>
     <Modal open={assetDialog==='language'} title="语言与语气检查" description={`${language} · ${wordCount} 字`} onClose={()=>setAssetDialog(null)} footer={<><Button onClick={()=>setAssetDialog(null)}>关闭</Button><Button variant="primary" loading={generating} onClick={async()=>{await refineContent();setAssetDialog(null)}}>应用优化</Button></>}>{checkingLanguage?<PageState status="loading" title="正在分析语言、语气和行动请求…"/>:<List dataSource={languageTips} renderItem={tip=><List.Item><List.Item.Meta avatar={tip.tone==='good'?<CheckCircle2/>:<CircleHelp/>} title={tip.label} description={tip.detail}/></List.Item>}/>}</Modal>
     <Modal open={assetDialog==='versions'} title="历史版本" description="保留每次正文或标题变更，可追溯内容演进。" onClose={()=>{setAssetDialog(null);setVersionAssetId(null)}}>{versionsQuery.isLoading?<PageState status="loading" title="正在读取版本…"/>:versionsQuery.data?.items.length?<List dataSource={versionsQuery.data.items} renderItem={version=><List.Item extra={<Badge tone="blue">{version.body.replace(/\s+/g,'').length} 字</Badge>}><List.Item.Meta avatar={<FileText/>} title={`版本 ${version.versionNumber} · ${version.changeNote}`} description={new Intl.DateTimeFormat('zh-CN',{dateStyle:'medium',timeStyle:'short'}).format(version.createdAt)}/></List.Item>}/>:<EmptyState title="暂无历史版本" icon={FileText}/>}</Modal>
-    <Modal open={Boolean(selectedAsset)} title={selectedAsset?.[0]??''} description={`${selectedAsset?.[1]??''} · ${selectedAsset?.[2]??''}`} onClose={()=>setSelectedAsset(null)} footer={<><Button onClick={()=>setSelectedAsset(null)}>关闭</Button><Button onClick={()=>{if(selectedAsset){setVersionAssetId(selectedAsset[5]);setSelectedAsset(null);setAssetDialog('versions')}}}>历史版本</Button><Button onClick={async()=>{if(!selectedAsset)return;await contentApi.update(selectedAsset[5],{status:'已归档'});setSelectedAsset(null);await queryClient.invalidateQueries({queryKey:['content-assets']});showToast('内容已归档')}}>归档</Button><Button variant="primary" onClick={()=>{if(selectedAsset)loadAsset(selectedAsset);setSelectedAsset(null);setCreatorOpen(true)}}>载入编辑器</Button></>}><Space direction="vertical" size="middle"><Badge tone="blue">{selectedAsset?.[3]}</Badge><Typography.Paragraph>{selectedAsset?.[6]||'该内容可继续修改、复用或加入营销活动。'}</Typography.Paragraph><Typography.Text type="secondary">版本 {selectedAsset?.[7]} · 质量评分 {selectedAsset?.[8]} · 最近更新：{selectedAsset?.[4]}</Typography.Text></Space></Modal>
+    <Modal open={Boolean(selectedAsset)} title={selectedAsset?.[0]??''} description={`${selectedAsset?.[1]??''} · ${selectedAsset?.[2]??''}`} onClose={()=>setSelectedAsset(null)} footer={<><Button onClick={()=>setSelectedAsset(null)}>关闭</Button><Button onClick={()=>{if(selectedAsset){setVersionAssetId(selectedAsset[5]);setSelectedAsset(null);setAssetDialog('versions')}}}>历史版本</Button>{canWrite&&<><Button onClick={async()=>{if(!selectedAsset)return;await contentApi.update(selectedAsset[5],{status:'已归档'});setSelectedAsset(null);await queryClient.invalidateQueries({queryKey:['content-assets']});showToast('内容已归档')}}>归档</Button><Button variant="primary" onClick={()=>{if(selectedAsset)loadAsset(selectedAsset);setSelectedAsset(null);setCreatorOpen(true)}}>载入编辑器</Button></>}</>}><Space orientation="vertical" size="middle"><Badge tone="blue">{selectedAsset?.[3]}</Badge><Typography.Paragraph>{selectedAsset?.[6]||'该内容可继续修改、复用或加入营销活动。'}</Typography.Paragraph><Typography.Text type="secondary">版本 {selectedAsset?.[7]} · 质量评分 {selectedAsset?.[8]} · 最近更新：{selectedAsset?.[4]}</Typography.Text></Space></Modal>
   </PageContainer>
 }

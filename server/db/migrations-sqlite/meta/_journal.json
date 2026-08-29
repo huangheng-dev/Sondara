@@ -8,6 +8,104 @@
       "when": 1787571167512,
       "tag": "0000_modern_mattie_franklin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787725296658,
+      "tag": "0001_foamy_nomad",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787740355490,
+      "tag": "0002_condemned_kang",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787745206375,
+      "tag": "0003_stormy_matthew_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787745710613,
+      "tag": "0004_fresh_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787746587947,
+      "tag": "0005_high_morbius",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787749385312,
+      "tag": "0006_jazzy_whistler",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787750989426,
+      "tag": "0007_slim_golden_guardian",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787752491913,
+      "tag": "0008_happy_crystal",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787754966440,
+      "tag": "0009_deep_squadron_sinister",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787755683849,
+      "tag": "0010_dizzy_praxagora",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1787756003137,
+      "tag": "0011_fresh_william_stryker",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787763283130,
+      "tag": "0012_same_bastion",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1788003461958,
+      "tag": "0013_clumsy_scalphunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1788027353130,
+      "tag": "0014_serious_dagger",
+      "breakpoints": true
     }
   ]
 }

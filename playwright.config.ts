@@ -34,6 +34,7 @@ export default defineConfig({
       NODE_ENV: 'production',
       SONDARA_API_HOST: '127.0.0.1',
       SONDARA_API_PORT: String(port),
+      SONDARA_WEB_ORIGIN: baseURL,
       SONDARA_E2E_DATABASE_URL: process.env.SONDARA_E2E_DATABASE_URL ?? '',
       SONDARA_RADAR_WORKER_ENABLED: 'false',
       SONDARA_OUTBOX_WORKER_ENABLED: 'false',

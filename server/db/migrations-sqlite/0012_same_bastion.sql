@@ -1,0 +1,1 @@
+ALTER TABLE `ai_services` ADD `protocol` text DEFAULT 'openai-chat-completions' NOT NULL;

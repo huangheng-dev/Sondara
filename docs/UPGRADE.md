@@ -4,12 +4,25 @@ Sondara 当前使用 SQLite 单文件数据库。升级前应先在设置页生�
 
 ## 手动部署升级
 
+Linux/macOS：
+
 ```bash
 git pull
 npm ci
 npm run build
 npm run db:migrate
 NODE_ENV=production npm start
+```
+
+Windows PowerShell：
+
+```powershell
+git pull
+npm ci
+npm run build
+npm run db:migrate
+$env:NODE_ENV = "production"
+npm start
 ```
 
 使用 systemd、PM2 或其他进程管理器时，先停止旧进程，执行 migration，再启动新进程。不要让不同版本的应用同时写同一个 SQLite 文件。
@@ -29,7 +42,7 @@ NODE_ENV=production npm start
 4. 确认 `SONDARA_ENCRYPTION_KEY` 与备份时期一致；
 5. 启动旧版本并检查 `/api/ready`。
 
-## PostgreSQL 版本迁移到 SQLite
+## PostgreSQL 版本迁移到 SQLite（仅旧版本需要）
 
 旧数据库仍在运行时执行：
 

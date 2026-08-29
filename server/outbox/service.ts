@@ -4,6 +4,7 @@ import { ImapFlow } from "imapflow";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/client.js";
 import {
+  acquisitionPlans,
   campaignAudienceMembers,
   campaignExecutionEvents,
   campaigns,
@@ -13,17 +14,22 @@ import {
   messageThreads,
   outboundChannelConnections,
   outboxJobs,
+  whatsappMessageTemplates,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { decryptSecret } from "../lib/secret-vault.js";
 import { assertSafeOutboundUrl } from "../lib/url-safety.js";
 import { config } from "../config.js";
 import { isDestinationSuppressed } from "./events.js";
+import { buildWhatsappMessagePayload } from "./whatsapp-templates.js";
+import { enforceAutomationCircuitBreaker } from "../radar/production-control.js";
 
 const emailChannels = new Set(["邮件", "邮件序列", "email", "Email", "EMAIL"]);
 const emailChannelList = [...emailChannels];
 const emailProviders = new Set(["smtp", "sendgrid", "mailgun"]);
 const whatsappChannels = new Set(["WhatsApp", "whatsapp", "WhatsApp 消息"]);
+export const isWhatsappConversationOpen = (lastInboundAt: number | null, now = Date.now()) =>
+  Boolean(lastInboundAt && lastInboundAt >= now - 24 * 60 * 60_000);
 const event = async (
   job: typeof outboxJobs.$inferSelect,
   eventType: string,
@@ -54,6 +60,9 @@ export const serializeOutboundConnection = (
   port: item.port,
   secure: item.secure,
   username: item.username,
+  whatsappBusinessAccountId: item.whatsappBusinessAccountId,
+  whatsappDefaultTemplateName: item.whatsappDefaultTemplateName,
+  whatsappDefaultTemplateLanguage: item.whatsappDefaultTemplateLanguage,
   fromName: item.fromName,
   fromEmail: item.fromEmail,
   replyTo: item.replyTo,
@@ -190,7 +199,7 @@ export const testOutboundConnection = async (
   if (connection.provider !== "smtp") {
     const secret = secretFor(connection);
     const endpoint = connection.provider === "whatsapp-cloud"
-      ? `${apiBase(connection, "https://graph.facebook.com/v20.0")}/${encodeURIComponent(connection.username)}?fields=display_phone_number,verified_name`
+      ? `${apiBase(connection, `https://graph.facebook.com/${config.metaGraphApiVersion}`)}/${encodeURIComponent(connection.username)}?fields=display_phone_number,verified_name`
       : connection.provider === "sendgrid"
       ? `${apiBase(connection, "https://api.sendgrid.com/v3")}/user/profile`
       : connection.provider === "mailgun"
@@ -294,9 +303,13 @@ const sendWithConnection = async (
     return { messageId: result.id ?? randomUUID() };
   }
   if (connection.provider === "whatsapp-cloud") {
-    const endpoint = `${apiBase(connection, "https://graph.facebook.com/v20.0")}/${encodeURIComponent(connection.username)}/messages`;
+    const endpoint = `${apiBase(connection, `https://graph.facebook.com/${config.metaGraphApiVersion}`)}/${encodeURIComponent(connection.username)}/messages`;
     await assertSafeOutboundUrl(endpoint, { allowPrivate: config.allowPrivateConnectors, label: "WhatsApp Cloud API 地址" });
-    const response = await fetch(endpoint, { method: "POST", signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" }, body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: input.to.replace(/[^0-9+]/g, ""), type: "text", text: { preview_url: false, body: input.body } }) });
+    if (connection.whatsappDefaultTemplateName) {
+      const approved = await db.$first(db.select({ id: whatsappMessageTemplates.id }).from(whatsappMessageTemplates).where(and(eq(whatsappMessageTemplates.connectionId, connection.id), eq(whatsappMessageTemplates.name, connection.whatsappDefaultTemplateName), eq(whatsappMessageTemplates.language, connection.whatsappDefaultTemplateLanguage || "en_US"), eq(whatsappMessageTemplates.status, "APPROVED"))))
+      if (!approved) throw new Error("默认 WhatsApp 模板尚未同步或未获批准，已阻止发送。")
+    }
+    const response = await fetch(endpoint, { method: "POST", signal: AbortSignal.timeout(20_000), headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" }, body: JSON.stringify(buildWhatsappMessagePayload({ connection, to: input.to, body: input.body })) });
     if (!response.ok) throw new Error(`WhatsApp Cloud API 返回 HTTP ${response.status}。`);
     const result = await response.json().catch(() => ({})) as { messages?: Array<{ id?: string }> };
     return { messageId: result.messages?.[0]?.id ?? randomUUID() };
@@ -409,11 +422,58 @@ export const processOutboxJob = async (jobId: string) => {
                 ),
               )))
     : (await getAvailableConnection(job.workspaceId, job.channel));
+  const messageMetadata = (() => {
+    try {
+      return JSON.parse(message?.metadataJson ?? "{}") as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  })();
   try {
     if (!message || message.status !== "confirmed")
       throw new Error("只有已由用户确认的消息才能发送。");
     if (!thread || !contact) throw new Error("消息联系人或线程不存在。");
-    const destination = emailChannels.has(job.channel) ? contact.email : contact.externalRef || contact.email;
+    if (messageMetadata.automationApprovedByPlan === true && thread.lastInboundAt && thread.lastInboundAt > message.createdAt) {
+      const cancelledAt = Date.now();
+      await db.transaction(async tx => {
+        await tx.update(outboxJobs).set({ status: "cancelled", lastError: "客户已回复，自动取消剩余跟进。", completedAt: cancelledAt, updatedAt: cancelledAt }).where(eq(outboxJobs.id, job.id));
+        await tx.update(messageEntries).set({ status: "cancelled", updatedAt: cancelledAt }).where(eq(messageEntries.id, message.id));
+      });
+      await event(job, "cancelled_after_reply", "cancelled", { threadId: thread.id });
+      return { processed: true, status: "cancelled" };
+    }
+    if (messageMetadata.automationApprovedByPlan === true) {
+      const planId = typeof messageMetadata.acquisitionPlanId === "string" ? messageMetadata.acquisitionPlanId : "";
+      const plan = planId ? await db.$first(db.select({ enabled: acquisitionPlans.enabled, status: acquisitionPlans.status }).from(acquisitionPlans).where(and(
+        eq(acquisitionPlans.id, planId), eq(acquisitionPlans.workspaceId, job.workspaceId),
+      ))) : null;
+      if (!plan || !plan.enabled || plan.status !== "active") {
+        const cancelledAt = Date.now();
+        const reason = "全自动计划已暂停，消息已在发送前取消。";
+        await db.transaction(async tx => {
+          await tx.update(outboxJobs).set({ status: "cancelled", lastError: reason, completedAt: cancelledAt, updatedAt: cancelledAt }).where(eq(outboxJobs.id, job.id));
+          await tx.update(messageEntries).set({ status: "cancelled", updatedAt: cancelledAt }).where(eq(messageEntries.id, message.id));
+        });
+        await event(job, "cancelled_by_plan_pause", "cancelled", { planId });
+        return { processed: true, status: "cancelled" };
+      }
+      const safety = await enforceAutomationCircuitBreaker(job.workspaceId);
+      if (!safety.safe) {
+        const cancelledAt = Date.now();
+        const reason = `自动触达已熔断：${safety.reasons.join("；")}`;
+        await db.transaction(async tx => {
+          await tx.update(outboxJobs).set({ status: "cancelled", lastError: reason, completedAt: cancelledAt, updatedAt: cancelledAt }).where(eq(outboxJobs.id, job.id));
+          await tx.update(messageEntries).set({ status: "cancelled", updatedAt: cancelledAt }).where(eq(messageEntries.id, message.id));
+        });
+        await event(job, "cancelled_by_circuit_breaker", "cancelled", { reasons: safety.reasons });
+        return { processed: true, status: "cancelled" };
+      }
+    }
+    const destination = emailChannels.has(job.channel)
+      ? contact.email
+      : whatsappChannels.has(job.channel)
+        ? contact.phone
+        : contact.externalRef || contact.email;
     if (!destination) throw new Error("联系人缺少当前渠道的有效接收地址。");
     if (emailChannels.has(job.channel) && contact.email && (await isDestinationSuppressed(job.workspaceId, contact.email)))
       throw new Error("收件地址位于抑制名单，已阻止发送。");
@@ -428,6 +488,9 @@ export const processOutboxJob = async (jobId: string) => {
                 .where(eq(outboxJobs.id, job.id));
       await event(job, "configuration_required", "awaiting_configuration");
       return { processed: true, status: "awaiting_configuration" };
+    }
+    if (whatsappChannels.has(job.channel) && connection.provider === "whatsapp-cloud" && !connection.whatsappDefaultTemplateName && !isWhatsappConversationOpen(thread.lastInboundAt)) {
+      throw new Error("WhatsApp 24 小时会话窗口已关闭；请配置并使用已批准的消息模板。")
     }
     const result = await sendWithConnection(connection, { to: destination, subject: thread.subject, body: message.body, channel: job.channel });
     const completedAt = Date.now();
@@ -450,19 +513,13 @@ export const processOutboxJob = async (jobId: string) => {
                         sentAt: completedAt,
                         updatedAt: completedAt,
                         metadataJson: JSON.stringify({
+                          ...messageMetadata,
                           deliveryMode: connection.provider,
                           connectionId: connection.id,
                         }),
                       })
                       .where(eq(messageEntries.id, message.id));
             if (thread.campaignId) {
-              const messageMetadata = (() => {
-                try {
-                  return JSON.parse(message.metadataJson) as Record<string, unknown>;
-                } catch {
-                  return {};
-                }
-              })();
               await tx.update(campaigns)
                           .set({
                             sentCount: sql`${campaigns.sentCount} + 1`,
@@ -523,6 +580,8 @@ export const processOutboxJob = async (jobId: string) => {
       !error.includes("只有已由用户确认") &&
       !error.includes("缺少有效邮箱") &&
       !error.includes("抑制名单") &&
+      !error.includes("24 小时会话窗口") &&
+      !error.includes("尚未同步或未获批准") &&
       !error.includes("暂不支持");
     const status = retryable ? "queued" : "failed";
     const updatedAt = Date.now();

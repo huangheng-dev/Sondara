@@ -14,17 +14,18 @@ type CustomSelectProps = {
   required?: boolean
   className?: string
   inferIcon?: boolean
+  width?: number | string
 }
 
 const normalize = (option: SelectOption) => typeof option === 'string'
   ? { value: option, label: option, disabled: false, icon: undefined }
   : { disabled: false, icon: undefined, ...option }
 
-export function CustomSelect({ options, value, defaultValue, placeholder = '请选择', ariaLabel, onChange, disabled, required, className }: CustomSelectProps) {
+export function CustomSelect({ options, value, defaultValue, placeholder = '请选择', ariaLabel, onChange, disabled, required, className, width = 120 }: CustomSelectProps) {
   const normalized = options.map(normalize)
   return <Select
     className={['ui-select', className].filter(Boolean).join(' ')}
-    style={{ minWidth: 160 }}
+    style={{ width, minWidth: typeof width === 'number' ? width : undefined }}
     aria-label={ariaLabel}
     aria-required={required}
     disabled={disabled}
@@ -37,7 +38,7 @@ export function CustomSelect({ options, value, defaultValue, placeholder = '请�
     options={normalized.map(option => ({
       value: option.value,
       disabled: option.disabled,
-      label: option.icon ? <span>{option.icon} {option.label}</span> : option.label,
+      label: option.label,
     }))}
   />
 }

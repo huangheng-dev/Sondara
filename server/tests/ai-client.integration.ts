@@ -24,16 +24,36 @@ const run = async () => {
   const userId = createId('usr')
   const workspaceId = createId('wsp')
   const serviceId = createId('ais')
+  const goodServiceId = createId('ais')
   const failedKeyId = createId('aik')
   const goodKeyId = createId('aik')
+  const responsesServiceId = createId('ais')
+  const anthropicServiceId = createId('ais')
   let failedCalls = 0
   let goodCalls = 0
+  let responsesCalls = 0
+  let anthropicCalls = 0
   const server = createServer((request, response) => {
     const authorization = request.headers.authorization
     if (authorization === 'Bearer fake-fail-key') {
       failedCalls += 1
       response.writeHead(401, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ error: { message: 'invalid test credential' } }))
+      return
+    }
+    if (request.url?.endsWith('/responses')) {
+      responsesCalls += 1
+      assert.equal(request.headers.authorization, 'Bearer responses-key')
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: 'RESPONSES_OK' }] }] }))
+      return
+    }
+    if (request.url?.endsWith('/messages')) {
+      anthropicCalls += 1
+      assert.equal(request.headers['x-api-key'], 'anthropic-key')
+      assert.equal(request.headers['anthropic-version'], '2023-06-01')
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ content: [{ type: 'text', text: 'ANTHROPIC_OK' }] }))
       return
     }
     goodCalls += 1
@@ -52,17 +72,26 @@ const run = async () => {
             await tx.insert(workspaces).values({ id: workspaceId, name: 'AI integration', ownerUserId: userId, createdAt: now, updatedAt: now })
             await tx.insert(workspaceMembers).values({ workspaceId, userId, role: 'owner', createdAt: now })
             await tx.insert(workspaceAiPolicies).values({ workspaceId, rotationStrategy: 'failover', retryCount: 2, retryBackoff: 'fixed', retryDelayMs: 1, cooldownMs: 300_000, failoverEnabled: true, updatedAt: now })
-            await tx.insert(aiServices).values({ id: serviceId, workspaceId, name: 'Local mock', provider: 'openai-compatible', model: 'mock-model', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', createdAt: now, updatedAt: now })
+            await tx.insert(aiServices).values([
+              { id: serviceId, workspaceId, name: 'Failing model connection', provider: 'openai-compatible', model: 'mock-model', endpoint: `http://127.0.0.1:${port}`, priority: 1, enabled: true, status: 'untested', createdAt: now, updatedAt: now },
+              { id: goodServiceId, workspaceId, name: 'Good model connection', provider: 'openai-compatible', model: 'mock-model', endpoint: `http://127.0.0.1:${port}`, priority: 2, enabled: true, status: 'untested', createdAt: now + 1, updatedAt: now + 1 },
+              { id: responsesServiceId, workspaceId, name: 'Responses model connection', provider: 'openai-compatible', protocol: 'openai-responses', model: 'mock-responses', endpoint: `http://127.0.0.1:${port}`, priority: 3, enabled: true, status: 'untested', createdAt: now + 2, updatedAt: now + 2 },
+              { id: anthropicServiceId, workspaceId, name: 'Anthropic model connection', provider: 'openai-compatible', protocol: 'anthropic-messages', model: 'mock-anthropic', endpoint: `http://127.0.0.1:${port}/v1`, priority: 4, enabled: true, status: 'untested', createdAt: now + 3, updatedAt: now + 3 },
+            ])
             const failed = encryptSecret('fake-fail-key')
             const good = encryptSecret('integration-good-key')
+            const responses = encryptSecret('responses-key')
+            const anthropic = encryptSecret('anthropic-key')
             await tx.insert(aiServiceKeys).values([
                       { id: failedKeyId, workspaceId, serviceId, name: 'failing', secretCiphertext: failed.ciphertext, secretIv: failed.iv, secretTag: failed.tag, ending: 'FAIL', enabled: true, failureCount: 0, createdAt: now, updatedAt: now },
-                      { id: goodKeyId, workspaceId, serviceId, name: 'good', secretCiphertext: good.ciphertext, secretIv: good.iv, secretTag: good.tag, ending: 'GOOD', enabled: true, failureCount: 0, createdAt: now + 1, updatedAt: now + 1 },
+                      { id: goodKeyId, workspaceId, serviceId: goodServiceId, name: 'good', secretCiphertext: good.ciphertext, secretIv: good.iv, secretTag: good.tag, ending: 'GOOD', enabled: true, failureCount: 0, createdAt: now + 1, updatedAt: now + 1 },
+                      { id: createId('aik'), workspaceId, serviceId: responsesServiceId, name: 'responses', secretCiphertext: responses.ciphertext, secretIv: responses.iv, secretTag: responses.tag, ending: 'NSES', enabled: true, failureCount: 0, createdAt: now + 2, updatedAt: now + 2 },
+                      { id: createId('aik'), workspaceId, serviceId: anthropicServiceId, name: 'anthropic', secretCiphertext: anthropic.ciphertext, secretIv: anthropic.iv, secretTag: anthropic.tag, ending: 'OPIC', enabled: true, failureCount: 0, createdAt: now + 3, updatedAt: now + 3 },
                     ])
           })
 
     const first = await completeWithAi({ workspaceId, messages: [{ role: 'user', content: 'integration' }] })
-    assert.equal(first.serviceId, serviceId)
+    assert.equal(first.serviceId, goodServiceId)
     assert.equal(failedCalls, 3)
     assert.equal(goodCalls, 1)
     const failedKey = (await db.$first(db.select().from(aiServiceKeys).where(eq(aiServiceKeys.id, failedKeyId))))
@@ -80,7 +109,13 @@ const run = async () => {
     assert.equal(enrichment.candidate.industry, '工业设备')
     assert.equal(enrichment.candidate.score, 82)
     assert.equal(goodCalls, 3)
-    console.log('AI client integration passed: retry policy, key failover, cooldown and structured enrichment verified.')
+    const responsesResult = await completeWithAi({ workspaceId, serviceId: responsesServiceId, messages: [{ role: 'user', content: 'responses' }] })
+    assert.equal(responsesResult.content, 'RESPONSES_OK')
+    assert.equal(responsesCalls, 1)
+    const anthropicResult = await completeWithAi({ workspaceId, serviceId: anthropicServiceId, messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'anthropic' }] })
+    assert.equal(anthropicResult.content, 'ANTHROPIC_OK')
+    assert.equal(anthropicCalls, 1)
+    console.log('AI client integration passed: all three API protocols, retry policy, model-connection failover, cooldown and structured enrichment verified.')
   } finally {
     await db.delete(users).where(eq(users.id, userId))
     await close(server).catch(() => undefined)

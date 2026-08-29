@@ -17,6 +17,7 @@ import { createId } from "../lib/ids.js";
 import { pickProvided } from "../lib/input.js";
 import { requireAuth } from "../plugins/auth.js";
 import { enqueueConfirmedMessage } from "../outbox/service.js";
+import { persistReplySuggestion } from "../automation/closed-loop.js";
 
 const threadFilters = ["all", "unread", "high_intent", "follow_up"] as const;
 const threadListQuery = z.object({
@@ -509,6 +510,23 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
     return { updated: threads.length, unreadTotal: 0 };
   });
 
+  app.post("/threads/:id/reply-suggestion", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const regenerate = (request.body as { regenerate?: boolean } | null)?.regenerate === true;
+    const suggestion = await persistReplySuggestion({ workspaceId: request.auth.workspaceId, threadId: id, force: regenerate });
+    if (!suggestion)
+      return reply.code(404).send({ error: "NOT_FOUND", message: "消息线程不存在。" });
+    await writeAudit(
+      request.auth.workspaceId,
+      request.auth.userId,
+      "message.reply_suggestion_generated",
+      "message_thread",
+      id,
+      { source: suggestion.source, status: suggestion.status, confidence: suggestion.confidence },
+    );
+    return suggestion;
+  });
+
   app.post("/threads/:id/replies/confirm", async (request, reply) => {
     const id = (request.params as { id: string }).id;
     const thread = (await requireThread(request.auth.workspaceId, id));
@@ -516,6 +534,11 @@ export const inboxRoutes: FastifyPluginAsync = async (app) => {
       return reply
         .code(404)
         .send({ error: "NOT_FOUND", message: "消息线程不存在。" });
+    if (thread.status !== "open")
+      return reply.code(409).send({
+        error: "THREAD_CLOSED",
+        message: "该会话已经关闭或归档。请先确认客户没有拒绝或退订，再决定是否恢复沟通。",
+      });
     const parsed = replyInput.safeParse(request.body);
     if (!parsed.success)
       return reply.code(400).send({

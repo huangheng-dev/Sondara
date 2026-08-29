@@ -180,7 +180,20 @@ export const leadSourceConnections = pgTable(
     accessTokenIv: text("access_token_iv"),
     accessTokenTag: text("access_token_tag"),
     accessTokenEnding: text("access_token_ending"),
+    accessTokenExpiresAt: bigint("access_token_expires_at", { mode: "number" }),
+    refreshTokenCiphertext: text("refresh_token_ciphertext"),
+    refreshTokenIv: text("refresh_token_iv"),
+    refreshTokenTag: text("refresh_token_tag"),
+    refreshTokenEnding: text("refresh_token_ending"),
+    refreshTokenExpiresAt: bigint("refresh_token_expires_at", { mode: "number" }),
+    oauthScopes: text("oauth_scopes"),
+    verificationSecretCiphertext: text("verification_secret_ciphertext"),
+    verificationSecretIv: text("verification_secret_iv"),
+    verificationSecretTag: text("verification_secret_tag"),
+    verificationSecretEnding: text("verification_secret_ending"),
     webhookTokenHash: text("webhook_token_hash").notNull(),
+    autoCreateCustomer: boolean("auto_create_customer").notNull().default(true),
+    createFollowUpTask: boolean("create_follow_up_task").notNull().default(true),
     enabled: boolean("enabled").notNull().default(true),
     status: text("status").notNull().default("not_configured"),
     lastError: text("last_error"),
@@ -194,6 +207,26 @@ export const leadSourceConnections = pgTable(
   ],
 );
 
+export const leadSourceOauthStates = pgTable(
+  "lead_source_oauth_states",
+  {
+    id: text("id").primaryKey(),
+    stateHash: text("state_hash").notNull(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").notNull().references(() => leadSourceConnections.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    provider: text("provider").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    usedAt: bigint("used_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lead_source_oauth_states_hash_unique").on(table.stateHash),
+    index("lead_source_oauth_states_connection_idx").on(table.connectionId, table.expiresAt),
+  ],
+);
+
 export const leadSourceEvents = pgTable(
   "lead_source_events",
   {
@@ -204,6 +237,9 @@ export const leadSourceEvents = pgTable(
     payloadJson: text("payload_json").notNull().default("{}"),
     processingStatus: text("processing_status").notNull().default("received"),
     processingError: text("processing_error"),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    contactId: text("contact_id").references(() => inboxContacts.id, { onDelete: "set null" }),
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
     receivedAt: bigint("received_at", { mode: "number" }).notNull(),
     processedAt: bigint("processed_at", { mode: "number" }),
   },
@@ -259,6 +295,119 @@ export const customers = pgTable(
   ],
 );
 
+export const customerTouchpoints = pgTable(
+  "customer_touchpoints",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    customerId: text("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+    contactId: text("contact_id").references(() => inboxContacts.id, { onDelete: "set null" }),
+    eventType: text("event_type").notNull(),
+    source: text("source").notNull(),
+    medium: text("medium"),
+    campaign: text("campaign"),
+    content: text("content"),
+    term: text("term"),
+    referrer: text("referrer"),
+    landingPage: text("landing_page"),
+    externalId: text("external_id").notNull(),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    occurredAt: bigint("occurred_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("customer_touchpoints_workspace_external_unique").on(table.workspaceId, table.source, table.externalId),
+    index("customer_touchpoints_customer_time_idx").on(table.customerId, table.occurredAt),
+    index("customer_touchpoints_workspace_source_idx").on(table.workspaceId, table.source, table.occurredAt),
+  ],
+);
+
+export const procurementSubscriptions = pgTable(
+  "procurement_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    provider: text("provider").notNull(),
+    keywordsJson: text("keywords_json").notNull().default("[]"),
+    regionsJson: text("regions_json").notNull().default("[]"),
+    noticeTypesJson: text("notice_types_json").notNull().default("[]"),
+    enabled: boolean("enabled").notNull().default(true),
+    lastSyncAt: bigint("last_sync_at", { mode: "number" }),
+    lastSyncStatus: text("last_sync_status").notNull().default("never"),
+    lastError: text("last_error"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("procurement_subscriptions_workspace_name_unique").on(table.workspaceId, table.name),
+    index("procurement_subscriptions_workspace_provider_idx").on(table.workspaceId, table.provider, table.enabled),
+  ],
+);
+
+export const procurementOpportunities = pgTable(
+  "procurement_opportunities",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    subscriptionId: text("subscription_id").references(() => procurementSubscriptions.id, { onDelete: "set null" }),
+    provider: text("provider").notNull(),
+    externalId: text("external_id").notNull(),
+    title: text("title").notNull(),
+    buyer: text("buyer").notNull().default("待确认采购方"),
+    description: text("description").notNull().default(""),
+    country: text("country").notNull().default("待确认"),
+    noticeType: text("notice_type").notNull().default("采购公告"),
+    status: text("status").notNull().default("active"),
+    publishedAt: bigint("published_at", { mode: "number" }),
+    deadlineAt: bigint("deadline_at", { mode: "number" }),
+    sourceUrl: text("source_url").notNull(),
+    contactJson: text("contact_json").notNull().default("{}"),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    relevanceScore: bigint("relevance_score", { mode: "number" }).notNull().default(0),
+    saved: boolean("saved").notNull().default(false),
+    dismissedAt: bigint("dismissed_at", { mode: "number" }),
+    syncedAt: bigint("synced_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("procurement_opportunities_workspace_provider_external_unique").on(table.workspaceId, table.provider, table.externalId),
+    index("procurement_opportunities_workspace_deadline_idx").on(table.workspaceId, table.deadlineAt),
+    index("procurement_opportunities_workspace_provider_idx").on(table.workspaceId, table.provider, table.publishedAt),
+  ],
+);
+
+export const companySignals = pgTable(
+  "company_signals",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    candidateId: text("candidate_id").references(() => radarCandidates.id, { onDelete: "cascade" }),
+    company: text("company").notNull(),
+    domain: text("domain"),
+    signalType: text("signal_type").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull().default(""),
+    source: text("source").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    evidenceQuote: text("evidence_quote").notNull().default(""),
+    scoreBoost: bigint("score_boost", { mode: "number" }).notNull().default(0),
+    observedAt: bigint("observed_at", { mode: "number" }).notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("company_signals_workspace_source_url_type_unique").on(table.workspaceId, table.sourceUrl, table.signalType),
+    index("company_signals_customer_time_idx").on(table.customerId, table.observedAt),
+    index("company_signals_candidate_time_idx").on(table.candidateId, table.observedAt),
+    index("company_signals_workspace_type_idx").on(table.workspaceId, table.signalType, table.observedAt),
+  ],
+);
+
 export const tasks = pgTable(
   "tasks",
   {
@@ -269,6 +418,9 @@ export const tasks = pgTable(
     customerId: text("customer_id").references(() => customers.id, {
       onDelete: "set null",
     }),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    actionPath: text("action_path"),
     title: text("title").notNull(),
     priority: text("priority").notNull().default("中"),
     dueAt: bigint("due_at", { mode: "number" }),
@@ -312,6 +464,8 @@ export const deals = pgTable(
     expectedCloseAt: bigint("expected_close_at", { mode: "number" }),
     risk: text("risk").notNull().default("等待首次复核"),
     source: text("source").notNull().default("商机跟进"),
+    outcomeReason: text("outcome_reason"),
+    closedAt: bigint("closed_at", { mode: "number" }),
     stageEnteredAt: bigint("stage_entered_at", { mode: "number" }).notNull(),
     archivedAt: bigint("archived_at", { mode: "number" }),
     ownerUserId: text("owner_user_id").references(() => users.id, {
@@ -331,6 +485,29 @@ export const deals = pgTable(
       table.expectedCloseAt,
     ),
     index("deals_customer_idx").on(table.customerId),
+  ],
+);
+
+export const customerOutcomes = pgTable(
+  "customer_outcomes",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    dealId: text("deal_id").references(() => deals.id, { onDelete: "set null" }),
+    threadId: text("thread_id"),
+    outcome: text("outcome").notNull(),
+    reasonCode: text("reason_code"),
+    note: text("note").notNull().default(""),
+    source: text("source").notNull().default("manual"),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    occurredAt: bigint("occurred_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("customer_outcomes_workspace_time_idx").on(table.workspaceId, table.occurredAt),
+    index("customer_outcomes_customer_idx").on(table.customerId, table.occurredAt),
+    index("customer_outcomes_deal_idx").on(table.dealId),
   ],
 );
 
@@ -805,6 +982,156 @@ export const messageThreadReads = pgTable(
   ],
 );
 
+export const replySuggestions = pgTable(
+  "reply_suggestions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").notNull().references(() => messageThreads.id, { onDelete: "cascade" }),
+    inboundMessageId: text("inbound_message_id").notNull().references(() => messageEntries.id, { onDelete: "cascade" }),
+    version: bigint("version", { mode: "number" }).notNull().default(1),
+    status: text("status").notNull().default("pending"),
+    source: text("source").notNull().default("rule"),
+    draft: text("draft").notNull().default(""),
+    rationale: text("rationale").notNull().default(""),
+    nextAction: text("next_action").notNull().default(""),
+    missingInformationJson: text("missing_information_json").notNull().default("[]"),
+    warningsJson: text("warnings_json").notNull().default("[]"),
+    language: text("language").notNull().default("中文"),
+    confidence: bigint("confidence", { mode: "number" }).notNull().default(0),
+    modelLabel: text("model_label"),
+    approvedByUserId: text("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: bigint("approved_at", { mode: "number" }),
+    supersededAt: bigint("superseded_at", { mode: "number" }),
+    error: text("error"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("reply_suggestions_message_version_unique").on(table.inboundMessageId, table.version),
+    index("reply_suggestions_thread_updated_idx").on(table.threadId, table.updatedAt),
+    index("reply_suggestions_workspace_status_idx").on(table.workspaceId, table.status),
+  ],
+);
+
+export const workspaceNotifications = pgTable(
+  "workspace_notifications",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    notificationType: text("notification_type").notNull(),
+    tone: text("tone").notNull().default("info"),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    actionPath: text("action_path"),
+    dedupeKey: text("dedupe_key"),
+    readAt: bigint("read_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("workspace_notifications_dedupe_unique").on(table.workspaceId, table.dedupeKey),
+    index("workspace_notifications_workspace_read_idx").on(table.workspaceId, table.readAt, table.createdAt),
+    index("workspace_notifications_user_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    planId: text("plan_id"),
+    runType: text("run_type").notNull().default("live"),
+    triggerType: text("trigger_type").notNull().default("system"),
+    status: text("status").notNull().default("running"),
+    traceId: text("trace_id").notNull(),
+    summary: text("summary").notNull().default(""),
+    inputJson: text("input_json").notNull().default("{}"),
+    resultJson: text("result_json").notNull().default("{}"),
+    startedAt: bigint("started_at", { mode: "number" }).notNull(),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("automation_runs_trace_unique").on(table.traceId),
+    index("automation_runs_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("automation_runs_plan_idx").on(table.planId, table.createdAt),
+  ],
+);
+
+export const automationEvents = pgTable(
+  "automation_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    runId: text("run_id").notNull().references(() => automationRuns.id, { onDelete: "cascade" }),
+    stepKey: text("step_key").notNull(),
+    status: text("status").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    actionPath: text("action_path"),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("automation_events_run_created_idx").on(table.runId, table.createdAt),
+    index("automation_events_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  ],
+);
+
+export const learningSnapshots = pgTable(
+  "learning_snapshots",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    planId: text("plan_id").notNull(),
+    version: bigint("version", { mode: "number" }).notNull(),
+    status: text("status").notNull().default("candidate"),
+    sampleCount: bigint("sample_count", { mode: "number" }).notNull().default(0),
+    positiveRate: bigint("positive_rate", { mode: "number" }).notNull().default(0),
+    modelJson: text("model_json").notNull().default("{}"),
+    activatedAt: bigint("activated_at", { mode: "number" }),
+    frozenAt: bigint("frozen_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("learning_snapshots_plan_version_unique").on(table.planId, table.version),
+    index("learning_snapshots_plan_status_idx").on(table.planId, table.status),
+  ],
+);
+
+export const salesRecommendations = pgTable(
+  "sales_recommendations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    dealId: text("deal_id").notNull().references(() => deals.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("active"),
+    recommendationType: text("recommendation_type").notNull().default("next_best_action"),
+    title: text("title").notNull(),
+    rationale: text("rationale").notNull().default(""),
+    nextAction: text("next_action").notNull(),
+    suggestedStage: text("suggested_stage"),
+    missingInformationJson: text("missing_information_json").notNull().default("[]"),
+    riskLevel: text("risk_level").notNull().default("medium"),
+    source: text("source").notNull().default("rule"),
+    acceptedByUserId: text("accepted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: bigint("accepted_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("sales_recommendations_deal_status_idx").on(table.dealId, table.status),
+    index("sales_recommendations_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  ],
+);
+
 export const outboundChannelConnections = pgTable(
   "outbound_channel_connections",
   {
@@ -818,6 +1145,9 @@ export const outboundChannelConnections = pgTable(
     port: bigint("port", { mode: "number" }).notNull().default(587),
     secure: boolean("secure").notNull().default(false),
     username: text("username").notNull(),
+    whatsappBusinessAccountId: text("whatsapp_business_account_id"),
+    whatsappDefaultTemplateName: text("whatsapp_default_template_name"),
+    whatsappDefaultTemplateLanguage: text("whatsapp_default_template_language"),
     fromName: text("from_name").notNull(),
     fromEmail: text("from_email").notNull(),
     replyTo: text("reply_to"),
@@ -857,6 +1187,30 @@ export const outboundChannelConnections = pgTable(
       table.enabled,
       table.priority,
     ),
+  ],
+);
+
+export const whatsappMessageTemplates = pgTable(
+  "whatsapp_message_templates",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id").notNull().references(() => outboundChannelConnections.id, { onDelete: "cascade" }),
+    externalId: text("external_id"),
+    name: text("name").notNull(),
+    language: text("language").notNull(),
+    category: text("category").notNull().default("UNKNOWN"),
+    status: text("status").notNull().default("PENDING"),
+    qualityScore: text("quality_score"),
+    rejectedReason: text("rejected_reason"),
+    componentsJson: text("components_json").notNull().default("[]"),
+    lastSyncedAt: bigint("last_synced_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("whatsapp_templates_connection_name_language_unique").on(table.connectionId, table.name, table.language),
+    index("whatsapp_templates_workspace_status_idx").on(table.workspaceId, table.status),
   ],
 );
 
@@ -1001,6 +1355,56 @@ export const contactSuppressions = pgTable(
   ],
 );
 
+export const acquisitionPlans = pgTable(
+  "acquisition_plans",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    icp: text("icp").notNull(),
+    mode: text("mode").notNull().default("智能多渠道"),
+    strategy: text("strategy").notNull().default("目标企业发现"),
+    dataSourcesJson: text("data_sources_json").notNull().default("[]"),
+    intentSignalsJson: text("intent_signals_json").notNull().default("[]"),
+    depth: text("depth").notNull().default("标准研究"),
+    candidateLimit: bigint("candidate_limit", { mode: "number" }).notNull().default(100),
+    dailyCandidateLimit: bigint("daily_candidate_limit", { mode: "number" }).notNull().default(100),
+    knowledgeScope: text("knowledge_scope").notNull().default("全部资料"),
+    targetRegion: text("target_region").notNull().default("全球"),
+    researchLanguage: text("research_language").notNull().default("自动识别"),
+    inputSource: text("input_source").notNull().default("AI 获客"),
+    seedUrlsJson: text("seed_urls_json").notNull().default("[]"),
+    scheduleType: text("schedule_type").notNull().default("daily"),
+    runTimeLocal: text("run_time_local").notNull().default("08:00"),
+    timezone: text("timezone").notNull().default("Asia/Shanghai"),
+    weekdaysJson: text("weekdays_json").notNull().default("[1,2,3,4,5]"),
+    enabled: boolean("enabled").notNull().default(true),
+    status: text("status").notNull().default("active"),
+    requireAi: boolean("require_ai").notNull().default(true),
+    automationMode: text("automation_mode").notNull().default("research_only"),
+    minAutoScore: bigint("min_auto_score", { mode: "number" }).notNull().default(90),
+    autoPromoteEnabled: boolean("auto_promote_enabled").notNull().default(false),
+    autoOutreachEnabled: boolean("auto_outreach_enabled").notNull().default(false),
+    nextRunAt: bigint("next_run_at", { mode: "number" }),
+    lastRunAt: bigint("last_run_at", { mode: "number" }),
+    lastSuccessAt: bigint("last_success_at", { mode: "number" }),
+    lastError: text("last_error"),
+    consecutiveFailures: bigint("consecutive_failures", { mode: "number" }).notNull().default(0),
+    totalRuns: bigint("total_runs", { mode: "number" }).notNull().default(0),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("acquisition_plans_workspace_status_idx").on(table.workspaceId, table.status),
+    index("acquisition_plans_due_idx").on(table.enabled, table.nextRunAt),
+  ],
+);
+
 export const radarTasks = pgTable(
   "radar_tasks",
   {
@@ -1011,6 +1415,9 @@ export const radarTasks = pgTable(
     name: text("name").notNull(),
     icp: text("icp").notNull(),
     mode: text("mode").notNull().default("智能多渠道"),
+    strategy: text("strategy").notNull().default("目标企业发现"),
+    dataSourcesJson: text("data_sources_json").notNull().default("[]"),
+    intentSignalsJson: text("intent_signals_json").notNull().default("[]"),
     depth: text("depth").notNull().default("标准研究"),
     candidateLimit: bigint("candidate_limit", { mode: "number" }).notNull().default(100),
     knowledgeScope: text("knowledge_scope").notNull().default("全部资料"),
@@ -1027,6 +1434,11 @@ export const radarTasks = pgTable(
     ownerUserId: text("owner_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    acquisitionPlanId: text("acquisition_plan_id").references(() => acquisitionPlans.id, {
+      onDelete: "set null",
+    }),
+    runNumber: bigint("run_number", { mode: "number" }).notNull().default(1),
+    triggerType: text("trigger_type").notNull().default("manual"),
     startedAt: bigint("started_at", { mode: "number" }),
     completedAt: bigint("completed_at", { mode: "number" }),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
@@ -1039,6 +1451,10 @@ export const radarTasks = pgTable(
     ),
     index("radar_tasks_workspace_created_idx").on(
       table.workspaceId,
+      table.createdAt,
+    ),
+    index("radar_tasks_plan_created_idx").on(
+      table.acquisitionPlanId,
       table.createdAt,
     ),
   ],
@@ -1074,8 +1490,9 @@ export const radarCandidates = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    uniqueIndex("radar_candidates_workspace_company_unique").on(
+    uniqueIndex("radar_candidates_workspace_task_company_unique").on(
       table.workspaceId,
+      table.radarTaskId,
       table.company,
     ),
     index("radar_candidates_workspace_status_idx").on(
@@ -1215,6 +1632,7 @@ export const aiServices = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     provider: text("provider").notNull(),
+    protocol: text("protocol").notNull().default("openai-chat-completions"),
     model: text("model").notNull(),
     endpoint: text("endpoint").notNull(),
     priority: bigint("priority", { mode: "number" }).notNull().default(1),
@@ -1304,6 +1722,96 @@ export const integrationConnections = pgTable(
   ],
 );
 
+export const externalConnectorConfigurations = pgTable(
+  "external_connector_configurations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    connectorKey: text("connector_key").notNull(),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    status: text("status").notNull().default("configured"),
+    settingsJson: text("settings_json").notNull().default("{}"),
+    credentialsCiphertext: text("credentials_ciphertext"),
+    credentialsIv: text("credentials_iv"),
+    credentialsTag: text("credentials_tag"),
+    credentialEndingsJson: text("credential_endings_json").notNull().default("{}"),
+    scheduleEnabled: boolean("schedule_enabled").notNull().default(false),
+    scheduleIntervalMinutes: bigint("schedule_interval_minutes", { mode: "number" }).notNull().default(1440),
+    scheduleQuery: text("schedule_query"),
+    perRunLimit: bigint("per_run_limit", { mode: "number" }).notNull().default(25),
+    dailyLimit: bigint("daily_limit", { mode: "number" }).notNull().default(100),
+    nextRunAt: bigint("next_run_at", { mode: "number" }),
+    cursor: text("cursor"),
+    consecutiveFailures: bigint("consecutive_failures", { mode: "number" }).notNull().default(0),
+    pausedReason: text("paused_reason"),
+    lastRunAt: bigint("last_run_at", { mode: "number" }),
+    lastError: text("last_error"),
+    lastValidatedAt: bigint("last_validated_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("external_connector_configs_workspace_key_unique").on(
+      table.workspaceId,
+      table.connectorKey,
+    ),
+    index("external_connector_configs_workspace_status_idx").on(
+      table.workspaceId,
+      table.status,
+      table.enabled,
+    ),
+    index("external_connector_configs_schedule_idx").on(table.scheduleEnabled, table.nextRunAt),
+  ],
+);
+
+export const externalConnectorRuns = pgTable(
+  "external_connector_runs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    configurationId: text("configuration_id").notNull().references(() => externalConnectorConfigurations.id, { onDelete: "cascade" }),
+    connectorKey: text("connector_key").notNull(),
+    operation: text("operation").notNull(),
+    status: text("status").notNull().default("running"),
+    inputJson: text("input_json").notNull().default("{}"),
+    cursor: text("cursor"),
+    fetchedCount: bigint("fetched_count", { mode: "number" }).notNull().default(0),
+    createdCount: bigint("created_count", { mode: "number" }).notNull().default(0),
+    updatedCount: bigint("updated_count", { mode: "number" }).notNull().default(0),
+    skippedCount: bigint("skipped_count", { mode: "number" }).notNull().default(0),
+    error: text("error"),
+    startedAt: bigint("started_at", { mode: "number" }).notNull(),
+    completedAt: bigint("completed_at", { mode: "number" }),
+  },
+  (table) => [
+    index("external_connector_runs_workspace_started_idx").on(table.workspaceId, table.startedAt),
+    index("external_connector_runs_configuration_idx").on(table.configurationId, table.startedAt),
+  ],
+);
+
+export const externalObjectMappings = pgTable(
+  "external_object_mappings",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    configurationId: text("configuration_id").notNull().references(() => externalConnectorConfigurations.id, { onDelete: "cascade" }),
+    objectType: text("object_type").notNull(),
+    localId: text("local_id").notNull(),
+    externalId: text("external_id").notNull(),
+    localUpdatedAt: bigint("local_updated_at", { mode: "number" }),
+    externalUpdatedAt: bigint("external_updated_at", { mode: "number" }),
+    lastSyncedAt: bigint("last_synced_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("external_object_mappings_local_unique").on(table.configurationId, table.objectType, table.localId),
+    uniqueIndex("external_object_mappings_external_unique").on(table.configurationId, table.objectType, table.externalId),
+    index("external_object_mappings_workspace_idx").on(table.workspaceId, table.objectType),
+  ],
+);
+
 export const businessProfiles = pgTable(
   "business_profiles",
   {
@@ -1318,7 +1826,7 @@ export const businessProfiles = pgTable(
     regions: text("regions").notNull().default(""),
     customers: text("customers").notNull().default(""),
     exclusions: text("exclusions").notNull().default(""),
-    selectedMarket: text("selected_market").notNull().default("德国食品设备"),
+    selectedMarket: text("selected_market").notNull().default("待验证细分市场"),
     analysisStatus: text("analysis_status").notNull().default("idle"),
     analysisSummary: text("analysis_summary").notNull().default(""),
     analyzedAt: bigint("analyzed_at", { mode: "number" }),

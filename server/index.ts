@@ -6,6 +6,8 @@ import { createRadarWorker } from "./radar/worker.js";
 import { createOutboxWorker } from "./outbox/worker.js";
 import { createImapReceiver } from "./inbox/imap-receiver.js";
 import { createBackupWorker } from "./operations/backup-worker.js";
+import { createExternalConnectorWorker } from "./integrations/external-connector-worker.js";
+import { createSalesProgressionGuardianWorker } from "./sales/progression-guardian-worker.js";
 import { requireAuth } from "./plugins/auth.js";
 import { captureObservabilityException, shutdownObservability } from "./lib/observability.js";
 
@@ -14,6 +16,8 @@ const radarWorker = createRadarWorker(config.radarWorkerIntervalMs);
 const outboxWorker = createOutboxWorker(config.outboxWorkerIntervalMs);
 const imapReceiver = createImapReceiver(config.imapPollIntervalMs);
 const backupWorker = createBackupWorker();
+const externalConnectorWorker = createExternalConnectorWorker();
+const salesGuardianWorker = createSalesProgressionGuardianWorker();
 
 let shuttingDown = false;
 
@@ -26,6 +30,8 @@ const shutdown = async (signal: string) => {
     outboxWorker.stop(),
     imapReceiver.stop(),
     backupWorker.stop(),
+    externalConnectorWorker.stop(),
+    salesGuardianWorker.stop(),
   ]);
   const forceTimer = setTimeout(async () => {
     app.log.error("Forced shutdown after 10s timeout");
@@ -67,6 +73,8 @@ if (config.radarWorkerEnabled) radarWorker.start();
 if (config.outboxWorkerEnabled) outboxWorker.start();
 if (config.imapEnabled) imapReceiver.start();
 if (config.backupEnabled) backupWorker.start();
+if (config.externalConnectorWorkerEnabled) externalConnectorWorker.start();
+if (config.salesGuardianEnabled) salesGuardianWorker.start();
 app.log.info(
   {
     host: config.host,

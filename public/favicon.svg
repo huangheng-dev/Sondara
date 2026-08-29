@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="brand" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3887ff"/>
-      <stop offset="1" stop-color="#0b5cff"/>
+    <linearGradient id="brand" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7770f4"/>
+      <stop offset="1" stop-color="#4f46e5"/>
     </linearGradient>
   </defs>
   <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#brand)"/>
-  <path d="M31.5 14.5c.7 7.5 3.9 10.7 11.4 11.4-7.5.7-10.7 3.9-11.4 11.4-.7-7.5-3.9-10.7-11.4-11.4 7.5-.7 10.7-3.9 11.4-11.4Z" fill="#fff"/>
-  <path d="M44.5 34.5c.4 4.2 2.2 6 6.4 6.4-4.2.4-6 2.2-6.4 6.4-.4-4.2-2.2-6-6.4-6.4 4.2-.4 6-2.2 6.4-6.4Z" fill="#dceaff"/>
-  <circle cx="19" cy="41" r="3" fill="#b9d4ff"/>
+  <g transform="translate(8 8) scale(2)" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+    <path d="M5 3v4M3 5h4M19 17v4M17 19h4"/>
+  </g>
 </svg>

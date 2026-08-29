@@ -4,11 +4,29 @@ export type RadarTaskContext = {
   name: string
   icp: string
   mode: string
+  strategy?: string
+  dataSources?: string[]
+  intentSignals?: string[]
   depth: string
   candidateLimit: number
   targetRegion: string
   researchLanguage: string
   seedUrls: string[]
+}
+
+export const RADAR_DATA_SOURCES = ['search', 'map', 'website', 'industry-directory', 'trade-show', 'procurement', 'seed-list'] as const
+export type RadarDataSource = typeof RADAR_DATA_SOURCES[number]
+
+export const effectiveRadarDataSources = (task: Pick<RadarTaskContext, 'mode' | 'dataSources' | 'seedUrls'>): RadarDataSource[] => {
+  if (task.dataSources?.length) return task.dataSources.filter((value): value is RadarDataSource => RADAR_DATA_SOURCES.includes(value as RadarDataSource))
+  if (/地图找客/.test(task.mode)) return ['map']
+  if (/企业官网/.test(task.mode)) return ['website']
+  if (/行业名录/.test(task.mode)) return ['industry-directory']
+  if (/展会协会/.test(task.mode)) return ['trade-show']
+  if (/招投标项目/.test(task.mode)) return ['procurement']
+  if (/种子名单/.test(task.mode)) return ['seed-list']
+  if (/搜索引擎|招聘扩产|新闻融资|贸易海关|社交网络/.test(task.mode)) return ['search']
+  return ['search', 'map', 'industry-directory', 'trade-show', 'procurement', ...(task.seedUrls.length ? ['website' as const] : [])]
 }
 
 export type DiscoveredCandidate = {

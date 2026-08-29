@@ -334,7 +334,7 @@ const run = async () => {
       sender: "recipient@example.com",
       recipient: "sender@example.com",
       subject: "Re: SMTP 闭环验证",
-      body: "资料已收到，请继续沟通。",
+      body: "请发送报价、技术资料，并安排下周电话沟通。",
       occurredAt: Date.now(),
     });
     assert.equal(replyEvent.statusCode, 200, replyEvent.body);
@@ -355,6 +355,10 @@ const run = async () => {
                 .select()
                 .from(messageThreads)
                 .where(eq(messageThreads.id, thread.json().id))))?.unreadCount ?? 0) >= 2,
+    );
+    assert.equal(
+      (await db.$first(db.select().from(messageThreads).where(eq(messageThreads.id, thread.json().id))))?.intent,
+      "高意向",
     );
 
     const unsubscribe = await sendEvent({

@@ -2,27 +2,31 @@ import type { FastifyPluginAsync } from "fastify";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { auditLogs, channelCosts, customers, deals, messageEntries, messageThreads, radarCandidates, tasks } from "../db/schema.js";
+import { auditLogs, channelCosts, customers, customerTouchpoints, deals, messageEntries, messageThreads, radarCandidates, tasks } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { pickProvided } from "../lib/input.js";
-import { requireAuth } from "../plugins/auth.js";
+import { requireAuth, requirePermission } from "../plugins/auth.js";
 
-const CHANNELS = ["官网内容","邮件触达","LinkedIn","地图找客","搜索引擎","行业名录","招投标项目","展会协会","种子名单","手动录入","其他"] as const;
+const CHANNELS = ["官网询盘","官网内容","邮件询盘","邮件触达","Google Ads","LinkedIn","Meta Ads","地图找客","搜索引擎","行业名录","招投标项目","展会协会","名单导入","手动录入","其他"] as const;
 type Channel = (typeof CHANNELS)[number];
-const CHANNEL_COLORS: Record<Channel,string> = {官网内容:"#0b5cff",邮件触达:"#6941c6",LinkedIn:"#12b76a",地图找客:"#2e90fa",搜索引擎:"#13c2c2",行业名录:"#7f56d9",招投标项目:"#f79009",展会协会:"#ef6820",种子名单:"#667085",手动录入:"#98a2b3",其他:"#d0d5dd"};
+const CHANNEL_COLORS: Record<Channel,string> = {官网询盘:"#155eef",官网内容:"#0b5cff",邮件询盘:"#7a5af8",邮件触达:"#6941c6","Google Ads":"#4285f4",LinkedIn:"#0a66c2","Meta Ads":"#0866ff",地图找客:"#2e90fa",搜索引擎:"#13c2c2",行业名录:"#7f56d9",招投标项目:"#f79009",展会协会:"#ef6820",名单导入:"#667085",手动录入:"#98a2b3",其他:"#d0d5dd"};
 
 const normalizeChannel = (raw:string|null|undefined):Channel => {
   const v=(raw??"").toLowerCase();
   if(!v) return "手动录入";
+  if(v.includes("google-ads")||v.includes("google ads")||v.includes("adwords")) return "Google Ads";
+  if(v.includes("meta-lead")||v.includes("meta ads")||v.includes("facebook lead")) return "Meta Ads";
+  if(v.includes("website-form")||v.includes("官网询盘")||v.includes("网站表单")) return "官网询盘";
+  if(v.includes("邮件询盘")||v.includes("email_inquiry")||v.includes("imap")) return "邮件询盘";
   if(v.includes("官网")||v.includes("website")||v.includes("企业官网")) return "官网内容";
   if(v.includes("邮件")||v.includes("email")||v.includes("smtp")||v.includes("outbox")) return "邮件触达";
   if(v.includes("linkedin")) return "LinkedIn";
-  if(v.includes("地图")||v.includes("amap")||v.includes("高德")||v.includes("places")||v.includes("google")) return "地图找客";
+  if(v.includes("地图")||v.includes("amap")||v.includes("高德")||v.includes("places")||v.includes("google maps")) return "地图找客";
   if(v.includes("搜索")||v.includes("search")||v.includes("brave")||v.includes("searxng")) return "搜索引擎";
   if(v.includes("招标")||v.includes("投标")||v.includes("tender")||v.includes("bidding")) return "招投标项目";
   if(v.includes("展会")||v.includes("协会")||v.includes("expo")||v.includes("展商")) return "展会协会";
   if(v.includes("名录")||v.includes("directory")||v.includes("行业目录")) return "行业名录";
-  if(v.includes("种子")||v.includes("seed")) return "种子名单";
+  if(v.includes("种子")||v.includes("seed")||v.includes("csv")||v.includes("excel")||v.includes("pdf")||v.includes("file-import")) return "名单导入";
   if(v.includes("手动")||v.includes("manual")||v.includes("客户跟进")||v.includes("商机跟进")) return "手动录入";
   return "其他";
 };
@@ -68,6 +72,10 @@ const aggregateChannels = async (ws: string, start: number, end: number, currenc
       .from(radarCandidates)
       .where(and(eq(radarCandidates.workspaceId, ws), gte(radarCandidates.discoveredAt, start), lt(radarCandidates.discoveredAt, end)))
       .groupBy(radarCandidates.source)) as { ch: string; n: number }[];
+  const touchpointRows = (await db.select({ ch: customerTouchpoints.source, n: sql<number>`count(*)` })
+      .from(customerTouchpoints)
+      .where(and(eq(customerTouchpoints.workspaceId, ws), gte(customerTouchpoints.occurredAt, start), lt(customerTouchpoints.occurredAt, end)))
+      .groupBy(customerTouchpoints.source)) as { ch: string; n: number }[];
   const qualifiedRows = (await db.select({ ch: customers.source, n: sql<number>`count(*)` })
       .from(customers)
       .where(and(eq(customers.workspaceId, ws), gte(customers.createdAt, start), lt(customers.createdAt, end)))
@@ -100,6 +108,7 @@ const aggregateChannels = async (ws: string, start: number, end: number, currenc
     return r;
   };
   for (const r of discoveredRows) ensure(normalizeChannel(r.ch)).discovered += Number(r.n);
+  for (const r of touchpointRows) ensure(normalizeChannel(r.ch)).discovered += Number(r.n);
   for (const r of qualifiedRows) ensure(normalizeChannel(r.ch)).qualified += Number(r.n);
   for (const r of contactedRows) ensure(normalizeChannel(r.ch)).contacted += Number(r.n);
   for (const r of replyRows) ensure(normalizeChannel(r.ch)).replies += Number(r.n);
@@ -193,7 +202,7 @@ export const attributionRoutes: FastifyPluginAsync = async (app) => {
     return updated;
   });
 
-  app.delete("/costs/:id", async (request, reply) => {
+  app.delete("/costs/:id", { preHandler: requirePermission('data.delete') }, async (request, reply) => {
     const existing = (await db.$first(db.select().from(channelCosts).where(and(eq(channelCosts.id, (request.params as { id: string }).id), eq(channelCosts.workspaceId, request.auth.workspaceId)))));
     if (!existing) return reply.code(404).send({ error: "NOT_FOUND", message: "成本记录不存在。" });
     await db.delete(channelCosts).where(eq(channelCosts.id, existing.id));

@@ -1,5 +1,5 @@
 import { request , type ListResponse } from "./core";
-import type { OutboundConnectionApiRecord, ContactSuppressionApiRecord, ChannelWebhookEventApiRecord, OutboxJobApiRecord } from "./types";
+import type { OutboundConnectionApiRecord, ContactSuppressionApiRecord, ChannelWebhookEventApiRecord, OutboxJobApiRecord, WhatsappTemplateApiRecord } from "./types";
 
 export const outboxApi = {
   listConnections: () =>
@@ -11,6 +11,9 @@ export const outboxApi = {
     port: number;
     secure: boolean;
     username: string;
+    whatsappBusinessAccountId?: string | null;
+    whatsappDefaultTemplateName?: string | null;
+    whatsappDefaultTemplateLanguage?: string | null;
     password: string;
     fromName: string;
     fromEmail: string;
@@ -40,6 +43,9 @@ export const outboxApi = {
       port: number;
       secure: boolean;
       username: string;
+      whatsappBusinessAccountId: string | null;
+      whatsappDefaultTemplateName: string | null;
+      whatsappDefaultTemplateLanguage: string | null;
       password: string;
       fromName: string;
       fromEmail: string;
@@ -63,6 +69,8 @@ export const outboxApi = {
       `/outbox/connections/${encodeURIComponent(id)}/test`,
       { method: "POST" },
     ),
+  listWhatsappTemplates: (id: string) => request<{ items: WhatsappTemplateApiRecord[] }>(`/outbox/connections/${encodeURIComponent(id)}/whatsapp/templates`),
+  syncWhatsappTemplates: (id: string) => request<{ items: WhatsappTemplateApiRecord[]; syncedAt: number }>(`/outbox/connections/${encodeURIComponent(id)}/whatsapp/templates/sync`, { method: 'POST' }),
   removeConnection: (id: string) =>
     request<void>(`/outbox/connections/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -122,4 +130,3 @@ export const outboxApi = {
       { method: "POST", body: JSON.stringify({ confirmation: true }) },
     ),
 };
-

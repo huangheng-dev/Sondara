@@ -6,7 +6,7 @@ import { db } from '../db/client.js'
 import { auditLogs, businessProfiles, knowledgeItems } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
-import { requireAuth } from '../plugins/auth.js'
+import { requireAuth, requirePermission } from '../plugins/auth.js'
 
 const knowledgeTypes = ['产品与方案', '产品知识', '应用知识', '合规知识', '公司资料', '客户案例', '客户判断规则', '市场知识', '竞争信息'] as const
 const knowledgeStatuses = ['已启用', '待复核', '已停用'] as const
@@ -101,7 +101,7 @@ const ensureProfile = async (workspaceId: string, userId: string): Promise<Profi
   const row: ProfileRow = {
     id: createId('bpr'), workspaceId, ownerUserId: userId,
     company: '', website: '', products: '', regions: '', customers: '', exclusions: '',
-    selectedMarket: '德国食品设备',
+    selectedMarket: '待验证细分市场',
     analysisStatus: 'idle', analysisSummary: '', analysisMode: 'idle', analysisError: null,
     analyzedAt: null, createdAt: now, updatedAt: now,
   }
@@ -116,10 +116,13 @@ type AnalysisResult = {
   criteria: string[]
 }
 
+const MAX_RECOMMENDED_MARKETS = 8
+
 const localAnalyze = (input: z.infer<typeof profileInput>): AnalysisResult => {
   const products = (input.products || '').trim()
   const customers = (input.customers || '').trim()
   const regions = (input.regions || '').trim()
+  const sourceText = `${products} ${customers}`
   const summaryBits: string[] = []
   if (products) summaryBits.push(`根据“${products.slice(0, 40)}${products.length > 40 ? '…' : ''}”的产品能力`)
   if (customers) summaryBits.push(`已成交/理想客户为“${customers.slice(0, 40)}${customers.length > 40 ? '…' : ''}”`)
@@ -127,22 +130,40 @@ const localAnalyze = (input: z.infer<typeof profileInput>): AnalysisResult => {
   const summary = summaryBits.length
     ? `${summaryBits.join('，')}。建议优先围绕已有产品验证和明确客户画像的细分市场展开 AI 获客，并保留证据和人工复核。`
     : '业务资料尚不完善。建议先补充产品、客户示例和重点地区，AI 获客才能据此生成更可靠的市场和候选判断。'
-  const signals = ['扩产或新建项目', '技术升级或自动化改造', '相关岗位招聘', '招投标、融资或并购公告']
+  const signals = ['新建、扩建或技术改造项目', '招标、采购与供应商准入', '检修、备件与替换需求', '区域代理、分销或工程合作']
   const recommendedMarkets: { name: string; reason: string }[] = []
-  if (/食品|乳品|饮料|餐饮|烘焙/i.test(products + customers))
-    recommendedMarkets.push({ name: '德国食品设备', reason: '食品工厂对卫生级设备与自动化改造需求稳定，且公开信号较易核实。' })
-  if (/制药|医药|GMP|生物/i.test(products + customers))
-    recommendedMarkets.push({ name: '华东制药装备', reason: 'GMP 扩产与新建产线带来设备采购窗口，客户预算和决策链相对明确。' })
-  if (/阀门|泵|管路|流体|管道/i.test(products))
-    recommendedMarkets.push({ name: '北美阀门经销', reason: '区域经销商持续补充品牌，适合通过行业名录与展会渠道识别。' })
+  const isHygienicBusiness = /卫生级|无菌|高洁净|hygienic|sanitary|aseptic|ASME BPE|CIP|SIP/i.test(sourceText)
+  if (isHygienicBusiness) {
+    recommendedMarkets.push(
+      { name: '海外生物制药与制药装备客户', reason: `高洁净泵、无菌阀门与洁净管路能力适合围绕${regions || '目标销售地区'}的生物制药工厂、设备制造商和工程项目核验公开需求。` },
+      { name: '海外食品饮料加工客户', reason: '卫生级泵阀、CIP 清洗和过程控制适用于食品饮料生产线的新建、扩产与设备升级。' },
+      { name: '海外乳品与酿酒工程客户', reason: '乳品和酿酒工艺重视卫生输送、物料隔离、清洗效率与生产线自动化。' },
+      { name: '海外半导体高纯流体客户', reason: '高纯介质输送、洁净管路和精密过程控制适合半导体及相关设备配套场景。' },
+      { name: '海外新能源材料与设备客户', reason: '新能源材料生产和设备配套存在洁净输送、耐腐蚀、计量调节与自动化需求。' },
+      { name: '海外精细化工过程客户', reason: '复杂介质、温压条件和批次控制需要可靠的泵阀选型与过程控制方案。' },
+      { name: '海外水处理与工艺设备客户', reason: '水处理设备制造商、工程商和终端工厂具有持续的泵阀、控制与系统配套需求。' },
+      { name: '海外高洁净设备渠道与系统集成商', reason: '完整的泵、阀门与控制产品组合适合区域分销、OEM 配套和项目集成。' },
+    )
+  } else if (/阀门|valve|泵|管路|流体|管道|flow control/i.test(sourceText)) {
+    recommendedMarkets.push(
+      { name: '全球油气与石化项目业主及 EPC', reason: `产品与工业流体控制和项目型采购匹配，可围绕${regions || '目标销售地区'}的油气、炼化、石化与工程项目寻找公开采购信号。` },
+      { name: '工业阀门经销商与区域代理商', reason: '完整产品范围、定制交付和技术选型能力适合发展拥有工业客户与本地服务能力的渠道伙伴。' },
+      { name: '电力、水处理与煤化工工程客户', reason: '这些行业存在持续的项目建设、检修与备件需求，可通过工程案例、招标和供应商名录核验。' },
+    )
+  }
+  if (!isHygienicBusiness && /食品|乳品|饮料|餐饮|烘焙/i.test(sourceText))
+    recommendedMarkets.push({ name: '食品与饮料工厂工程客户', reason: '业务资料包含食品相关应用，可优先核验具备工厂建设、扩产或卫生级流体项目需求的企业。' })
+  if (!isHygienicBusiness && /制药|医药|GMP|生物/i.test(sourceText))
+    recommendedMarkets.push({ name: '制药与生物工程项目客户', reason: '业务资料包含制药相关应用，可优先核验扩产、验证改造和工程采购信号。' })
   if (!recommendedMarkets.length)
     recommendedMarkets.push({ name: '待验证细分市场', reason: '请补充产品与客户示例后再运行分析，以获得更明确的市场建议。' })
   const criteria = [
     customers ? `优先匹配客户画像：${customers.slice(0, 60)}` : '优先行业与产品应用场景匹配的企业',
-    '200 人以上或具备自有工厂、工程团队/区域渠道能力',
-    '出现扩产、技术升级、招聘或招投标等近期公开信号',
+    '具备项目采购、工程设计、设备集成、自有工厂或区域渠道能力',
+    '出现项目建设、招标采购、检修替换、扩产或渠道合作等近期公开信号',
+    input.exclusions ? `排除：${input.exclusions.slice(0, 80)}` : '排除业务范围不匹配或无法核验公开来源的企业',
   ]
-  return { summary, signals, recommendedMarkets, criteria }
+  return { summary, signals, recommendedMarkets: recommendedMarkets.slice(0, MAX_RECOMMENDED_MARKETS), criteria }
 }
 
 export const icpRoutes: FastifyPluginAsync = async app => {
@@ -158,8 +179,13 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const existing = (await ensureProfile(request.auth.workspaceId, request.auth.userId))
     const now = Date.now()
+    const changes = pickProvided(request.body, parsed.data)
+    const body = request.body as Record<string, unknown>
+    const businessFieldsChanged = ['company', 'website', 'products', 'regions', 'customers', 'exclusions']
+      .some(field => Object.prototype.hasOwnProperty.call(body, field))
     await db.update(businessProfiles).set({
-            ...pickProvided(request.body, parsed.data),
+            ...changes,
+            ...(businessFieldsChanged ? { analysisStatus: 'idle', analysisSummary: '', analysisMode: 'idle', analysisError: null, analyzedAt: null } : {}),
             updatedAt: now,
           }).where(and(eq(businessProfiles.id, existing.id), eq(businessProfiles.workspaceId, request.auth.workspaceId)))
     const updated = (await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id))))!
@@ -184,8 +210,9 @@ export const icpRoutes: FastifyPluginAsync = async app => {
       try {
         const response = await completeWithAi({
           workspaceId: request.auth.workspaceId,
+          timeoutMs: 30_000,
           messages: [
-            { role: 'system', content: '你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason}[])、criteria(string[])。' },
+            { role: 'system', content: `你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason}[])、criteria(string[])。推荐市场最多 ${MAX_RECOMMENDED_MARKETS} 项。` },
             { role: 'user', content: `公司：${input.company}\n官网：${input.website}\n产品：${input.products}\n地区：${input.regions}\n客户示例：${input.customers}\n排除：${input.exclusions}` },
           ], maxTokens: 900, temperature: .2,
         })
@@ -194,7 +221,7 @@ export const icpRoutes: FastifyPluginAsync = async app => {
           summary: typeof parsed.summary === 'string' ? parsed.summary : '',
           signals: Array.isArray(parsed.signals) ? parsed.signals.slice(0, 6).map(x => String(x)) : [],
           recommendedMarkets: Array.isArray(parsed.recommendedMarkets)
-            ? parsed.recommendedMarkets.slice(0, 4).map(x => ({ name: String(x?.name ?? ''), reason: String(x?.reason ?? '') })).filter(x => x.name)
+            ? parsed.recommendedMarkets.slice(0, MAX_RECOMMENDED_MARKETS).map(x => ({ name: String(x?.name ?? ''), reason: String(x?.reason ?? '') })).filter(x => x.name)
             : [],
           criteria: Array.isArray(parsed.criteria) ? parsed.criteria.slice(0, 6).map(x => String(x)) : [],
         }
@@ -209,9 +236,12 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     }
     const analysisSummary = JSON.stringify(result)
     const completedAt = Date.now()
+    const selectedMarket = result.recommendedMarkets.some(item => item.name === existing.selectedMarket)
+      ? existing.selectedMarket
+      : result.recommendedMarkets[0]?.name ?? '待验证细分市场'
     await db.update(businessProfiles).set({
             analysisStatus: 'complete', analysisSummary, analysisMode: mode,
-            analysisError: error, analyzedAt: completedAt, updatedAt: completedAt,
+            analysisError: error, analyzedAt: completedAt, selectedMarket, updatedAt: completedAt,
           }).where(eq(businessProfiles.id, existing.id))
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'icp.profile.analyzed', existing.id, { mode, hasAi: mode === 'ai', error })
     const updated = (await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.id, existing.id))))!
@@ -303,7 +333,7 @@ export const icpRoutes: FastifyPluginAsync = async app => {
     return serializeKnowledge((await db.$first(db.select().from(knowledgeItems).where(eq(knowledgeItems.id, id))))!)
   })
 
-  app.delete('/knowledge/:id', async (request, reply) => {
+  app.delete('/knowledge/:id', { preHandler: requirePermission('data.delete') }, async (request, reply) => {
     const id = (request.params as { id: string }).id
     const existing = (await db.$first(db.select({ id: knowledgeItems.id }).from(knowledgeItems).where(and(eq(knowledgeItems.id, id), eq(knowledgeItems.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '知识条目不存在。' })

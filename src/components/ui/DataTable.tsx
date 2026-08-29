@@ -1,11 +1,40 @@
-import type { Key, ReactNode } from 'react'
-import { Empty, Flex, Table, type TableColumnsType } from 'antd'
+import { useEffect, useRef, type Key, type ReactNode } from 'react'
+import { Empty, Flex, Skeleton, Space, Table, type TableColumnsType } from 'antd'
+
+export type DataTableColumnKind = 'select' | 'primary' | 'status' | 'metric' | 'time' | 'actions'
 
 type DataTableColumn = {
   key: string
   title: ReactNode
+  kind?: DataTableColumnKind
   width?: number | string
   align?: 'left' | 'center' | 'right'
+  responsive?: Array<'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'>
+  ellipsis?: boolean
+  fixed?: 'left' | 'right'
+}
+
+const inferredKind = (column: DataTableColumn): DataTableColumnKind | undefined => {
+  if (column.kind) return column.kind
+  if (column.key === 'select') return 'select'
+  if (/^(actions?|operation|details?)$/i.test(column.key)) return 'actions'
+  if (/(updated|created|joined|activity|received|synced|tested|time|date)$/i.test(column.key)) return 'time'
+  if (/(status|state|stage)$/i.test(column.key)) return 'status'
+  if (/(score|quality|progress|rate|metric|value|usage|scale|reach|revenue|deals)$/i.test(column.key)) return 'metric'
+  if (/(company|campaign|title|user|service|channel|event|deal|name)$/i.test(column.key)) return 'primary'
+  return undefined
+}
+
+const widthFor = (column: DataTableColumn) => {
+  if (column.width !== undefined) return column.width
+  const kind = inferredKind(column)
+  if (kind === 'select') return 52
+  if (kind === 'actions') return 144
+  if (kind === 'primary') return 280
+  if (kind === 'time') return 168
+  if (kind === 'status') return 132
+  if (kind === 'metric') return 176
+  return 190
 }
 
 export type DataTableRow = {
@@ -15,36 +44,80 @@ export type DataTableRow = {
 }
 
 type DataTableProps = {
+  ariaLabel?: string
   className?: string
   columns: DataTableColumn[]
   rows: DataTableRow[]
+  emptyText?: ReactNode
   loading?: boolean
+  skeletonRows?: number
   minWidth?: number
 }
 
-export function DataTable({ className, columns, rows, loading, minWidth = 960 }: DataTableProps) {
-  const antColumns: TableColumnsType<DataTableRow> = columns.map((column, index) => ({
-    key: column.key,
-    title: column.title,
-    width: column.width,
-    align: column.align,
-    onCell: () => ({ style: { overflow: 'hidden', overflowWrap: 'anywhere' } }),
-    render: (_, row) => row.cells[index],
-  }))
+const skeletonCell = (kind: DataTableColumnKind | undefined, index: number) => {
+  if (kind === 'select') return <Skeleton.Button active size="small" className="data-table__skeleton-check"/>
+  if (kind === 'primary') return <Space size={10} style={{ width: '100%' }}><Skeleton.Avatar active size={34}/><Flex vertical gap={6} style={{ flex: 1 }}><Skeleton.Input active size="small" style={{ width: index % 2 ? 128 : 156 }}/><Skeleton.Input active size="small" style={{ width: index % 2 ? 176 : 210 }}/></Flex></Space>
+  if (kind === 'status') return <Skeleton.Button active size="small" style={{ width: 72 }}/>
+  if (kind === 'actions') return <Space size={6}><Skeleton.Button active size="small"/><Skeleton.Button active size="small"/></Space>
+  return <Skeleton.Input active size="small" style={{ width: index % 3 === 0 ? '82%' : index % 3 === 1 ? '64%' : '74%' }}/>
+}
 
-  return <Flex vertical className={['data-table', className].filter(Boolean).join(' ')} style={{ overflowX: 'auto' }}>
-    <Flex vertical style={{ minWidth }}>
-      <Table<DataTableRow>
-        bordered
-        columns={antColumns}
-        dataSource={rows}
-        loading={loading}
-        pagination={false}
-        rowClassName={(row) => row.className ?? ''}
-        size="middle"
-        tableLayout="fixed"
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据"/> }}
-      />
-    </Flex>
+export function DataTable({ ariaLabel = '数据表格', className, columns, rows, emptyText, loading, skeletonRows = 6, minWidth = 960 }: DataTableProps) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const hasSelectionColumn = columns.some(column => inferredKind(column) === 'select')
+  useEffect(() => {
+    const applyTableAccessibility = () => {
+      rootRef.current?.querySelectorAll('.ant-table-measure-row').forEach(row => row.setAttribute('inert', ''))
+      rootRef.current?.querySelectorAll<HTMLElement>('.ant-table-content').forEach(region => {
+        region.tabIndex = 0
+        region.setAttribute('role', 'region')
+        region.setAttribute('aria-label', `${ariaLabel}，支持横向滚动`)
+      })
+    }
+    applyTableAccessibility()
+    const observer = new MutationObserver(applyTableAccessibility)
+    if (rootRef.current) observer.observe(rootRef.current, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [ariaLabel, columns, rows])
+  const resolvedMinWidth = Math.max(minWidth, columns.reduce((total, column) => {
+    const width = widthFor(column)
+    return total + (typeof width === 'number' ? width : 190)
+  }, 0))
+  const antColumns: TableColumnsType<DataTableRow> = columns.map((column, index) => {
+    const kind = inferredKind(column)
+    return ({
+    key: column.key,
+    className: kind ? `data-table__cell--${kind}` : undefined,
+    title: column.title,
+    width: widthFor(column),
+    align: column.align ?? (kind === 'select' || kind === 'actions' ? 'center' : undefined),
+    responsive: column.responsive,
+    ellipsis: column.ellipsis,
+    fixed: column.fixed,
+    onCell: () => ({ style: { overflow: 'hidden', overflowWrap: 'break-word', wordBreak: 'normal' } }),
+    render: (_, row) => row.cells[index],
+  })})
+
+  const initialLoading = Boolean(loading) && rows.length === 0
+  const displayedRows: DataTableRow[] = initialLoading
+    ? Array.from({ length: skeletonRows }, (_, rowIndex) => ({
+        key: `skeleton-${rowIndex}`,
+        className: 'data-table__skeleton-row',
+        cells: columns.map(column => skeletonCell(inferredKind(column), rowIndex)),
+      }))
+    : rows
+
+  return <Flex ref={rootRef} vertical aria-busy={Boolean(loading)} className={['data-table', !hasSelectionColumn ? 'data-table--with-leading-space' : '', initialLoading ? 'data-table--loading' : '', className].filter(Boolean).join(' ')}>
+    <Table<DataTableRow>
+      columns={antColumns}
+      dataSource={displayedRows}
+      loading={Boolean(loading) && !initialLoading ? { spinning: true, description: '正在更新…' } : false}
+      pagination={false}
+      rowClassName={(row) => row.className ?? ''}
+      scroll={{ x: resolvedMinWidth }}
+      size="middle"
+      tableLayout="fixed"
+      locale={{ emptyText: emptyText ?? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据"/> }}
+    />
   </Flex>
 }

@@ -14,6 +14,10 @@ import {
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { stopCampaignAudienceForCustomer } from "../campaigns/audience-lifecycle.js";
+import { cancelPendingAutomatedMessagesForThread } from "./automation-stop.js";
+import { applyInboundIntentAutomation } from "../inbox/intent-automation.js";
+import { enforceAutomationCircuitBreaker } from "../radar/production-control.js";
+import { persistReplySuggestion, recordOutcome } from "../automation/closed-loop.js";
 
 export type ChannelEventInput = {
   providerEventId: string;
@@ -279,6 +283,21 @@ export const processChannelEvent = async (
             unreadCount: sql`${messageThreads.unreadCount} + 1`,
             updatedAt: now,
           }).where(eq(messageThreads.id, resolvedThread.id));
+          await cancelPendingAutomatedMessagesForThread({
+            workspaceId: connection.workspaceId,
+            threadId: resolvedThread.id,
+            reason: "客户已回复，自动取消剩余跟进。",
+          });
+          await applyInboundIntentAutomation({
+            workspaceId: connection.workspaceId,
+            threadId: resolvedThread.id,
+            customerId: resolvedThread.customerId,
+            fromAddress: input.sender,
+            subject: input.subject ?? resolvedThread.subject,
+            body: input.body ?? "",
+            receivedAt: input.occurredAt,
+          });
+          void persistReplySuggestion({ workspaceId: connection.workspaceId, threadId: resolvedThread.id }).catch(() => undefined);
           await db.update(channelWebhookEvents).set({
             processingStatus: "processed",
             processingError: null,
@@ -475,6 +494,33 @@ export const processChannelEvent = async (
         customerId: thread.customerId,
         reason: stopReason,
       });
+  }
+  if (["inbound_reply", "unsubscribed", "bounced", "complained"].includes(input.type)) {
+    const reason = input.type === "inbound_reply"
+      ? "客户已回复，自动取消剩余跟进。"
+      : input.type === "unsubscribed"
+        ? "客户已退订，自动取消剩余跟进。"
+        : input.type === "bounced"
+          ? "地址退信，自动取消剩余跟进。"
+          : "客户投诉，自动取消剩余跟进。";
+    await cancelPendingAutomatedMessagesForThread({ workspaceId: connection.workspaceId, threadId: thread.id, reason });
+  }
+  if (input.type === "inbound_reply") {
+    await applyInboundIntentAutomation({
+      workspaceId: connection.workspaceId,
+      threadId: thread.id,
+      customerId: thread.customerId,
+      fromAddress: input.sender ?? "",
+      subject: input.subject ?? thread.subject,
+      body: input.body ?? "",
+      receivedAt: input.occurredAt,
+    });
+    void persistReplySuggestion({ workspaceId: connection.workspaceId, threadId: thread.id }).catch(() => undefined);
+  }
+  if (["bounced", "complained", "unsubscribed"].includes(input.type)) {
+    if (thread.customerId) await recordOutcome({ workspaceId: connection.workspaceId, customerId: thread.customerId, threadId: thread.id,
+      outcome: input.type === 'bounced' ? 'bounced' : input.type === 'unsubscribed' ? 'unsubscribed' : 'disqualified', reasonCode: input.type, note: input.reason ?? '', source: 'channel_event', occurredAt: input.occurredAt })
+    await enforceAutomationCircuitBreaker(connection.workspaceId);
   }
   return {
     duplicate: false,

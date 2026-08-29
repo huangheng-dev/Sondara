@@ -25,6 +25,7 @@ export type CustomerRecord = {
   scoreOverrideReason?: string | null
   scoreOverrideByName?: string | null
   scoreOverrideAt?: number | null
+  updatedAt: number
 }
 
 export type DealRecord = {

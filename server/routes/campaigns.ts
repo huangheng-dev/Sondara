@@ -15,6 +15,7 @@ import {
   inboxContacts,
   messageEntries,
   messageThreads,
+  outboundChannelConnections,
   tasks,
   users,
 } from "../db/schema.js";
@@ -583,6 +584,32 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       .send(await serializeCampaign((await requireCampaign(request.auth.workspaceId, id))!));
   });
 
+  app.get("/:id/steps/:stepId/readiness", async (request, reply) => {
+    const { id, stepId } = request.params as { id: string; stepId: string };
+    const campaign = await requireCampaign(request.auth.workspaceId, id);
+    if (!campaign) return reply.code(404).send({ error: "NOT_FOUND", message: "营销活动不存在。" });
+    const step = await db.$first(db.select().from(campaignSteps).where(and(eq(campaignSteps.id, stepId), eq(campaignSteps.campaignId, id), eq(campaignSteps.workspaceId, request.auth.workspaceId))));
+    if (!step) return reply.code(404).send({ error: "STEP_NOT_FOUND", message: "活动步骤不存在。" });
+    const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
+    const audience = await db.select().from(campaignAudienceMembers).where(and(eq(campaignAudienceMembers.campaignId, id), eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId), inArray(campaignAudienceMembers.status, ["pending", "sent"])));
+    const asset = step.contentAssetId ? await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, step.contentAssetId), eq(contentAssets.workspaceId, request.auth.workspaceId)))) : null;
+    const reachable = (await Promise.all(audience.map(async member => {
+      if (!member.customerId) return false;
+      return Boolean(await db.$first(db.select({ id: inboxContacts.id }).from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, member.customerId), emailChannel ? sql`${inboxContacts.email} IS NOT NULL` : sql`1 = 1`))));
+    }))).filter(Boolean).length;
+    const smtpReady = !emailChannel || Boolean(await db.$first(db.select({ id: outboundChannelConnections.id }).from(outboundChannelConnections).where(and(eq(outboundChannelConnections.workspaceId, request.auth.workspaceId), eq(outboundChannelConnections.provider, 'smtp'), eq(outboundChannelConnections.enabled, true), eq(outboundChannelConnections.status, 'available')))));
+    const executable = ["draft", "scheduled"].includes(step.status);
+    const checks = [
+      { key: 'step', label: '步骤状态', status: executable ? 'pass' : 'block', detail: executable ? '可以进入执行流程' : '该步骤已执行、运行或取消' },
+      { key: 'audience', label: '目标受众', status: audience.length ? 'pass' : 'block', detail: audience.length ? `${audience.length} 位客户在当前名单中` : '尚未添加目标客户' },
+      { key: 'contacts', label: emailChannel ? '可发送邮箱' : '可执行客户', status: reachable ? (reachable === audience.length ? 'pass' : 'warning') : 'block', detail: `${reachable}/${audience.length} 位客户具备当前渠道所需联系方式` },
+      { key: 'content', label: '触达内容', status: !emailChannel || Boolean(asset?.body.trim()) ? 'pass' : 'block', detail: !emailChannel ? '该渠道将创建人工触达任务' : asset?.body.trim() ? `已关联：${asset.title}` : '尚未关联可发送内容' },
+      { key: 'sender', label: '发送服务', status: smtpReady ? 'pass' : 'block', detail: smtpReady ? (emailChannel ? 'SMTP 已配置并通过测试' : '当前渠道无需 SMTP') : '请先配置并测试可用的 SMTP 服务' },
+      { key: 'schedule', label: '执行时间', status: 'pass', detail: step.scheduledAt ? new Date(step.scheduledAt).toLocaleString('zh-CN', { timeZone: campaign.timezone }) : '确认后立即执行' },
+    ] as const;
+    return { campaignId: id, stepId, channel: step.channel, audienceCount: audience.length, reachableCount: reachable, canExecute: checks.every(check => check.status !== 'block'), checks };
+  });
+
   app.post("/:id/steps/:stepId/execute", async (request, reply) => {
     const { id, stepId } = request.params as { id: string; stepId: string };
     const parsed = z
@@ -643,6 +670,15 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
       }
     }
     const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
+    if (emailChannel) {
+      const smtpReady = await db.$first(db.select({ id: outboundChannelConnections.id }).from(outboundChannelConnections).where(and(
+        eq(outboundChannelConnections.workspaceId, request.auth.workspaceId),
+        eq(outboundChannelConnections.provider, 'smtp'),
+        eq(outboundChannelConnections.enabled, true),
+        eq(outboundChannelConnections.status, 'available'),
+      )));
+      if (!smtpReady) return reply.code(409).send({ error: "SMTP_REQUIRED", message: "请先配置并测试可用的 SMTP 服务，再执行邮件触达。" });
+    }
     if (!emailChannel) {
       const audience = (await db.select().from(campaignAudienceMembers).where(and(
               eq(campaignAudienceMembers.campaignId, id),

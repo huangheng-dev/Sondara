@@ -8,9 +8,10 @@ import { pickProvided } from '../lib/input.js'
 import { requireAuth } from '../plugins/auth.js'
 import { stopCampaignAudienceForCustomer } from '../campaigns/audience-lifecycle.js'
 import { booleanQuerySchema } from '../contracts/query.js'
+import { createNotification, recordOutcome } from '../automation/closed-loop.js'
 
-const dealStages = ['线索确认', '需求确认', '方案评估', '商务谈判', '赢单'] as const
-const probabilityByStage: Record<(typeof dealStages)[number], number> = { 线索确认: 20, 需求确认: 40, 方案评估: 60, 商务谈判: 80, 赢单: 100 }
+const dealStages = ['线索确认', '需求确认', '方案评估', '商务谈判', '赢单', '输单'] as const
+const probabilityByStage: Record<(typeof dealStages)[number], number> = { 线索确认: 20, 需求确认: 40, 方案评估: 60, 商务谈判: 80, 赢单: 100, 输单: 0 }
 const dealInput = z.object({
   customerId: z.string().trim().min(1).nullable().optional(),
   company: z.string().trim().min(1).max(160),
@@ -23,6 +24,7 @@ const dealInput = z.object({
   expectedCloseAt: z.number().int().nullable().optional(),
   risk: z.string().trim().max(240).default('等待首次复核'),
   source: z.string().trim().max(120).default('商机跟进'),
+  outcomeReason: z.string().trim().max(240).nullable().optional(),
 })
 const dealPatch = dealInput.partial()
 const listQuery = z.object({
@@ -62,6 +64,7 @@ export const dealRoutes: FastifyPluginAsync = async app => {
     const parsed = dealInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
     const input = parsed.data
+    if (input.stage === '输单' && !input.outcomeReason?.trim()) return reply.code(400).send({ error: 'OUTCOME_REASON_REQUIRED', message: '创建输单记录时必须填写原因。' })
     const duplicate = (await db.$first(db.select({ id: deals.id }).from(deals).where(and(eq(deals.workspaceId, request.auth.workspaceId), eq(deals.company, input.company)))))
     if (duplicate) return reply.code(409).send({ error: 'DEAL_EXISTS', message: '该企业已经存在商机。' })
     const now = Date.now()
@@ -78,17 +81,18 @@ export const dealRoutes: FastifyPluginAsync = async app => {
                           id: customerId, workspaceId: request.auth.workspaceId, ownerUserId: request.auth.userId,
                           company: input.company, region: '待补全', industry: '待补全', score: 75, confidence: 70,
                           signal: '客户回复转商机', source: input.source, estimatedValue: input.valueAmount, size: '待补全',
-                          stage: '有商机', contacts: 1, validContacts: 1, interaction: '刚刚 · 已创建商机', nextAction: input.nextAction,
+                          stage: input.stage === '赢单' ? '已成交' : input.stage === '输单' ? '已流失' : '有商机', contacts: 1, validContacts: 1, interaction: '刚刚 · 已创建商机', nextAction: input.nextAction,
                           dueAt: null, createdAt: now, updatedAt: now,
                         })
             } else {
-              await tx.update(customers).set({ stage: '有商机', estimatedValue: input.valueAmount, interaction: '刚刚 · 已创建商机', nextAction: input.nextAction, updatedAt: now }).where(eq(customers.id, customerId))
+              await tx.update(customers).set({ stage: input.stage === '赢单' ? '已成交' : input.stage === '输单' ? '已流失' : '有商机', estimatedValue: input.valueAmount, interaction: '刚刚 · 已创建商机', nextAction: input.nextAction, updatedAt: now }).where(eq(customers.id, customerId))
             }
             await tx.insert(deals).values({
                       id: dealId, workspaceId: request.auth.workspaceId, customerId, ownerUserId: request.auth.userId,
                       company: input.company, stage: input.stage, probability, valueAmount: input.valueAmount, currency: input.currency,
                       ownerLabel: input.ownerLabel, nextAction: input.nextAction, expectedCloseAt: input.expectedCloseAt ?? null,
-                      risk: input.risk, source: input.source, stageEnteredAt: now, createdAt: now, updatedAt: now,
+                      risk: input.risk, source: input.source, outcomeReason: input.outcomeReason ?? null,
+                      closedAt: ['赢单', '输单'].includes(input.stage) ? now : null, stageEnteredAt: now, createdAt: now, updatedAt: now,
                     })
           })
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'deal.created', dealId, { company: input.company, customerId })
@@ -106,18 +110,27 @@ export const dealRoutes: FastifyPluginAsync = async app => {
     const changes = pickProvided(request.body, parsed.data)
     if (!Object.keys(changes).length) return reply.code(400).send({ error: 'INVALID_INPUT', message: '没有可更新的字段。' })
     const stageChanged = changes.stage !== undefined && changes.stage !== existing.stage
+    if (changes.stage === '输单' && !(changes.outcomeReason ?? existing.outcomeReason)?.trim()) return reply.code(400).send({ error: 'OUTCOME_REASON_REQUIRED', message: '关闭为输单时必须记录原因。' })
     const probability = changes.probability ?? (changes.stage ? probabilityByStage[changes.stage] : undefined)
+    const closedAt = changes.stage && ['赢单', '输单'].includes(changes.stage) ? now : changes.stage ? null : undefined
     await db.transaction(async tx => {
-            await tx.update(deals).set({ ...changes, ...(probability !== undefined ? { probability } : {}), ...(stageChanged ? { stageEnteredAt: now } : {}), updatedAt: now }).where(and(eq(deals.id, id), eq(deals.workspaceId, request.auth.workspaceId)))
+            await tx.update(deals).set({ ...changes, ...(probability !== undefined ? { probability } : {}), ...(closedAt !== undefined ? { closedAt } : {}), ...(stageChanged ? { stageEnteredAt: now } : {}), updatedAt: now }).where(and(eq(deals.id, id), eq(deals.workspaceId, request.auth.workspaceId)))
             if (existing.customerId) {
               await tx.update(customers).set({
                           ...(changes.nextAction !== undefined ? { nextAction: changes.nextAction } : {}),
                           ...(changes.valueAmount !== undefined ? { estimatedValue: changes.valueAmount } : {}),
-                          ...(changes.stage !== undefined ? { stage: '有商机' } : {}),
-                          interaction: '刚刚 · 商机已更新', updatedAt: now,
+                          ...(changes.stage !== undefined ? { stage: changes.stage === '赢单' ? '已成交' : changes.stage === '输单' ? '已流失' : '有商机' } : {}),
+                          interaction: changes.stage === '赢单' ? '刚刚 · 商机赢单' : changes.stage === '输单' ? '刚刚 · 商机输单' : '刚刚 · 商机已更新', updatedAt: now,
                         }).where(and(eq(customers.id, existing.customerId), eq(customers.workspaceId, request.auth.workspaceId)))
             }
           })
+    if (stageChanged && changes.stage && ['赢单', '输单'].includes(changes.stage)) {
+      await recordOutcome({ workspaceId: request.auth.workspaceId, actorUserId: request.auth.userId, customerId: existing.customerId, dealId: existing.id,
+        outcome: changes.stage === '赢单' ? 'won' : 'lost', reasonCode: changes.outcomeReason ?? null, note: changes.outcomeReason ?? '', source: 'deal_stage', occurredAt: now })
+      await createNotification({ workspaceId: request.auth.workspaceId, userId: existing.ownerUserId, notificationType: 'deal_closed', tone: changes.stage === '赢单' ? 'success' : 'info',
+        title: `${existing.company} · ${changes.stage}`, description: changes.outcomeReason ?? (changes.stage === '赢单' ? '商机已完成成交闭环。' : '商机已关闭并记录原因。'),
+        entityType: 'deal', entityId: existing.id, actionPath: `/pipeline?open=${encodeURIComponent(existing.id)}`, dedupeKey: `deal-closed:${existing.id}:${changes.stage}:${now}` })
+    }
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'deal.updated', id, { fields: Object.keys(changes) })
     return (await db.$first(db.select().from(deals).where(eq(deals.id, id))))
   })

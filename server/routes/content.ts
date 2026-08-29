@@ -286,6 +286,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
       try {
         const result = await completeWithAi({
           workspaceId: request.auth.workspaceId,
+          timeoutMs: 30_000,
           messages: [
             { role: 'system', content: '你是 B2B 外贸客户增长内容编辑。只输出可直接发送的正文，不要标题、解释、Markdown 代码块、占位符或未经证实的数据。内容需具体、克制、专业，并包含一个低压力下一步。' },
             { role: 'user', content: input.existingBody?.trim()

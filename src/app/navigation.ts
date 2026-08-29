@@ -15,8 +15,7 @@ export const navigation: NavItem[] = [
 
 export const settingsNavigation: NavItem[] = [
   { label: 'AI 模型配置', path: '/settings/ai', icon: Bot },
-  { label: '数据源集成', path: '/settings/integrations', icon: KeyRound },
-  { label: '官方线索渠道', path: '/settings/lead-sources', icon: Target },
+  { label: '集成与连接', path: '/settings/integrations', icon: KeyRound },
   { label: '数据与备份', path: '/settings/data', icon: Database },
 ]
 

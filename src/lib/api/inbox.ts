@@ -1,5 +1,5 @@
 import { request } from "./core";
-import type { OutboxJobApiRecord, InboxThreadApiRecord, InboxMessageApiRecord } from "./types";
+import type { OutboxJobApiRecord, InboxReplySuggestionApiRecord, InboxThreadApiRecord, InboxMessageApiRecord } from "./types";
 
 export const inboxApi = {
   listThreads: (
@@ -70,6 +70,11 @@ export const inboxApi = {
   markAllRead: () =>
     request<{ updated: number; unreadTotal: number }>(
       "/inbox/threads/read-all",
+      { method: "POST" },
+    ),
+  replySuggestion: (threadId: string) =>
+    request<InboxReplySuggestionApiRecord>(
+      `/inbox/threads/${encodeURIComponent(threadId)}/reply-suggestion`,
       { method: "POST" },
     ),
   confirmReply: (threadId: string, body: string) =>

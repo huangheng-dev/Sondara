@@ -1,6 +1,6 @@
 import { hasSearchConfiguration, searchWorkspace, type SearchResult } from '../../integrations/search-client.js'
 import { WebsiteSeedConnector } from './website-seed.js'
-import { ConnectorError, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
 import { isExcludedHost } from './host-blocklist.js'
 import { isLikelyOverseasProspect } from './prospect-quality.js'
 
@@ -8,14 +8,19 @@ const NON_COMPANY_TITLE = /^(?:首页|主页|登录|注册|搜索结果|新闻|�
 
 const NON_COMPANY_HOST = /(?:linkedin\.com|facebook\.com|x\.com|twitter\.com|youtube\.com|youtu\.be|instagram\.com|wikipedia\.org|wikidata\.org|gov|reddit\.com)$/i
 
-const resultScore = (item: { title: string; url: string; description: string }) => {
+const targetTerms = (task: Pick<RadarTaskContext, 'icp' | 'targetRegion'>) =>
+  `${task.icp} ${task.targetRegion}`
+    .toLowerCase()
+    .match(/[a-z0-9][a-z0-9+-]{2,}|[\u4e00-\u9fff]{2,6}/g)
+    ?.filter(term => !/^(?:company|companies|business|customer|customers|target|market|global|official|website|全球|公司|企业|客户|市场|目标|项目)$/.test(term))
+    .slice(0, 12) ?? []
+
+const resultScore = (item: { title: string; url: string; description: string }, task: Pick<RadarTaskContext, 'icp' | 'targetRegion'>) => {
   const text = [item.title, item.description, item.url].join(' ').toLowerCase()
   let score = 0
-  if (/pharma|biotech|bioengineering|bioprocess|sterile|aseptic|hygienic|sanitary|high[- ]?purity|cip\b|\bsip\b|pure steam|clean steam|process plant|process equipment|process system|process solution|process automation|pharmaanlagenbau|prozessanlage|skidbau|reinstdampf|biotechnik|lebensmittel|dairy|brewery|beverage|semiconductor|wet[- ]?process/.test(text)) score += 12
-  if (/system integrator|integrator|distributor|representative|reseller|sales partner|channel partner|engineering|contractor|turnkey|skid|automation|solution/.test(text)) score += 7
-  if (/\.de\b|german|germany|deutschland|europe|european/.test(text)) score += 3
-  if (/association|federation|chamber|verband|verein|mitglied|membership|directory|news|magazine|exhibition|university|institute|marketplace|made in china|china manufacturer|site:\.cn/.test(text)) score -= 20
-  if (/valve|pump|fitting|tubing/.test(text) && /manufacturer|supplier|factory/.test(text) && !/(distributor|representative|system|solution|engineering|process|pharma|biotech|hygienic)/.test(text)) score -= 10
+  score += Math.min(16, targetTerms(task).filter(term => text.includes(term)).length * 4)
+  if (/manufacturer|supplier|provider|vendor|distributor|representative|reseller|partner|integrator|contractor|operator|owner|procurement|consulting|software|platform|制造|供应|服务商|经销|代理|合作伙伴|集成|承包|业主|采购|咨询|软件/.test(text)) score += 10
+  if (/association|federation|chamber|verband|verein|membership|directory|news|magazine|exhibition|marketplace|job board/.test(text)) score -= 20
   return score
 }
 
@@ -24,7 +29,6 @@ const looksLikeCompanySite = (item: { title: string; url: string; description: s
     const url = new URL(item.url)
     if (isExcludedHost(url.hostname)) return false
     if (NON_COMPANY_HOST.test(url.hostname)) return false
-    if (/(?:^|\.)cn$/i.test(url.hostname)) return false
     if (/\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|tar|gz)$/i.test(url.pathname)) return false
     if (/\/(?:login|signup|register|cart|search|tag|category|blog\/tag)\/?$/i.test(url.pathname)) return false
     const title = item.title.trim()
@@ -56,34 +60,41 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
   label = '搜索发现'
 
   async supports(task: RadarTaskContext) {
-    return /智能多渠道|搜索引擎|招聘扩产|新闻融资|贸易海关|社交网络/.test(task.mode) && (await hasSearchConfiguration(task.workspaceId))
+    return effectiveRadarDataSources(task).includes('search') && (await hasSearchConfiguration(task.workspaceId))
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
     onProgress('正在搜索目标企业官网', 8)
-    const exclusions = '-site:.cn -中国 -有限公司 -"made in China" -"China manufacturer" -verband -association -federation -membership -mitglieder -members -directory -magazine -exhibition -university -institute -market-access -consulting -clinical -regulatory -wholesaler -accelerator'
-    const signalSearch = task.mode === '招聘扩产'
+    const exclusions = '-directory -magazine -marketplace -jobs -recruitment'
+    const keywordExpression = targetTerms(task).slice(0, 8).map(term => `"${term}"`).join(' OR ')
+    const selectedSignals = (task.intentSignals ?? []).join(' ')
+    const signalSearch = /招聘|扩张|新建|产能/.test(selectedSignals)
       ? '(hiring OR careers OR recruitment OR "new production line" OR expansion OR "new facility")'
-      : task.mode === '新闻融资'
+      : /新闻|融资|并购|经营动态/.test(selectedSignals)
         ? '(funding OR investment OR acquisition OR expansion OR "new facility" OR partnership)'
-        : task.mode === '贸易海关'
+        : /贸易|供应链|采购关系/.test(selectedSignals)
           ? '(importer OR exporter OR import OR export OR procurement OR "supply chain" OR distributor)'
-          : task.mode === '社交网络'
+          : /关键岗位|社交|管理层/.test(selectedSignals)
             ? '(LinkedIn OR "company profile" OR "sales director" OR "business development")'
             : ''
     const signalQueries = signalSearch ? [[task.icp, task.targetRegion, signalSearch, 'official website', exclusions].filter(Boolean).join(' ')] : []
+    const strategyExpression = /经销|代理|合作伙伴|渠道/.test(task.strategy ?? '')
+      ? '(distributor OR reseller OR representative OR "channel partner" OR integrator)'
+      : /采购|招标|项目/.test(task.strategy ?? '')
+        ? '(procurement OR purchasing OR tender OR buyer OR project)'
+        : '(company OR manufacturer OR supplier OR provider OR operator)'
     const queries = [...signalQueries,
       [
         task.icp,
         task.targetRegion,
-        '("process plant" OR "process systems" OR "process automation" OR "system integrator" OR "hygienic process" OR "CIP SIP" OR "pure steam" OR aseptic OR skid)',
-        '(engineering OR systems OR solutions OR distributor OR representative OR partner OR integrator OR contractor)',
+        keywordExpression ? `(${keywordExpression})` : '',
+        strategyExpression,
         'official website', exclusions,
       ].filter(Boolean).join(' '),
       [
+        task.icp,
         task.targetRegion,
-        '("Pharmaanlagenbau" OR "Prozessanlage" OR "Anlagentechnik" OR "Skidbau" OR "Reinstdampf" OR "Biotechnik" OR "Prozesstechnik")',
-        '(CIP OR SIP OR Pharma OR Biotech OR sterile OR hygienic OR aseptic)',
+        '(supplier OR vendor OR provider OR buyer OR procurement OR partner)',
         'official website', exclusions,
       ].filter(Boolean).join(' '),
       [
@@ -108,7 +119,7 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
     const search: { items: SearchResult[] } = { items: [...itemMap.values()] }
     const companyItems = search.items
       .filter(item => looksLikeCompanySite(item, task.icp))
-      .sort((a, b) => resultScore(b) - resultScore(a))
+      .sort((a, b) => resultScore(b, task) - resultScore(a, task))
     onProgress(`搜索到 ${search.items.length} 条结果，筛选出 ${companyItems.length} 个相关企业官网`, 24)
     const urls = officialRoots(companyItems).slice(0, Math.min(20, Math.max(task.candidateLimit * 3, 12)))
     if (!urls.length) return []

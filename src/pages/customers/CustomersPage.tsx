@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowDown,
   ArrowUp,
@@ -29,15 +30,15 @@ import {
   Star,
   Pencil,
   ShieldAlert,
+  Trash2,
   TrendingUp,
-  UserCheck,
   UsersRound,
   X,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { DataTable } from '@/components/ui/DataTable'
-import { DetailDrawer } from '@/components/ui/DetailDrawer'
+import { DetailDrawer, DetailSection } from '@/components/ui/DetailDrawer'
 import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Panel } from '@/components/ui/Panel'
@@ -50,16 +51,20 @@ import { csvRowsToCustomers, parseLeadFile, type LeadColumnMapping } from '@/uti
 import { useBusinessStore, type CustomerRecord } from '@/stores/business-store'
 import { Pagination } from '@/components/ui/Pagination'
 import { SearchInput } from '@/components/ui/SearchInput'
+import { List } from '@/components/ui/List'
 import { usePagination } from '@/hooks/usePagination'
-import { authApi, customerApi, inboxApi, taskApi, type CustomerApiInput, type CustomerApiRecord } from '@/lib/api'
+import { authApi, customerApi, inboxApi, taskApi, type CustomerApiInput, type CustomerApiRecord, type InboxContactApiRecord } from '@/lib/api'
 import { CUSTOMER_STAGES, getStageTone, type CustomerStage } from '@/lib/customer-stages'
-import { Alert, Avatar, Card, Checkbox, Col, Descriptions, Divider, Flex, Form, Input, InputNumber, List, Progress, Row, Space, Statistic, Typography } from 'antd'
+import { Avatar, Checkbox, Col, Descriptions, Flex, Form, Input, InputNumber, Popconfirm, Progress, Row, Segmented, Space, Statistic, Typography } from 'antd'
 import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
+import { StatusNotice } from '@/components/ui/StatusNotice'
+import { formatCompactTime } from '@/components/ui/TableCells'
 
 type CustomerView = '全部客户' | CustomerStage | '已归档'
 type CustomerSort = '最近更新' | '最早更新' | '企业名称 A–Z' | '企业名称 Z–A' | '匹配分最高' | '匹配分最低' | '预计价值最高' | '预计价值最低' | '联系人最多' | '联系人最少' | '截止时间最近' | '截止时间最远'
 const moneyValue=(value:string)=>Number(value.replace(/[^\d.]/g,''))
 const dueValue=(value:string)=>value==='今天'?0:value==='明天'?1:/48 小时/.test(value)?2:/2 个工作日/.test(value)?3:value==='本周'?7:(Number(value.match(/(\d+)月(\d+)日/)?.[2])||20)
+const userFacingNextAction=(value:string)=>['交易','跟进','联系'].includes(value.trim())?'确认客户需求并安排下一步':value
 const apiCustomerToRecord=(customer:CustomerApiRecord):CustomerRecord=>({
   id:customer.id,
   company:customer.company,
@@ -75,7 +80,7 @@ const apiCustomerToRecord=(customer:CustomerApiRecord):CustomerRecord=>({
   contacts:customer.contacts,
   valid:customer.validContacts,
   interaction:customer.interaction,
-  next:customer.nextAction,
+  next:userFacingNextAction(customer.nextAction),
   due:customer.dueAt?new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric'}).format(customer.dueAt):'本周',
   owner:customer.ownerName??'未分配',
   ownerUserId:customer.ownerUserId,
@@ -84,6 +89,7 @@ const apiCustomerToRecord=(customer:CustomerApiRecord):CustomerRecord=>({
   scoreOverrideReason:customer.scoreOverrideReason ?? null,
   scoreOverrideByName:customer.scoreOverrideByName ?? null,
   scoreOverrideAt:customer.scoreOverrideAt ?? null,
+  updatedAt:customer.updatedAt,
 })
 const customerChangesToApi=(changes:Partial<CustomerRecord>):Partial<CustomerApiInput>=>{
   const input:Partial<CustomerApiInput>={}
@@ -106,6 +112,8 @@ const customerChangesToApi=(changes:Partial<CustomerRecord>):Partial<CustomerApi
   return input
 }
 export function CustomersPage() {
+  const navigate=useNavigate()
+  const [searchParams,setSearchParams]=useSearchParams()
   const [query,setQuery]=useState('')
   const [region,setRegion]=useState('全部市场')
   const [score,setScore]=useState('全部匹配分')
@@ -115,8 +123,9 @@ export function CustomersPage() {
   const [selected,setSelected]=useState<Set<string>>(new Set())
   const [detail,setDetail]=useState<CustomerRecord|null>(null)
   const [dialog,setDialog]=useState<'customer'|'import'|null>(null)
-  const [action,setAction]=useState<'task'|'tag'|'bulk'|'next'|'more'|'contact'|'add-contact'|'edit'|null>(null)
+  const [action,setAction]=useState<'task'|'tag'|'bulk'|'next'|'more'|'contact'|'add-contact'|'edit-contact'|'edit'|null>(null)
   const [actionCustomer,setActionCustomer]=useState<CustomerRecord|null>(null)
+  const [editingContact,setEditingContact]=useState<InboxContactApiRecord|null>(null)
   const [importPreview,setImportPreview]=useState<{fileName:string;sourceName:string;sourceType:'行业目录'|'展会名单'|'历史客户'|'其他';sourceUrl?:string;rows:CustomerApiInput[];skipped:number}|null>(null)
   const [importing,setImporting]=useState(false)
   const [importHistoryOpen,setImportHistoryOpen]=useState(false)
@@ -127,6 +136,8 @@ export function CustomersPage() {
   const queryClient=useQueryClient()
   const replaceCustomers=useBusinessStore(s=>s.replaceCustomers)
   const authSession=useQuery({queryKey:['auth-session'],queryFn:authApi.session,retry:false})
+  const canWrite=Boolean(authSession.data?.workspace.role&&authSession.data.workspace.role!=='viewer')
+  const canDelete=authSession.data?.workspace.role==='owner'||authSession.data?.workspace.role==='admin'
   const customerQuery=useQuery({
     queryKey:['customers',authSession.data?.workspace.id,view],
     queryFn:()=>customerApi.list({pageSize:100,sort:'updated_desc',archivedOnly:view==='已归档'}),
@@ -139,13 +150,14 @@ export function CustomersPage() {
   const membersQuery=useQuery({queryKey:['workspace-members'],queryFn:authApi.listWorkspaceMembers,retry:1})
   const contactsQuery=useQuery({queryKey:['customer-contacts',actionCustomer?.id],queryFn:()=>customerApi.listContacts(actionCustomer!.id),enabled:Boolean(actionCustomer?.id&&(action==='contact'||action==='add-contact')),retry:1})
   useEffect(()=>{if(customerQuery.isSuccess)replaceCustomers(customerRows)},[customerQuery.isSuccess,customerRows,replaceCustomers])
+  useEffect(()=>{const customerId=searchParams.get('open');if(!customerId||!customerRows.length)return;const customer=customerRows.find(item=>item.id===customerId);if(customer)setDetail(customer);setSearchParams({}, {replace:true})},[customerRows,searchParams,setSearchParams])
   const persistCustomerChanges=async(ids:string[],changes:Partial<CustomerRecord>)=>{
     const input=customerChangesToApi(changes)
     if(Object.keys(input).length)await Promise.all(ids.map(customerId=>customerApi.update(customerId,input)))
     await customerQuery.refetch()
   }
   const rows=useMemo(()=>{const filtered=customerRows.filter(a=>(!query||`${a.company}${a.industry}${a.signal}${a.tags.join('')}`.toLowerCase().includes(query.toLowerCase()))&&(region==='全部市场'||a.region.includes(region))&&(score==='全部匹配分'||score==='90 分以上'&&a.score>=90||score==='85–89 分'&&a.score>=85&&a.score<90)&&(source==='全部来源'||a.source===source)&&(view==='全部客户'||view==='已归档'||a.stage===view));if(sort==='最早更新')return [...filtered].reverse();if(sort==='企业名称 A–Z')return [...filtered].sort((a,b)=>a.company.localeCompare(b.company,'zh-CN'));if(sort==='企业名称 Z–A')return [...filtered].sort((a,b)=>b.company.localeCompare(a.company,'zh-CN'));if(sort==='匹配分最高')return [...filtered].sort((a,b)=>b.score-a.score);if(sort==='匹配分最低')return [...filtered].sort((a,b)=>a.score-b.score);if(sort==='预计价值最高')return [...filtered].sort((a,b)=>moneyValue(b.value)-moneyValue(a.value));if(sort==='预计价值最低')return [...filtered].sort((a,b)=>moneyValue(a.value)-moneyValue(b.value));if(sort==='联系人最多')return [...filtered].sort((a,b)=>b.contacts-a.contacts);if(sort==='联系人最少')return [...filtered].sort((a,b)=>a.contacts-b.contacts);if(sort==='截止时间最近')return [...filtered].sort((a,b)=>dueValue(a.due)-dueValue(b.due));if(sort==='截止时间最远')return [...filtered].sort((a,b)=>dueValue(b.due)-dueValue(a.due));return filtered},[customerRows,query,region,score,source,view,sort])
-  const customerPaging=usePagination(rows,6,`${query}|${region}|${score}|${source}|${view}|${sort}`)
+  const customerPaging=usePagination(rows,10,`${query}|${region}|${score}|${source}|${view}|${sort}`)
   const pagedRows=customerPaging.pageItems
   const stageIcons: Record<string, ReactNode> = {
     '待补全': <FileQuestion size={14}/>,
@@ -178,54 +190,57 @@ export function CustomersPage() {
     {value:'截止时间最近',label:'截止时间最近',icon:<Clock3/>},{value:'截止时间最远',label:'截止时间最远',icon:<Clock3/>},
   ]
   const clear=()=>{setQuery('');setRegion('全部市场');setScore('全部匹配分');setSource('全部来源');setView('全部客户');setSort('最近更新')}
-  const sortIcon=(active:boolean,descending:boolean)=><span aria-hidden="true">{active?(descending?<ArrowDown/>:<ArrowUp/>):<ArrowUpDown/>}</span>
+  const sortIcon=(active:boolean,descending:boolean)=><span className="table-sort-indicator" data-sort-active={active} aria-hidden="true">{active?(descending?<ArrowDown/>:<ArrowUp/>):<ArrowUpDown/>}</span>
   const openMergePreview=async(primaryCustomerId?:string,duplicateCustomerId?:string)=>{const [primaryId,duplicateId]=primaryCustomerId&&duplicateCustomerId?[primaryCustomerId,duplicateCustomerId]:[...selected];if(!primaryId||!duplicateId)return;try{setMergeSuggestionsOpen(false);setMergePreview(await customerApi.mergePreview(primaryId,duplicateId))}catch(cause){showToast(cause instanceof Error?cause.message:'无法读取合并预览')}}
   const archiveCustomers=async(ids:string[], archived:boolean)=>{try{await Promise.all(ids.map(id=>customerApi.archive(id,archived)));await customerQuery.refetch();setSelected(new Set());showToast(archived?`已归档 ${ids.length} 家客户`:`已恢复 ${ids.length} 家客户`)}catch(cause){showToast(cause instanceof Error?cause.message:'归档操作失败')}}
 
   return <PageContainer>
     <PageHeader title="客户库" description="管理已确认的客户资产、联系人关系、互动记录和下一步跟进。" actions={<>
       <Button onClick={()=>setImportHistoryOpen(true)}><Clock3 size={16}/>导入记录</Button>
-      <Button onClick={()=>setMergeSuggestionsOpen(true)}><GitMerge size={16}/>合并建议</Button>
-      <Button onClick={()=>setDialog('import')}><Import size={16}/>导入</Button>
+      <Button disabled={!canWrite} onClick={()=>setMergeSuggestionsOpen(true)}><GitMerge size={16}/>合并建议</Button>
+      <Button disabled={!canWrite} onClick={()=>setDialog('import')}><Import size={16}/>导入</Button>
       <Button onClick={()=>{downloadCsv('sondara-customers.csv',[['企业','地区','行业','客户匹配分','阶段','预计价值'],...rows.map(r=>[r.company,r.region,r.industry,r.score,r.stage,r.value])]);showToast(`已导出 ${rows.length} 家客户`)}}><Download size={16}/>导出</Button>
-      <Button variant="primary" onClick={()=>setDialog('customer')}><Plus size={16}/>新建客户</Button>
+      <Button variant="primary" disabled={!canWrite} onClick={()=>setDialog('customer')}><Plus size={16}/>新建客户</Button>
     </>}/>
 
     <Panel>
       <TableToolbar filters={<>
           <SearchInput ariaLabel="搜索客户" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索企业、行业或信号"/>
-          <CustomSelect ariaLabel="筛选客户分类" value={view} onChange={value=>setView(value as CustomerView)} options={customerViewOptions}/>
+          {customerRows.length>4&&<><CustomSelect ariaLabel="筛选客户分类" value={view} onChange={value=>setView(value as CustomerView)} options={customerViewOptions}/>
           <CustomSelect ariaLabel="筛选市场" value={region} onChange={setRegion} options={['全部市场','华东','德国','北美'].map(label=>({value:label,label,icon:<MapPin/>}))}/>
           <CustomSelect ariaLabel="筛选客户匹配分" value={score} onChange={setScore} options={['全部匹配分','90 分以上','85–89 分'].map(label=>({value:label,label,icon:<Gauge/>}))}/>
           <CustomSelect ariaLabel="筛选客户来源" value={source} onChange={setSource} options={customerSourceOptions}/>
-          <CustomSelect ariaLabel="客户排序" value={sort} onChange={value=>setSort(value as CustomerSort)} options={customerSortOptions}/>
-          <Button loading={customerQuery.isFetching} onClick={async()=>{await customerQuery.refetch();showToast('客户列表已刷新')}}>{!customerQuery.isFetching&&<RefreshCw size={14}/>}刷新</Button>
-          <Button onClick={clear} disabled={!query&&view==='全部客户'&&region==='全部市场'&&score==='全部匹配分'&&source==='全部来源'&&sort==='最近更新'}>清除筛选</Button>
-        </>} selection={selected.size>0?<SelectionBar summary={<Space><CheckCircle2/>已选择 {selected.size} 家客户</Space>} actions={<><Button onClick={()=>{setActionCustomer(null);setAction('task')}}>创建任务</Button><Button onClick={()=>setAction('tag')}>添加标签</Button><Button onClick={()=>{setActionCustomer(null);setAction('bulk')}}>批量更新</Button><Button disabled={selected.size!==2||view==='已归档'} onClick={()=>openMergePreview()}><GitMerge/>合并重复项</Button><Button onClick={()=>archiveCustomers([...selected],view!=='已归档')}>{view==='已归档'?'恢复所选':'归档所选'}</Button><Button onClick={()=>{const chosen=customerRows.filter(customer=>selected.has(customer.id));downloadCsv('sondara-selected-customers.csv',[['企业','地区','行业','客户匹配分','阶段','负责人','预计价值'],...chosen.map(customer=>[customer.company,customer.region,customer.industry,customer.score,customer.stage,customer.owner,customer.value])]);showToast(`已导出 ${chosen.length} 家所选客户`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></>}/>:undefined}/>
-      {customerQuery.isPending?<PageState status="loading" title="正在加载客户数据" description="正在从当前工作空间读取客户资产…"/>:customerQuery.isError?<PageState status="error" title="客户数据加载失败" description={customerQuery.error instanceof Error?customerQuery.error.message:'请确认 API 服务可用。'} onRetry={()=>customerQuery.refetch()}/>:rows.length?<><DataTable
-        minWidth={1020}
+          <CustomSelect ariaLabel="客户排序" value={sort} onChange={value=>setSort(value as CustomerSort)} options={customerSortOptions}/></>}
+          {(query||view!=='全部客户'||region!=='全部市场'||score!=='全部匹配分'||source!=='全部来源'||sort!=='最近更新')&&<Button onClick={clear}>清除筛选</Button>}
+        </>} selection={selected.size>0?<SelectionBar count={selected.size} unit="家客户" actions={<><Button onClick={()=>{setActionCustomer(null);setAction('task')}}>创建任务</Button><Button onClick={()=>setAction('tag')}>添加标签</Button><Button onClick={()=>{setActionCustomer(null);setAction('bulk')}}>批量更新</Button><Button disabled={selected.size!==2||view==='已归档'} onClick={()=>openMergePreview()}><GitMerge/>合并重复项</Button><Button onClick={()=>archiveCustomers([...selected],view!=='已归档')}>{view==='已归档'?'恢复所选':'归档所选'}</Button><Button onClick={()=>{const chosen=customerRows.filter(customer=>selected.has(customer.id));downloadCsv('sondara-selected-customers.csv',[['企业','地区','行业','客户匹配分','阶段','负责人','预计价值'],...chosen.map(customer=>[customer.company,customer.region,customer.industry,customer.score,customer.stage,customer.owner,customer.value])]);showToast(`已导出 ${chosen.length} 家所选客户`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></>}/>:undefined}/>
+      {customerQuery.isError?<PageState status="error" title="客户数据加载失败" description={customerQuery.error instanceof Error?customerQuery.error.message:'请确认 API 服务可用。'} onRetry={()=>customerQuery.refetch()}/>:<><DataTable
+        className="customer-table"
+        loading={customerQuery.isFetching}
+        minWidth={900}
         columns={[
-          {key:'select',title:<Checkbox aria-label="选择本页全部" checked={pagedRows.length>0&&pagedRows.every(row=>selected.has(row.id))} onChange={e=>setSelected(value=>{const next=new Set(value);pagedRows.forEach(row=>e.target.checked?next.add(row.id):next.delete(row.id));return next})}/>,width:52},
-          {key:'company',title:<Button onClick={()=>setSort(sort==='企业名称 A–Z'?'企业名称 Z–A':'企业名称 A–Z')}>企业档案{sortIcon(sort==='企业名称 A–Z'||sort==='企业名称 Z–A',sort==='企业名称 Z–A')}</Button>,width:230},
-          {key:'quality',title:<Button onClick={()=>setSort(sort==='匹配分最高'?'匹配分最低':'匹配分最高')}>匹配质量{sortIcon(sort==='匹配分最高'||sort==='匹配分最低',sort==='匹配分最高')}</Button>,width:120},
-          {key:'signal',title:<Button onClick={()=>setSort(sort==='最近更新'?'最早更新':'最近更新')}>购买信号{sortIcon(sort==='最近更新'||sort==='最早更新',sort==='最近更新')}</Button>,width:230},
-          {key:'value',title:<Button onClick={()=>setSort(sort==='预计价值最高'?'预计价值最低':'预计价值最高')}>关系与价值{sortIcon(sort==='预计价值最高'||sort==='预计价值最低',sort==='预计价值最高')}</Button>,width:170},
-          {key:'next',title:<Button onClick={()=>setSort(sort==='截止时间最近'?'截止时间最远':'截止时间最近')}>下一步动作{sortIcon(sort==='截止时间最近'||sort==='截止时间最远',sort==='截止时间最远')}</Button>,width:150},
-          {key:'actions',title:'操作',width:64},
+          {key:'select',title:<Checkbox disabled={!canWrite} aria-label="选择本页全部" checked={pagedRows.length>0&&pagedRows.every(row=>selected.has(row.id))} onChange={e=>setSelected(value=>{const next=new Set(value);pagedRows.forEach(row=>e.target.checked?next.add(row.id):next.delete(row.id));return next})}/>,width:52,fixed:'left'},
+          {key:'company',title:<Button onClick={()=>setSort(sort==='企业名称 A–Z'?'企业名称 Z–A':'企业名称 A–Z')}>企业档案{sortIcon(sort==='企业名称 A–Z'||sort==='企业名称 Z–A',sort==='企业名称 Z–A')}</Button>,width:300,fixed:'left'},
+          {key:'quality',title:<Button onClick={()=>setSort(sort==='匹配分最高'?'匹配分最低':'匹配分最高')}>匹配质量{sortIcon(sort==='匹配分最高'||sort==='匹配分最低',sort==='匹配分最高')}</Button>,width:160},
+          {key:'signal',title:<Button onClick={()=>setSort(sort==='最近更新'?'最早更新':'最近更新')}>购买信号{sortIcon(sort==='最近更新'||sort==='最早更新',sort==='最近更新')}</Button>,width:300,responsive:['xxl']},
+          {key:'stage',title:'关系阶段',width:160},
+          {key:'value',title:<Button onClick={()=>setSort(sort==='预计价值最高'?'预计价值最低':'预计价值最高')}>预计价值{sortIcon(sort==='预计价值最高'||sort==='预计价值最低',sort==='预计价值最高')}</Button>,width:140},
+          {key:'next',title:<Button onClick={()=>setSort(sort==='截止时间最近'?'截止时间最远':'截止时间最近')}>下一步动作{sortIcon(sort==='截止时间最近'||sort==='截止时间最远',sort==='截止时间最远')}</Button>,width:220,responsive:['lg']},
+          {key:'actions',title:'操作',width:104,fixed:'right'},
         ]}
         rows={pagedRows.map(account=>({key:account.id,className:selected.has(account.id)?'selected':'',cells:[
-          <Checkbox aria-label={`选择 ${account.company}`} checked={selected.has(account.id)} onChange={e=>setSelected(value=>{const next=new Set(value);e.target.checked?next.add(account.id):next.delete(account.id);return next})}/>,
-          <Button type="link" onClick={()=>setDetail(account)}><Avatar>{account.company.slice(0,1)}</Avatar><Space direction="vertical" size={0}><Typography.Text strong ellipsis title={account.company}>{account.company}</Typography.Text><Typography.Text type="secondary" ellipsis>{account.region.split(/[（(]/)[0]} · {account.industry}{account.tags.length?` · ${account.tags.join('、')}`:''}</Typography.Text><Typography.Text type="secondary"><UserCheck size={12}/> {account.valid}/{account.contacts} 位联系人有效</Typography.Text></Space></Button>,
-          <Space direction="vertical" size={2}><Flex justify="space-between" gap={4}><Typography.Text strong>{account.scoreOverride??account.score}</Typography.Text><Typography.Text>{(account.scoreOverride??account.score)>=90?'高度匹配':(account.scoreOverride??account.score)>=85?'值得跟进':'继续培育'}</Typography.Text>{account.scoreOverride!=null?<Badge tone="orange"><Pencil size={9}/>修正</Badge>:null}</Flex><Progress aria-label={`${account.company}匹配度`} percent={account.scoreOverride??account.score} showInfo={false}/><Typography.Text type="secondary">证据置信度 {account.confidence}%</Typography.Text></Space>,
-          <Space direction="vertical" size={2}><Badge tone={account.score>=90?'green':'blue'}>{account.signal}</Badge><Typography.Text strong>{account.source}</Typography.Text><Typography.Text type="secondary">最近互动 · {account.interaction}</Typography.Text></Space>,
-          <Flex justify="space-between" gap={8}><Space direction="vertical" size={2}><Badge tone={getStageTone(account.stage)}>{account.stage}</Badge><Typography.Text type="secondary">负责人：{account.owner}</Typography.Text></Space><Space direction="vertical" size={0}><Typography.Text type="secondary">预计价值</Typography.Text><Typography.Text strong>{account.value}</Typography.Text></Space></Flex>,
-          <Button type="link" aria-label={`安排下一步：${account.next}`} onClick={()=>{setActionCustomer(account);setAction('next')}}><CheckCircle2/><Space direction="vertical" size={0}><Typography.Text strong>{account.next}</Typography.Text><Typography.Text type="secondary"><Clock3 size={13}/> {account.due==='今天'?'今天截止':`截止 ${account.due}`}</Typography.Text></Space></Button>,
-          <Button aria-label={`更多操作：${account.company}`} onClick={()=>{setActionCustomer(account);setAction('more')}}><MoreHorizontal size={17}/></Button>,
+          <Checkbox disabled={!canWrite} aria-label={`选择 ${account.company}`} checked={selected.has(account.id)} onChange={e=>setSelected(value=>{const next=new Set(value);e.target.checked?next.add(account.id):next.delete(account.id);return next})}/>,
+          <Button className="company-profile-link" type="link" onClick={()=>setDetail(account)}><Avatar>{account.company.slice(0,1)}</Avatar><Space className="company-profile-copy" orientation="vertical" size={0}><Typography.Text strong ellipsis={{tooltip:account.company}}>{account.company}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:`${account.region.split(/[（(]/)[0]} · ${account.industry}${account.tags.length?` · ${account.tags.join('、')}`:''}`}}>{account.region.split(/[（(]/)[0]} · {account.industry}{account.tags.length?` · ${account.tags.join('、')}`:''}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:`${account.valid}/${account.contacts} 位联系人有效`}}>{account.valid}/{account.contacts} 位联系人有效</Typography.Text></Space></Button>,
+          <Space orientation="vertical" size={2}><Flex justify="space-between" gap={4}><Typography.Text strong>{account.scoreOverride??account.score}</Typography.Text><Typography.Text>{(account.scoreOverride??account.score)>=90?'高度匹配':(account.scoreOverride??account.score)>=85?'值得跟进':'继续培育'}</Typography.Text>{account.scoreOverride!=null?<Badge tone="orange"><Pencil size={9}/>修正</Badge>:null}</Flex><Progress aria-label={`${account.company}匹配度`} percent={account.scoreOverride??account.score} showInfo={false}/><Typography.Text type="secondary">证据置信度 {account.confidence}%</Typography.Text></Space>,
+          <Space orientation="vertical" size={2}><Badge tone={account.score>=90?'green':'blue'}>{account.signal}</Badge><Typography.Text strong>{account.source}</Typography.Text><Typography.Text type="secondary">最近互动 · {account.interaction}</Typography.Text></Space>,
+          <Space orientation="vertical" size={2}><Badge tone={getStageTone(account.stage)}>{account.stage}</Badge><Typography.Text type="secondary" ellipsis={{tooltip:`负责人：${account.owner}`}}>负责人：{account.owner}</Typography.Text></Space>,
+          <Typography.Text strong>{account.value}</Typography.Text>,
+          <Button type="link" aria-label={`安排下一步：${account.next}`} onClick={()=>{setActionCustomer(account);setAction('next')}}><CheckCircle2/><Space orientation="vertical" size={0}><Typography.Text strong>{account.next}</Typography.Text><Typography.Text type="secondary">{account.due==='今天'?'今天截止':`截止 ${account.due}`}</Typography.Text><Typography.Text type="secondary">更新 {formatCompactTime(account.updatedAt)}</Typography.Text></Space></Button>,
+          <Space><Button aria-label={`查看 ${account.company} 客户档案`} title="查看详情" onClick={()=>setDetail(account)}><ChevronRight size={16}/></Button><Button aria-label={`更多操作：${account.company}`} title="更多操作" onClick={()=>{setActionCustomer(account);setAction('more')}}><MoreHorizontal size={17}/></Button></Space>,
         ]}))}
-      /><Pagination page={customerPaging.page} pageSize={customerPaging.pageSize} total={rows.length} onPageChange={customerPaging.setPage} onPageSizeChange={customerPaging.setPageSize} itemName="家企业"/></>:<EmptyState title="暂无客户" icon={Building2}/>}
+      />{!customerQuery.isPending&&(rows.length?<Pagination page={customerPaging.page} pageSize={customerPaging.pageSize} total={rows.length} onPageChange={customerPaging.setPage} onPageSizeChange={customerPaging.setPageSize} itemName="家企业"/>:<EmptyState title="暂无客户" icon={Building2}/>)}</>}
     </Panel>
 
-    <CustomerDetail customer={currentDetail} onClose={()=>setDetail(null)} onTask={customer=>{setDetail(null);setActionCustomer(customer);setAction('next')}} onContact={customer=>{setDetail(null);setActionCustomer(customer);setAction('contact')}} onAddContact={customer=>{setDetail(null);setActionCustomer(customer);setAction('add-contact')}} onWhatsappOptIn={async contact=>{if(!currentDetail)return;try{await customerApi.setWhatsappOptIn(currentDetail.id,contact.id,!contact.whatsappOptedInAt);await queryClient.invalidateQueries({queryKey:['customer-contacts',currentDetail.id]});showToast(contact.whatsappOptedInAt?'已撤销 WhatsApp 授权记录':'已记录 WhatsApp 授权')}catch(cause){showToast(cause instanceof Error?cause.message:'更新授权记录失败')}}}/>
+    <CustomerDetail customer={currentDetail} onClose={()=>setDetail(null)} onTask={customer=>{setDetail(null);setActionCustomer(customer);setAction('next')}} onContact={customer=>{setDetail(null);setActionCustomer(customer);setAction('contact')}} onCreateContent={customer=>navigate(`/content?create=1&customer=${encodeURIComponent(customer.company)}&market=${encodeURIComponent(customer.region)}`)} onCreateDeal={customer=>navigate(`/pipeline?create=1&customer=${encodeURIComponent(customer.company)}`)} onAddContact={customer=>{setDetail(null);setActionCustomer(customer);setAction('add-contact')}} onEditContact={contact=>{setDetail(null);setActionCustomer(currentDetail);setEditingContact(contact);setAction('edit-contact')}} onWhatsappOptIn={async contact=>{if(!currentDetail)return;try{await customerApi.setWhatsappOptIn(currentDetail.id,contact.id,!contact.whatsappOptedInAt);await queryClient.invalidateQueries({queryKey:['customer-contacts',currentDetail.id]});showToast(contact.whatsappOptedInAt?'已撤销 WhatsApp 授权记录':'已记录 WhatsApp 授权')}catch(cause){showToast(cause instanceof Error?cause.message:'更新授权记录失败')}}}/>
     <CreateDialog open={dialog==='customer'} title="新建客户" description="先创建企业档案，联系人可稍后补全。" successMessage="客户已保存" onClose={()=>setDialog(null)} onSubmit={async values=>{await customerApi.create({company:values.company,region:values.region,industry:values.industry,score:70,confidence:70,signal:values.note||'手动创建',source:values.website?`手动录入 · ${values.website.slice(0,100)}`:'手动录入',size:'规模待补全',stage:'待补全',interaction:'刚刚',nextAction:'补全企业与联系人'});await customerQuery.refetch()}} fields={[{name:'company',label:'企业名称',required:true},{name:'website',label:'网站',placeholder:'https://example.com'},{name:'region',label:'地区',required:true},{name:'industry',label:'行业',required:true},{name:'note',label:'备注',type:'textarea'}]}/>
     <CreateDialog open={dialog==='import'} title="导入行业目录或展会名单" description="支持 CSV、XLSX、可搜索 PDF；文件仅在浏览器本地解析。若自动识别错误，可填写下方的原始列名覆盖映射。" submitLabel="继续预览" successMessage="文件已解析，请确认导入" onClose={()=>setDialog(null)} onSubmit={async values=>{const file=values.file as unknown;if(!(file instanceof File))throw new Error('请选择 CSV、Excel 或可搜索 PDF 文件');const mapping=Object.fromEntries(Object.entries({company:values.companyColumn,region:values.regionColumn,industry:values.industryColumn,contactName:values.contactNameColumn,contactEmail:values.contactEmailColumn,contactPhone:values.contactPhoneColumn,website:values.websiteColumn}).filter(([,value])=>Boolean(value))) as LeadColumnMapping;const parsed=csvRowsToCustomers(await parseLeadFile(file),mapping);const seen=new Set<string>();const rows:CustomerApiInput[]=[];let skipped=0;for(const row of parsed){const key=row.company.trim().toLowerCase();if(!key||seen.has(key)){skipped+=1;continue}seen.add(key);rows.push(row)}if(!rows.length)throw new Error('没有可导入的有效企业，请检查企业名称列；PDF 请使用可搜索文本版。');setImportPreview({fileName:file.name,sourceName:values.sourceName,sourceType:(values.sourceType as '行业目录'|'展会名单'|'历史客户'|'其他')??'其他',sourceUrl:values.sourceUrl||undefined,rows,skipped})}} fields={[{name:'sourceName',label:'名单名称',required:true,placeholder:'例如：Hannover Messe 2026 展商名单'},{name:'sourceType',label:'名单类型',type:'select',required:true,options:['行业目录','展会名单','历史客户','其他']},{name:'sourceUrl',label:'来源链接',placeholder:'可选；展会或目录公开页面'},{name:'file',label:'CSV、Excel 或 PDF 文件',type:'file',accept:'.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,application/pdf',required:true},{name:'companyColumn',label:'企业名称列（手动映射，可选）',placeholder:'例如：Exhibitor Name'},{name:'regionColumn',label:'地区/国家列（可选）',placeholder:'例如：Country'},{name:'industryColumn',label:'行业列（可选）',placeholder:'例如：Sector'},{name:'contactNameColumn',label:'联系人列（可选）',placeholder:'例如：Contact Person'},{name:'contactEmailColumn',label:'邮箱列（可选）',placeholder:'例如：E-mail'},{name:'contactPhoneColumn',label:'电话列（可选）',placeholder:'例如：Phone'},{name:'websiteColumn',label:'官网列（可选）',placeholder:'例如：Website'}]}/>
     <CreateDialog open={action==='task'||action==='next'} title={action==='task'?`为 ${selected.size} 家客户创建任务`:`创建跟进任务 · ${actionCustomer?.company??''}`} description="任务保存后会更新客户的下一步动作，并同步到经营总览。" submitLabel="创建任务" successMessage="跟进任务已创建" onClose={()=>setAction(null)} onSubmit={async values=>{const ids=actionCustomer?[actionCustomer.id]:[...selected];await persistCustomerChanges(ids,{next:values.title,due:values.due,interaction:'刚刚'});for(const customerId of ids){const customer=customerRows.find(item=>item.id===customerId);if(customer)await taskApi.create({customerId,title:values.title,priority:values.priority as '高'|'中'|'低',dueAt:Number.isFinite(Date.parse(values.due))?Date.parse(values.due):null,dueLabel:values.due,company:customer.company,nextAction:values.title,impact:customer.value,source:'客户'})}setSelected(new Set())}} initialValues={actionCustomer?{title:actionCustomer.next,due:actionCustomer.due}:undefined} fields={[{name:'title',label:'任务名称',required:true},{name:'due',label:'截止时间',required:true},{name:'priority',label:'优先级',type:'select',required:true,options:['高','中','低']},{name:'note',label:'执行说明',type:'textarea'}]}/>
@@ -233,26 +248,23 @@ export function CustomersPage() {
     <CreateDialog open={action==='bulk'} title={`批量更新 ${selected.size} 家客户`} description="统一调整关系阶段和负责人，不修改企业基础资料。" submitLabel="应用更新" successMessage="所选客户已更新" onClose={()=>setAction(null)} onSubmit={async values=>{const owner=membersQuery.data?.items.find(item=>item.displayName===values.owner);await persistCustomerChanges([...selected],{stage:values.stage,ownerUserId:owner?.id??null});setSelected(new Set())}} fields={[{name:'stage',label:'关系阶段',type:'select',required:true,options:CUSTOMER_STAGES.map(s=>s.value)},{name:'owner',label:'负责人',type:'select',required:true,options:(membersQuery.data?.items??[]).map(item=>item.displayName)}]}/>
     <CreateDialog open={action==='contact'} title={`联系 ${actionCustomer?.company??''}`} description="邮件会进入统一 SMTP 队列；其他渠道会创建人工触达任务。" submitLabel="确认沟通" successMessage="沟通已进入执行队列" onClose={()=>setAction(null)} onSubmit={async values=>{if(!actionCustomer)return;const contact=contactsQuery.data?.items.find(item=>item.name===values.contact);if(!contact)throw new Error('请选择真实联系人；如果列表为空，请先添加联系人。');if(values.channel==='邮件'){if(!contact.email)throw new Error('该联系人没有有效邮箱，请先补充邮箱。');const thread=await inboxApi.createThread({customerId:actionCustomer.id,subject:`${actionCustomer.company} · 客户跟进`,channel:'邮件',contact:{name:contact.name,company:contact.company,jobTitle:contact.jobTitle,region:contact.region,source:contact.source,primaryChannel:'邮件',email:contact.email,phone:contact.phone}});await inboxApi.confirmReply(thread.id,values.message)}else{await taskApi.create({customerId:actionCustomer.id,title:`${values.channel}联系 ${contact.name}`,priority:'中',dueLabel:'今天',company:actionCustomer.company,nextAction:values.message,impact:actionCustomer.value,source:`客户沟通 · ${values.channel}`})}await persistCustomerChanges([actionCustomer.id],{interaction:`刚刚 · ${values.channel}`,next:'等待客户回复'});await queryClient.invalidateQueries({queryKey:['inbox-threads']})}} fields={[{name:'contact',label:'联系人',type:'select',required:true,options:(contactsQuery.data?.items??[]).map(item=>item.name)},{name:'channel',label:'沟通方式',type:'select',required:true,options:['邮件','电话','LinkedIn','WhatsApp','短信','微信']},{name:'message',label:'沟通内容',type:'textarea',required:true}]}/>
     <CreateDialog open={action==='add-contact'} title={`添加联系人 · ${actionCustomer?.company??''}`} description="联系人会保存到客户档案，并可直接用于邮件或人工触达。" submitLabel="保存联系人" successMessage="联系人已保存" onClose={()=>setAction(null)} onSubmit={async values=>{if(!actionCustomer)return;await customerApi.addContact(actionCustomer.id,{name:values.name,jobTitle:values.jobTitle,email:values.email||null,phone:values.phone||null,primaryChannel:values.channel});await Promise.all([customerQuery.refetch(),queryClient.invalidateQueries({queryKey:['customer-contacts',actionCustomer.id]})])}} fields={[{name:'name',label:'姓名',required:true},{name:'jobTitle',label:'职位'},{name:'email',label:'邮箱',type:'email'},{name:'phone',label:'电话'},{name:'channel',label:'首选渠道',type:'select',options:['邮件','电话','LinkedIn','WhatsApp','短信','微信']}]}/>
+    <CreateDialog open={action==='edit-contact'} title={`编辑联系人 · ${editingContact?.name??''}`} description="修改姓名或联系方式后会自动回到待验证状态，避免继续使用旧的验证结论。" submitLabel="保存修改" successMessage="联系人资料已更新" onClose={()=>{setAction(null);setEditingContact(null)}} onSubmit={async values=>{if(!actionCustomer||!editingContact)return false;await customerApi.updateContact(actionCustomer.id,editingContact.id,{name:values.name,jobTitle:values.jobTitle,email:values.email||null,phone:values.phone||null,primaryChannel:values.channel});await Promise.all([customerQuery.refetch(),queryClient.invalidateQueries({queryKey:['customer-contacts',actionCustomer.id]})]);setEditingContact(null)}} initialValues={editingContact?{name:editingContact.name,jobTitle:editingContact.jobTitle,email:editingContact.email??'',phone:editingContact.phone??'',channel:editingContact.primaryChannel}:undefined} fields={[{name:'name',label:'姓名',required:true},{name:'jobTitle',label:'职位'},{name:'email',label:'邮箱',type:'email'},{name:'phone',label:'电话'},{name:'channel',label:'首选渠道',type:'select',options:['邮件','电话','LinkedIn','WhatsApp','短信','微信']}]}/>
     <CreateDialog open={action==='edit'} title={`编辑客户 · ${actionCustomer?.company??''}`} description="更新企业基础信息、负责人和当前关系阶段。" submitLabel="保存修改" successMessage="客户资料已更新" onClose={()=>setAction(null)} onSubmit={async values=>{if(actionCustomer){const owner=membersQuery.data?.items.find(item=>item.displayName===values.owner);await persistCustomerChanges([actionCustomer.id],{company:values.company,region:values.region,industry:values.industry,stage:values.stage,ownerUserId:owner?.id??null})}}} initialValues={actionCustomer?{company:actionCustomer.company,region:actionCustomer.region,industry:actionCustomer.industry,stage:actionCustomer.stage,owner:actionCustomer.owner}:undefined} fields={[{name:'company',label:'企业名称',required:true},{name:'region',label:'地区',required:true},{name:'industry',label:'行业',required:true},{name:'stage',label:'关系阶段',type:'select',required:true,options:CUSTOMER_STAGES.map(s=>s.value)},{name:'owner',label:'负责人',type:'select',required:true,options:(membersQuery.data?.items??[]).map(item=>item.displayName)}]}/>
-    <Modal open={Boolean(importPreview)} title="客户名单字段映射" description={importPreview?`${importPreview.fileName} · ${importPreview.sourceType} · 将校验并导入 ${importPreview.rows.length} 家企业`:''} onClose={()=>setImportPreview(null)} footer={<><Button onClick={()=>setImportPreview(null)} disabled={importing}>取消</Button><Button variant="primary" loading={importing} disabled={!importPreview} onClick={async()=>{if(!importPreview)return;setImporting(true);try{const result=await customerApi.import({sourceName:importPreview.sourceName,sourceType:importPreview.sourceType,sourceUrl:importPreview.sourceUrl,rows:importPreview.rows});await customerQuery.refetch();setImportPreview(null);showToast(`已新增 ${result.created} 家，合并重复 ${result.duplicates} 条，新增联系人 ${result.contactsCreated} 位`)}catch(cause){showToast(cause instanceof Error?cause.message:'导入失败，请稍后重试。')}finally{setImporting(false)}}}>确认导入</Button></>}>{importPreview?<Space direction="vertical" size="middle" style={{width:'100%'}}><Descriptions bordered column={1} items={[['来源记录',`${importPreview.sourceType} · ${importPreview.sourceName}`],['企业名称',`自动识别 ${importPreview.rows.length} 条`],['地区、行业和联系人','按常见中英文列名自动映射'],['文件内重复',`跳过 ${importPreview.skipped} 条`],['入库状态','待验证']].map(item=>({key:item[0],label:item[0],children:item[1]}))}/><List header="数据预览" dataSource={importPreview.rows.slice(0,5)} footer={importPreview.rows.length>5?<Typography.Text type="secondary">仅预览前 5 条，确认后会交由服务端再次去重和入库。</Typography.Text>:null} renderItem={row=><List.Item extra={<Badge tone="blue">待验证</Badge>}><List.Item.Meta avatar={<Avatar>{row.company.slice(0,1)}</Avatar>} title={row.company} description={`${row.region} · ${row.industry} · 匹配分 ${row.score}`}/></List.Item>}/></Space>:null}</Modal>
-    <Modal open={importHistoryOpen} title="客户名单导入记录" description="保留行业目录、展会名单和历史客户的入库来源。" onClose={()=>setImportHistoryOpen(false)} footer={<Button onClick={()=>setImportHistoryOpen(false)}>关闭</Button>}>{importHistoryQuery.isLoading?<EmptyState title="正在读取导入记录" icon={RefreshCw}/>:importHistoryQuery.data?.items.length?<DataTable columns={[{key:'source',title:'来源'},{key:'result',title:'入库结果'},{key:'time',title:'导入时间'}]} rows={importHistoryQuery.data.items.map(item=>({key:item.id,cells:[<Space direction="vertical" size={0}><Typography.Text strong>{item.sourceName}</Typography.Text><Typography.Text type="secondary">{item.sourceType}{item.sourceUrl?` · ${item.sourceUrl}`:''}</Typography.Text></Space>,<Space direction="vertical" size={0}><Typography.Text strong>新增 {item.created} 家 · 联系人 {item.contactsCreated} 位</Typography.Text><Typography.Text type="secondary">共 {item.total} 条，重复/合并 {item.duplicates} 条</Typography.Text></Space>,<Typography.Text>{new Date(item.createdAt).toLocaleString('zh-CN')}</Typography.Text>]}))}/>:<EmptyState title="暂无导入记录" description="首次导入行业目录、展会或历史客户后会显示在这里。" icon={Import}/>}</Modal>
+    <Modal open={Boolean(importPreview)} title="客户名单字段映射" description={importPreview?`${importPreview.fileName} · ${importPreview.sourceType} · 将校验并导入 ${importPreview.rows.length} 家企业`:''} onClose={()=>setImportPreview(null)} footer={<><Button onClick={()=>setImportPreview(null)} disabled={importing}>取消</Button><Button variant="primary" loading={importing} disabled={!importPreview} onClick={async()=>{if(!importPreview)return;setImporting(true);try{const result=await customerApi.import({sourceName:importPreview.sourceName,sourceType:importPreview.sourceType,sourceUrl:importPreview.sourceUrl,rows:importPreview.rows});await customerQuery.refetch();setImportPreview(null);showToast(`已新增 ${result.created} 家，合并重复 ${result.duplicates} 条，新增联系人 ${result.contactsCreated} 位`)}catch(cause){showToast(cause instanceof Error?cause.message:'导入失败，请稍后重试。')}finally{setImporting(false)}}}>确认导入</Button></>}>{importPreview?<Space orientation="vertical" size="middle" style={{width:'100%'}}><Descriptions bordered column={1} items={[['来源记录',`${importPreview.sourceType} · ${importPreview.sourceName}`],['企业名称',`自动识别 ${importPreview.rows.length} 条`],['地区、行业和联系人','按常见中英文列名自动映射'],['文件内重复',`跳过 ${importPreview.skipped} 条`],['入库状态','待验证']].map(item=>({key:item[0],label:item[0],children:item[1]}))}/><List header="数据预览" dataSource={importPreview.rows.slice(0,5)} footer={importPreview.rows.length>5?<Typography.Text type="secondary">仅预览前 5 条，确认后会交由服务端再次去重和入库。</Typography.Text>:null} renderItem={row=><List.Item extra={<Badge tone="blue">待验证</Badge>}><List.Item.Meta avatar={<Avatar>{row.company.slice(0,1)}</Avatar>} title={row.company} description={`${row.region} · ${row.industry} · 匹配分 ${row.score}`}/></List.Item>}/></Space>:null}</Modal>
+    <Modal open={importHistoryOpen} title="客户名单导入记录" description="保留行业目录、展会名单和历史客户的入库来源。" onClose={()=>setImportHistoryOpen(false)} footer={<Button onClick={()=>setImportHistoryOpen(false)}>关闭</Button>}>{importHistoryQuery.isLoading?<EmptyState title="正在读取导入记录" icon={RefreshCw}/>:importHistoryQuery.data?.items.length?<DataTable columns={[{key:'source',title:'来源'},{key:'result',title:'入库结果'},{key:'time',title:'导入时间'}]} rows={importHistoryQuery.data.items.map(item=>({key:item.id,cells:[<Space orientation="vertical" size={0}><Typography.Text strong>{item.sourceName}</Typography.Text><Typography.Text type="secondary">{item.sourceType}{item.sourceUrl?` · ${item.sourceUrl}`:''}</Typography.Text></Space>,<Space orientation="vertical" size={0}><Typography.Text strong>新增 {item.created} 家 · 联系人 {item.contactsCreated} 位</Typography.Text><Typography.Text type="secondary">共 {item.total} 条，重复/合并 {item.duplicates} 条</Typography.Text></Space>,<Typography.Text>{new Date(item.createdAt).toLocaleString('zh-CN')}</Typography.Text>]}))}/>:<EmptyState title="暂无导入记录" description="首次导入行业目录、展会或历史客户后会显示在这里。" icon={Import}/>}</Modal>
     <Modal open={Boolean(mergePreview)} title="合并重复客户" description="合并后保留主客户档案，另一条记录会归档；联系人、任务、商机、会话和活动受众会安全迁移。" onClose={()=>setMergePreview(null)} footer={<><Button onClick={()=>setMergePreview(null)}>取消</Button><Button onClick={async()=>{if(!mergePreview)return;setMergePreview(await customerApi.mergePreview(mergePreview.duplicate.id,mergePreview.primary.id))}}>切换主记录</Button><Button variant="primary" onClick={async()=>{if(!mergePreview)return;try{await customerApi.merge(mergePreview.primary.id,mergePreview.duplicate.id);await customerQuery.refetch();setSelected(new Set());setMergePreview(null);showToast('重复客户已合并，原记录已归档')}catch(cause){showToast(cause instanceof Error?cause.message:'客户合并失败')}}}>确认合并</Button></>}>
       {mergePreview&&<Descriptions bordered column={1} items={[{key:'primary',label:'保留主客户',children:<Badge tone="green">{mergePreview.primary.company}</Badge>},{key:'duplicate',label:'归档重复记录',children:<Badge tone="orange">{mergePreview.duplicate.company}</Badge>},{key:'transfers',label:'迁移数据',children:`联系人 ${mergePreview.contacts.duplicate} 位、任务 ${mergePreview.transfers.tasks} 项、商机 ${mergePreview.transfers.deals} 个、会话 ${mergePreview.transfers.threads} 条`},...(mergePreview.contacts.duplicateNames.length?[{key:'names',label:'同名联系人',children:`${mergePreview.contacts.duplicateNames.join('、')} 会合并联系方式，避免重复创建`}]:[])]}/>}
     </Modal>
     <Modal open={mergeSuggestionsOpen} title="重复客户合并建议" description={`扫描 ${mergeSuggestionsQuery.data?.scanned ?? 0} 家未归档客户，按企业名称、邮箱域名、电话号码等规则识别潜在重复。合并前请人工确认。`} onClose={()=>setMergeSuggestionsOpen(false)} footer={<><Button onClick={()=>setMergeSuggestionsOpen(false)}>关闭</Button><Button variant="primary" onClick={()=>mergeSuggestionsQuery.refetch()} disabled={mergeSuggestionsQuery.isFetching}>{mergeSuggestionsQuery.isFetching?'重新扫描…':'重新扫描'}</Button></>}>
       {mergeSuggestionsQuery.isLoading?<EmptyState title="正在扫描重复客户" icon={RefreshCw}/>:mergeSuggestionsQuery.isError?<EmptyState title="扫描失败" description={mergeSuggestionsQuery.error instanceof Error?mergeSuggestionsQuery.error.message:'请稍后重试'} icon={ShieldAlert}/>:mergeSuggestionsQuery.data?.items.length?<List dataSource={mergeSuggestionsQuery.data.items} renderItem={item=><List.Item actions={[<Button key="preview" onClick={()=>openMergePreview(item.primaryId,item.duplicateId)}>预览合并</Button>]}><List.Item.Meta title={<Space wrap><Badge tone={item.confidence==='high'?'green':item.confidence==='medium'?'orange':'neutral'}>{item.confidence==='high'?'高置信度':item.confidence==='medium'?'中置信度':'低置信度'}</Badge><Typography.Text strong>{item.primaryCompany}</Typography.Text><ChevronRight size={14}/><Typography.Text>{item.duplicateCompany}</Typography.Text></Space>} description={<Space wrap>{item.reasons.map(reason=><Badge key={reason} tone="blue">{reason}</Badge>)}</Space>}/></List.Item>}/>:<EmptyState title="未发现潜在重复" description="当前工作区未归档客户之间没有检测到明显重复。" icon={CheckCircle2}/>}
     </Modal>
-    <Modal open={action==='more'} title={`${actionCustomer?.company??''} · 更多操作`} onClose={()=>setAction(null)}><List dataSource={[
-      {key:'open',icon:<CircleUserRound/>,title:'打开客户档案',description:'查看联系人、信号和最近动态',run:()=>{if(actionCustomer)setDetail(actionCustomer);setAction(null)}},
-      {key:'edit',icon:<Building2/>,title:'编辑客户资料',description:'修改企业、地区、阶段和负责人',run:()=>setAction('edit')},
-      {key:'contact',icon:<Mail/>,title:'联系客户',description:'创建邮件、电话或社交沟通记录',run:()=>setAction('contact')},
-      {key:'task',icon:<CheckCircle2/>,title:'创建任务',description:'安排下一步动作和截止时间',run:()=>setAction('next')},
-      {key:'archive',icon:<Layers3/>,title:view==='已归档'?'恢复客户':'归档客户',description:view==='已归档'?'恢复到正常客户列表':'不删除数据，可随时恢复',run:async()=>{if(!actionCustomer)return;await archiveCustomers([actionCustomer.id],view!=='已归档');setAction(null)}},
+    <Modal open={action==='more'} title={`${actionCustomer?.company??''} · 更多操作`} onClose={()=>setAction(null)} footer={<><Button onClick={()=>setAction(null)}>关闭</Button>{canDelete&&actionCustomer&&<Popconfirm title="彻底删除客户？" description="仅没有任务、商机、会话或活动记录的客户可以删除；有业务历史请使用归档。" okText="确认删除" cancelText="取消" okButtonProps={{danger:true}} onConfirm={async()=>{try{await customerApi.remove(actionCustomer.id);await customerQuery.refetch();setAction(null);showToast('客户已彻底删除')}catch(cause){showToast(cause instanceof Error?cause.message:'客户删除失败')}}}><Button variant="danger"><Trash2 size={15}/>彻底删除</Button></Popconfirm>}</>}><List dataSource={[
+      ...(canWrite?[{key:'edit',icon:<Building2/>,title:'编辑客户资料',description:'修改企业、地区、阶段和负责人',run:()=>setAction('edit')},{key:'contact',icon:<Mail/>,title:'联系客户',description:'创建邮件、电话或社交沟通记录',run:()=>setAction('contact')},{key:'task',icon:<CheckCircle2/>,title:'创建任务',description:'安排下一步动作和截止时间',run:()=>setAction('next')},{key:'archive',icon:<Layers3/>,title:view==='已归档'?'恢复客户':'归档客户',description:view==='已归档'?'恢复到正常客户列表':'不删除数据，可随时恢复',run:async()=>{if(!actionCustomer)return;await archiveCustomers([actionCustomer.id],view!=='已归档');setAction(null)}}]:[]),
     ]} renderItem={item=><List.Item actions={[<ChevronRight key="arrow"/>]} onClick={item.run}><List.Item.Meta avatar={item.icon} title={item.title} description={item.description}/></List.Item>}/></Modal>
   </PageContainer>
 }
 
-function CustomerDetail({customer,onClose,onTask,onContact,onAddContact,onWhatsappOptIn}:{customer:CustomerRecord|null;onClose:()=>void;onTask:(customer:CustomerRecord)=>void;onContact:(customer:CustomerRecord)=>void;onAddContact:(customer:CustomerRecord)=>void;onWhatsappOptIn:(contact:Awaited<ReturnType<typeof customerApi.listContacts>>['items'][number])=>void}) {
+function CustomerDetail({customer,onClose,onTask,onContact,onCreateContent,onCreateDeal,onAddContact,onEditContact,onWhatsappOptIn}:{customer:CustomerRecord|null;onClose:()=>void;onTask:(customer:CustomerRecord)=>void;onContact:(customer:CustomerRecord)=>void;onCreateContent:(customer:CustomerRecord)=>void;onCreateDeal:(customer:CustomerRecord)=>void;onAddContact:(customer:CustomerRecord)=>void;onEditContact:(contact:InboxContactApiRecord)=>void;onWhatsappOptIn:(contact:Awaited<ReturnType<typeof customerApi.listContacts>>['items'][number])=>void}) {
   const queryClient=useQueryClient()
   const showToast=useUiStore(s=>s.showToast)
   const [contactFilter,setContactFilter]=useState<'all'|'verified'|'unverified'|'invalid'>('all')
@@ -310,40 +322,59 @@ function CustomerDetail({customer,onClose,onTask,onContact,onAddContact,onWhatsa
     }catch(cause){showToast(cause instanceof Error?cause.message:'操作失败')}
     finally{setSubmitting(false)}
   }
-  return <DetailDrawer open title={customer.company} subtitle={`${customer.region} · ${customer.industry} · ${customer.size}`} onClose={onClose} footer={<><Button onClick={()=>onAddContact(customer)}><Plus size={15}/>添加联系人</Button><Button onClick={()=>onTask(customer)}><CheckCircle2 size={15}/>创建任务</Button><Button variant="primary" disabled={!contacts.length} onClick={()=>onContact(customer)}><Mail size={15}/>联系客户</Button></>}>
-    <Space direction="vertical" size="middle" style={{width:'100%'}}>
-      <Row gutter={[12,12]}>
-        <Col xs={24} sm={8}><Card size="small"><Statistic title="客户匹配分" value={effectiveScore} suffix="分"/>{customer.scoreOverride!=null&&<Badge tone="orange"><Pencil size={11}/>人工修正 · 原 {customer.score} 分</Badge>}</Card></Col>
-        <Col xs={24} sm={8}><Card size="small"><Statistic title="预计价值" value={customer.value}/></Card></Col>
-        <Col xs={24} sm={8}><Card size="small"><Typography.Text type="secondary">关系阶段</Typography.Text><Divider/><Badge tone={getStageTone(customer.stage)}>{customer.stage}</Badge></Card></Col>
-      </Row>
+  return <DetailDrawer open title={customer.company} subtitle={`${customer.region} · ${customer.industry} · ${customer.size}`} width={720} onClose={onClose} footer={<><Button onClick={onClose}>关闭</Button><Button variant="primary" disabled={!contacts.length} onClick={()=>onContact(customer)}>联系客户</Button></>}>
+    <Space orientation="vertical" size="middle" style={{width:'100%'}}>
+      <DetailSection title="客户概览" subtitle="匹配度、预计价值和当前关系阶段">
+        <Row gutter={[16,16]} align="middle">
+          <Col xs={24} sm={8}><Statistic title="客户匹配分" value={effectiveScore} suffix="分"/>{customer.scoreOverride!=null&&<Badge tone="orange">人工修正 · 原 {customer.score} 分</Badge>}</Col>
+          <Col xs={24} sm={8}><Statistic title="预计价值" value={customer.value}/></Col>
+          <Col xs={24} sm={8}><Space orientation="vertical" size={8}><Typography.Text type="secondary">关系阶段</Typography.Text><Badge tone={getStageTone(customer.stage)}>{customer.stage}</Badge></Space></Col>
+        </Row>
+      </DetailSection>
 
-      <Card size="small" title={<Space><GitMerge size={15}/>阶段流转</Space>}>
-        <Space wrap>{CUSTOMER_STAGES.map(s=>{const isCurrent=s.value===customer.stage;return <Button key={s.value} size="sm" variant={isCurrent?'primary':'secondary'} disabled={isCurrent||stageChanging} onClick={()=>changeStage(s.value)}>{s.label}</Button>})}</Space>
-        <Typography.Paragraph type="secondary">点击目标阶段即可变更。系统会根据阶段自动更新下一步动作建议；所有变更记入审计日志。</Typography.Paragraph>
-      </Card>
+      <DetailSection title="快捷操作" subtitle="基于当前客户直接创建后续业务记录">
+        <Space wrap>
+          <Button onClick={()=>onAddContact(customer)}>添加联系人</Button>
+          <Button onClick={()=>onCreateContent(customer)}>创建内容</Button>
+          <Button onClick={()=>onCreateDeal(customer)}>创建商机</Button>
+          <Button onClick={()=>onTask(customer)}>创建任务</Button>
+        </Space>
+      </DetailSection>
 
-      <Card size="small" title={<Space><Gauge size={15}/>评分分档说明</Space>} extra={<Badge tone={scoreTier.tone}>{scoreTier.label}</Badge>}>
-        <Space wrap>{[{range:'90–100',label:'高度匹配',tone:'green'},{range:'85–89',label:'值得跟进',tone:'blue'},{range:'70–84',label:'继续培育',tone:'orange'},{range:'0–69',label:'待验证',tone:'neutral'}].map(tier=><Badge key={tier.range} tone={tier.tone as 'green'|'blue'|'orange'|'neutral'}>{tier.range} · {tier.label}</Badge>)}</Space>
-        <Alert type="info" showIcon icon={<TrendingUp size={16}/>} message={scoreTier.desc}/>
-        <Progress aria-label={`${customer.company}证据置信度`} percent={effectiveScore} status="active" format={()=>`证据置信度 ${customer.confidence}%`}/>
-      </Card>
+      <DetailSection title="阶段流转" subtitle="点击目标阶段即可变更，所有变更会写入审计记录">
+        <Space wrap>{CUSTOMER_STAGES.map(s=>{const isCurrent=s.value===customer.stage;return <Button key={s.value} className={isCurrent?'customer-stage-current':undefined} size="sm" variant={isCurrent?'primary':'secondary'} disabled={isCurrent||stageChanging} aria-current={isCurrent?'step':undefined} onClick={()=>changeStage(s.value)}>{s.label}</Button>})}</Space>
+      </DetailSection>
 
-      {customer.scoreOverride!=null&&<Card size="small" title={<Space><ShieldAlert size={15}/>人工修正记录</Space>} extra={<Button size="sm" onClick={clearOverride} disabled={submitting}>恢复系统评分</Button>}>
+      <DetailSection title="评分分档说明" subtitle="系统评分结合定位匹配、公开证据和客户互动" extra={<Badge tone={scoreTier.tone}>{scoreTier.label}</Badge>}>
+        <Space orientation="vertical" size="middle" style={{width:'100%'}}>
+          <Space wrap>{[{range:'90–100',label:'高度匹配',tone:'green'},{range:'85–89',label:'值得跟进',tone:'blue'},{range:'70–84',label:'继续培育',tone:'orange'},{range:'0–69',label:'待验证',tone:'neutral'}].map(tier=><Badge key={tier.range} tone={tier.tone as 'green'|'blue'|'orange'|'neutral'}>{tier.range} · {tier.label}</Badge>)}</Space>
+          <StatusNotice tone="info" icon={<TrendingUp size={17}/>} title="当前评分判断" description={scoreTier.desc}/>
+          <Progress aria-label={`${customer.company}证据置信度`} percent={customer.confidence} status="active" format={()=>`证据置信度 ${customer.confidence}%`}/>
+          {!customer.scoreOverride&&!overrideMode&&<Flex justify="flex-end"><Button size="sm" onClick={()=>{setOverrideScore(customer.score);setOverrideMode(true)}}>人工修正评分</Button></Flex>}
+        </Space>
+      </DetailSection>
+
+      {customer.scoreOverride!=null&&<DetailSection title="人工修正记录" subtitle="保留修正人、时间和原因" extra={<Button size="sm" onClick={clearOverride} disabled={submitting}>恢复系统评分</Button>}>
         <Descriptions column={1} bordered items={[{key:'score',label:'修正分数',children:`${customer.scoreOverride} 分（原系统评分 ${customer.score} 分）`},{key:'operator',label:'操作记录',children:`${customer.scoreOverrideByName??'未知成员'} · ${customer.scoreOverrideAt?new Date(customer.scoreOverrideAt).toLocaleString('zh-CN'):''}`},{key:'reason',label:'修正原因',children:customer.scoreOverrideReason}]}/>
-      </Card>}
+      </DetailSection>}
 
-      {!customer.scoreOverride&&!overrideMode&&<Button onClick={()=>{setOverrideScore(customer.score);setOverrideMode(true)}}><Pencil size={13}/>人工修正评分</Button>}
-
-      {overrideMode&&<Card size="small" title={<Space><Pencil size={15}/>修正客户匹配分</Space>}>
+      {overrideMode&&<DetailSection title="修正客户匹配分" subtitle="修正原因将随结果写入审计日志">
         <Form layout="vertical"><Form.Item label="修正后分数（0–100）" required><InputNumber min={0} max={100} value={overrideScore} onChange={value=>setOverrideScore(Number(value)??0)} style={{width:'100%'}}/></Form.Item><Form.Item label="修正原因（必填，将记入审计日志）" required><Input.TextArea rows={3} value={overrideReason} onChange={e=>setOverrideReason(e.target.value)} placeholder="例如：电话沟通后确认企业实际规模小于系统判断，下调至 70。" maxLength={500} showCount/></Form.Item><Space><Button onClick={()=>setOverrideMode(false)} disabled={submitting}>取消</Button><Button variant="primary" loading={submitting} onClick={submitOverride}>保存修正</Button></Space></Form>
-      </Card>}
+      </DetailSection>}
 
-      <Card size="small" title="客户联系人" extra={<Space wrap>{([['all','全部'],['verified','已验证'],['unverified','待验证'],['invalid','无效']] as const).map(([value,label])=><Button key={value} size="sm" variant={contactFilter===value?'primary':'secondary'} onClick={()=>setContactFilter(value)}>{label}</Button>)}</Space>}>
-        <List loading={contactsQuery.isLoading} dataSource={contacts} locale={{emptyText:<EmptyState title={contactFilter==='all'?'暂无联系人':'该筛选下暂无联系人'} description={contactFilter==='all'?'添加真实联系人后即可创建沟通。':'切换筛选条件查看其他联系人。'} icon={CircleUserRound}/>}} renderItem={contact=>{const vBadge=contact.verificationStatus==='verified'?{tone:'green' as const,text:'已验证'}:contact.verificationStatus==='invalid'?{tone:'red' as const,text:'无效'}:{tone:'orange' as const,text:'待验证'};return <List.Item actions={[contact.phone?<Button key="wa" size="sm" onClick={()=>onWhatsappOptIn(contact)}>{contact.whatsappOptedInAt?'撤销 WhatsApp':'WhatsApp'}</Button>:null,contact.verificationStatus!=='verified'?<Button key="verify" size="sm" variant="primary" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'verified')}>验证</Button>:null,contact.verificationStatus!=='invalid'?<Button key="invalid" size="sm" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'invalid')}>无效</Button>:null].filter(Boolean) as React.ReactNode[]}><List.Item.Meta avatar={<Avatar icon={<CircleUserRound/>}/>} title={<Space><Typography.Text strong>{contact.name}</Typography.Text><Badge tone={vBadge.tone}>{vBadge.text}</Badge></Space>} description={`${contact.jobTitle} · ${contact.email||contact.phone||'等待补全联系方式'}${contact.verificationSource?` · ${contact.verificationSource}`:''}`}/></List.Item>}}/>
-      </Card>
-      <Card size="small" title="最近动态"><List dataSource={[[customer.signal,`${customer.source} · ${customer.interaction}`],['客户已保存','保留企业研究与来源证据']]} renderItem={item=><List.Item><List.Item.Meta avatar={<CheckCircle2/>} title={item[0]} description={item[1]}/></List.Item>}/></Card>
-      <Alert type="success" showIcon message="下一步建议" description={`${customer.next}，建议在 ${customer.due} 前完成。`}/>
+      <DetailSection title="客户联系人" subtitle="管理公开联系人、验证状态和沟通授权" extra={<Segmented size="small" value={contactFilter} onChange={value=>setContactFilter(value as typeof contactFilter)} options={[{value:'all',label:'全部'},{value:'verified',label:'已验证'},{value:'unverified',label:'待验证'},{value:'invalid',label:'无效'}]}/>}>
+        <List loading={contactsQuery.isLoading} dataSource={contacts} locale={{emptyText:<EmptyState title={contactFilter==='all'?'暂无联系人':'该筛选下暂无联系人'} description={contactFilter==='all'?'添加真实联系人后即可创建沟通。':'切换筛选条件查看其他联系人。'} icon={CircleUserRound}/>}} renderItem={contact=>{const vBadge=contact.verificationStatus==='verified'?{tone:'green' as const,text:'已验证'}:contact.verificationStatus==='invalid'?{tone:'red' as const,text:'无效'}:{tone:'orange' as const,text:'待验证'};return <List.Item actions={[<Button key="edit" size="sm" onClick={()=>onEditContact(contact)}><Pencil size={14}/>编辑</Button>,contact.phone?<Button key="wa" size="sm" onClick={()=>onWhatsappOptIn(contact)}>{contact.whatsappOptedInAt?'撤销 WhatsApp':'WhatsApp'}</Button>:null,contact.verificationStatus!=='verified'?<Button key="verify" size="sm" variant="primary" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'verified')}>验证</Button>:null,contact.verificationStatus!=='invalid'?<Button key="invalid" size="sm" loading={verifying===contact.id} onClick={()=>verifyContact(contact.id,'invalid')}>无效</Button>:null].filter(Boolean) as React.ReactNode[]}><List.Item.Meta avatar={<Avatar icon={<CircleUserRound/>}/>} title={<Space><Typography.Text strong>{contact.name}</Typography.Text><Badge tone={vBadge.tone}>{vBadge.text}</Badge></Space>} description={`${contact.jobTitle} · ${contact.email||contact.phone||'等待补全联系方式'}${contact.verificationSource?` · ${contact.verificationSource}`:''}`}/></List.Item>}}/>
+      </DetailSection>
+      <DetailSection title="最近动态" subtitle="客户信号和已完成的关键动作"><List dataSource={[[customer.signal,`${customer.source} · ${customer.interaction}`],['客户已保存','保留企业研究与来源证据']]} renderItem={item=><List.Item><List.Item.Meta avatar={<CheckCircle2/>} title={item[0]} description={item[1]}/></List.Item>}/></DetailSection>
+      <DetailSection title="下一步建议" subtitle="根据当前阶段和待办截止时间生成">
+        <Flex align="center" gap={12}>
+          <Avatar icon={<CheckCircle2 size={17}/>}/>
+          <Space orientation="vertical" size={0}>
+            <Typography.Text strong>{customer.next}</Typography.Text>
+            <Typography.Text type="secondary">建议在 {customer.due} 前完成并记录结果</Typography.Text>
+          </Space>
+        </Flex>
+      </DetailSection>
     </Space>
   </DetailDrawer>
 }

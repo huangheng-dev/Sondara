@@ -3,6 +3,7 @@ import { completeWithAi } from '../ai/client.js'
 import type { DiscoveredCandidate, RadarTaskContext } from './types.js'
 
 const enrichmentSchema = z.object({
+  company: z.string().trim().min(1).max(120).optional(),
   industry: z.string().trim().min(1).max(120),
   region: z.string().trim().min(1).max(80).optional().default('待验证'),
   signal: z.string().trim().min(1).max(180),
@@ -21,6 +22,7 @@ export const enrichCandidateWithAi = async (task: RadarTaskContext, candidate: D
   const evidence = candidate.evidence.map(item => ({ title: item.title, source: item.source, sourceUrl: item.sourceUrl }))
   const result = await completeWithAi({
     workspaceId: task.workspaceId,
+    timeoutMs: 15_000,
     temperature: 0,
     maxTokens: 900,
     messages: [
@@ -35,6 +37,7 @@ export const enrichCandidateWithAi = async (task: RadarTaskContext, candidate: D
           candidate: { company: candidate.company, currentIndustry: candidate.industry, currentReason: candidate.reason },
           evidence,
           requiredJson: {
+            company: '只在公开证据能确认正式企业名称时填写；否则沿用输入名称',
             industry: '基于证据可判断的行业，不能判断则写待验证',
             region: '基于官网、域名或公开证据可判断的国家/地区，不能判断则写待验证',
             signal: '一句话公开信号，不能判断则写仅官网可验证',
@@ -51,6 +54,7 @@ export const enrichCandidateWithAi = async (task: RadarTaskContext, candidate: D
   return {
     candidate: {
       ...candidate,
+      company: enrichment.company && enrichment.company !== '待验证' ? enrichment.company : candidate.company,
       industry: enrichment.industry,
       region: enrichment.region === '待验证' ? candidate.region : enrichment.region,
       signal: enrichment.signal,

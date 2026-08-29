@@ -56,6 +56,7 @@ const run = async () => {
     assert.equal(analyzed.json().mode, 'local-rules')
     assert.ok(Array.isArray(analyzed.json().analysis.recommendedMarkets))
     assert.ok(analyzed.json().analysis.recommendedMarkets.length >= 1)
+    assert.ok(analyzed.json().analysis.recommendedMarkets.length <= 8)
     assert.equal(analyzed.json().analysisStatus, 'complete')
     assert.match(analyzed.json().analysisSummary, /recommendedMarkets/)
 

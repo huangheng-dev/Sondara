@@ -7,11 +7,13 @@ import { db } from "../db/client.js";
 import {
   campaignAudienceMembers,
   campaigns,
+  customers,
   inboxContacts,
   messageEntries,
   messageThreads,
   outboxJobs,
   outboundChannelConnections,
+  tasks,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { stopCampaignAudienceForCustomer } from "../campaigns/audience-lifecycle.js";
@@ -19,8 +21,12 @@ import { decryptSecret } from "../lib/secret-vault.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
 import { acquireLeaderLease, LEADER_KEYS, type LeaderLease } from "../lib/leader-lock.js";
+import { recordCustomerTouchpoint } from '../leads/touchpoints.js';
+import { applyInboundIntentAutomation } from './intent-automation.js';
+import { cancelPendingAutomatedMessagesForThread } from '../outbox/automation-stop.js';
+import { persistReplySuggestion } from '../automation/closed-loop.js';
 
-type ImapAccount = {
+export type ImapAccount = {
   connectionId: string;
   workspaceId: string;
   host: string;
@@ -30,7 +36,7 @@ type ImapAccount = {
   password: string;
 };
 
-type ParsedMail = {
+export type ParsedMail = {
   messageId: string;
   fromAddress: string;
   fromName: string;
@@ -49,6 +55,83 @@ const stripBrackets = (value: string | null | undefined) =>
 
 const normalizeEmail = (value: string) =>
   value.trim().toLowerCase().replace(/^.*<|>.*$/g, "");
+
+const FREE_MAIL_DOMAINS = /^(?:gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|qq|163|126|sina|protonmail|proton|gmx|aol)\./i;
+const INQUIRY_TERMS = /(?:询价|报价|采购|合作|样品|目录|资料|演示|试用|项目|供应商|价格|交期|inquiry|enquiry|quotation|quote|rfq|rfi|price|pricing|purchase|procurement|supplier|catalog|brochure|sample|demo|trial|project|partnership|distributor)/i;
+const BULK_MAIL_TERMS = /(?:unsubscribe|退订|newsletter|digest|no[-_.]?reply|notification|验证码|verification code|password reset)/i;
+
+const emailDomain = (email: string) => email.split('@')[1]?.toLowerCase().replace(/^www\./, '') ?? '';
+const shouldCreateInboundCustomer = (mail: ParsedMail, fromAddress: string) => {
+  const domain = emailDomain(fromAddress);
+  const content = `${mail.subject}\n${mail.text}`;
+  if (!domain || BULK_MAIL_TERMS.test(content) || /^(?:no[-_.]?reply|notifications?)@/i.test(fromAddress)) return false;
+  return !FREE_MAIL_DOMAINS.test(domain) || INQUIRY_TERMS.test(content);
+};
+
+const inboundCompanyName = (mail: ParsedMail, fromAddress: string) => {
+  const domain = emailDomain(fromAddress);
+  if (domain && !FREE_MAIL_DOMAINS.test(domain)) return domain;
+  const name = mail.fromName?.split(/[<>\[\]()]/)[0]?.trim()?.replace(/^["']+|["']+$/g, '');
+  return name || fromAddress;
+};
+
+const ensureInboundCustomer = async (account: ImapAccount, contactId: string, mail: ParsedMail, fromAddress: string, now: number) => {
+  const contact = await db.$first(db.select().from(inboxContacts).where(and(eq(inboxContacts.id, contactId), eq(inboxContacts.workspaceId, account.workspaceId))));
+  if (!contact || contact.customerId) return contact?.customerId ?? null;
+  if (!shouldCreateInboundCustomer(mail, fromAddress)) return null;
+
+  const company = inboundCompanyName(mail, fromAddress).slice(0, 160);
+  let customer = await db.$first(db.select().from(customers).where(and(eq(customers.workspaceId, account.workspaceId), sql`lower(${customers.company}) = ${company.toLowerCase()}`)));
+  if (!customer) {
+    const customerId = createId('cus');
+    await db.insert(customers).values({
+      id: customerId,
+      workspaceId: account.workspaceId,
+      company,
+      region: contact.region || '待补全',
+      industry: '待补全',
+      score: 90,
+      confidence: emailDomain(fromAddress) && !FREE_MAIL_DOMAINS.test(emailDomain(fromAddress)) ? 86 : 68,
+      signal: '主动邮件询盘',
+      source: '邮件询盘 · IMAP',
+      stage: '待验证',
+      contacts: 0,
+      validContacts: 0,
+      interaction: mail.subject || '收到新的邮件询盘',
+      nextAction: '核验询盘需求并在 24 小时内回复',
+      dueAt: now + 86_400_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+    customer = await db.$first(db.select().from(customers).where(eq(customers.id, customerId)));
+  }
+  if (!customer) return null;
+
+  await db.transaction(async tx => {
+    await tx.update(inboxContacts).set({ customerId: customer.id, company: customer.company, updatedAt: now }).where(eq(inboxContacts.id, contactId));
+    const existingTask = await tx.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.workspaceId, account.workspaceId), eq(tasks.customerId, customer.id), eq(tasks.status, 'open'), eq(tasks.source, '邮件询盘 · IMAP'))).limit(1);
+    if (!existingTask.length) await tx.insert(tasks).values({
+      id: createId('tsk'), workspaceId: account.workspaceId, customerId: customer.id,
+      title: `回复邮件询盘：${customer.company}`, priority: '高', dueAt: now + 86_400_000,
+      dueLabel: '24 小时内', company: customer.company, nextAction: '核验需求、联系人与企业信息后回复',
+      impact: mail.subject || mail.text.slice(0, 240), source: '邮件询盘 · IMAP', status: 'open', createdAt: now, updatedAt: now,
+    });
+    const counts = await tx.select({ total: sql<number>`count(*)`, valid: sql<number>`sum(case when ${inboxContacts.email} is not null or ${inboxContacts.phone} is not null then 1 else 0 end)` }).from(inboxContacts).where(and(eq(inboxContacts.workspaceId, account.workspaceId), eq(inboxContacts.customerId, customer.id)));
+    await tx.update(customers).set({ contacts: counts[0]?.total ?? 0, validContacts: counts[0]?.valid ?? 0, signal: '主动邮件询盘', interaction: mail.subject || customer.interaction, nextAction: '核验询盘需求并在 24 小时内回复', dueAt: now + 86_400_000, archivedAt: null, updatedAt: now }).where(eq(customers.id, customer.id));
+  });
+  await recordCustomerTouchpoint({
+    workspaceId: account.workspaceId,
+    customerId: customer.id,
+    contactId,
+    eventType: 'email_inquiry',
+    source: 'email-inquiry',
+    medium: 'email',
+    externalId: mail.messageId,
+    metadata: { connectionId: account.connectionId, subject: mail.subject },
+    occurredAt: mail.date,
+  });
+  return customer.id;
+};
 
 const deriveImapHost = (smtpHost: string) => {
   if (config.imapHost) return config.imapHost;
@@ -218,7 +301,7 @@ const parseAddresses = (value: unknown): { name: string; address: string } => {
   return { name: "", address: "" };
 };
 
-const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
+export const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
   if (!mail.messageId) return "ignored";
   if (processedMessageIds.has(mail.messageId)) return "duplicate";
   const existing = (await db.$first(db
@@ -305,6 +388,7 @@ const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
                   updatedAt: now,
                 }));
     }
+    customerId = await ensureInboundCustomer(account, contactId, mail, fromAddress, now);
     const threadId = createId("mth");
     (await db.insert(messageThreads)
             .values({
@@ -326,6 +410,14 @@ const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
               updatedAt: now,
             }));
     thread = (await db.$first(db.select().from(messageThreads).where(eq(messageThreads.id, threadId))))!;
+  }
+
+  if (thread && !customerId) {
+    customerId = await ensureInboundCustomer(account, contactId, mail, fromAddress, now);
+    if (customerId) {
+      await db.update(messageThreads).set({ customerId, updatedAt: now }).where(and(eq(messageThreads.id, thread.id), eq(messageThreads.workspaceId, account.workspaceId)));
+      thread = { ...thread, customerId };
+    }
   }
 
   const inboundId = createId("msg");
@@ -377,6 +469,23 @@ const ingestMail = async (account: ImapAccount, mail: ParsedMail) => {
       });
   processedMessageIds.add(mail.messageId);
   if (customerId) await stopCampaignAudienceForCustomer({ workspaceId: account.workspaceId, customerId, reason: "客户回复" });
+  await cancelPendingAutomatedMessagesForThread({ workspaceId: account.workspaceId, threadId: thread.id, reason: '客户已回复，自动取消剩余跟进。' });
+  try {
+    await applyInboundIntentAutomation({
+      workspaceId: account.workspaceId,
+      threadId: thread.id,
+      customerId,
+      fromAddress,
+      subject: mail.subject,
+      body: mail.text || '',
+      receivedAt: mail.date,
+    });
+  } catch (cause) {
+    logger.warn({ threadId: thread.id, error: cause instanceof Error ? cause.message : String(cause) }, "Inbound intent automation failed");
+  }
+  void persistReplySuggestion({ workspaceId: account.workspaceId, threadId: thread.id }).catch(cause => {
+    logger.warn({ threadId: thread.id, error: cause instanceof Error ? cause.message : String(cause) }, "Background reply suggestion failed");
+  });
   logger.info(
     { threadId: thread.id, from: fromAddress, subject: mail.subject },
     "IMAP inbound message ingested",

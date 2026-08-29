@@ -61,6 +61,8 @@ const run = async () => {
     const structured = extractIndustryEntities('<script type="application/ld+json">{"@type":"Organization","name":"测试制造有限公司","url":"https://example.com"}</script>', new URL(`http://127.0.0.1:${port}/directory`), '行业名录')
     assert.equal(structured[0]?.name, '测试制造有限公司')
     assert.equal(structured[0]?.extraction, 'structured')
+    const articleTitle = extractIndustryEntities('<a href="/news">法国电力公司拟在2026年底前为Nuward引入投资者</a>', new URL(`http://127.0.0.1:${port}/directory`), '行业名录')
+    assert.equal(articleTitle.length, 0, 'news headlines containing 公司 must not be treated as company names')
 
     const connector = new IndustrySourceConnector()
     const base = { id: 'task', workspaceId, name: 'Industry test', icp: '工业设备', depth: '标准研究', candidateLimit: 10, targetRegion: '华东', researchLanguage: '中文', seedUrls: [] }

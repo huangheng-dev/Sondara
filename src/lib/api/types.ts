@@ -56,8 +56,9 @@ export type CustomerApiInput = import('../../../server/contracts/customers').Cus
 export type CustomerImportRow = import('../../../server/contracts/customers').CustomerImportRowInput;
 export type CustomerImportResult = { total: number; created: number; duplicates: number; contactsCreated: number; invalid: number };
 export type CustomerImportHistory = { id: string; createdAt: number; sourceName: string; sourceType: string; sourceUrl: string | null; total: number; created: number; duplicates: number; contactsCreated: number };
-export type LeadSourceConnection = { id: string; provider: 'linkedin-lead-gen' | 'meta-lead-ads'; name: string; accountRef: string | null; formRef: string | null; clientId: string | null; enabled: boolean; status: string; hasAccessToken: boolean; accessTokenEnding: string | null; lastError: string | null; lastSyncedAt: number | null; createdAt: number; updatedAt: number; webhookPath: string };
-export type LeadSourceEvent = { id: string; workspaceId: string; connectionId: string; providerEventId: string; processingStatus: string; processingError: string | null; receivedAt: number; processedAt: number | null; payload: Record<string, unknown> };
+export type LeadSourceProvider = 'website-form' | 'generic-webhook' | 'google-ads-lead-form' | 'linkedin-lead-gen' | 'meta-lead-ads';
+export type LeadSourceConnection = { id: string; provider: LeadSourceProvider; name: string; accountRef: string | null; formRef: string | null; clientId: string | null; autoCreateCustomer: boolean; createFollowUpTask: boolean; enabled: boolean; status: string; hasAccessToken: boolean; accessTokenEnding: string | null; accessTokenExpiresAt: number | null; hasRefreshToken: boolean; refreshTokenExpiresAt: number | null; oauthScopes: string | null; hasVerificationSecret: boolean; verificationSecretEnding: string | null; lastError: string | null; lastSyncedAt: number | null; createdAt: number; updatedAt: number; webhookPath: string };
+export type LeadSourceEvent = { id: string; workspaceId: string; connectionId: string; providerEventId: string; processingStatus: 'received' | 'processed' | 'needs_review' | 'failed'; processingError: string | null; customerId: string | null; contactId: string | null; taskId: string | null; receivedAt: number; processedAt: number | null; payload: Record<string, unknown> };
 
 export type CustomerListResponse = {
   items: CustomerApiRecord[];
@@ -70,6 +71,9 @@ export type TaskApiRecord = {
   id: string;
   workspaceId: string;
   customerId: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  actionPath: string | null;
   title: string;
   priority: "高" | "中" | "低";
   dueAt: number | null;
@@ -86,6 +90,9 @@ export type TaskApiRecord = {
 
 export type TaskApiInput = {
   customerId?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  actionPath?: string | null;
   title: string;
   priority?: "高" | "中" | "低";
   dueAt?: number | null;
@@ -101,7 +108,7 @@ export type DealApiRecord = {
   workspaceId: string;
   customerId: string | null;
   company: string;
-  stage: "线索确认" | "需求确认" | "方案评估" | "商务谈判" | "赢单";
+  stage: "线索确认" | "需求确认" | "方案评估" | "商务谈判" | "赢单" | "输单";
   probability: number;
   valueAmount: number;
   currency: "CNY" | "EUR" | "USD";
@@ -110,6 +117,8 @@ export type DealApiRecord = {
   expectedCloseAt: number | null;
   risk: string;
   source: string;
+  outcomeReason: string | null;
+  closedAt: number | null;
   stageEnteredAt: number;
   ownerUserId: string | null;
   createdAt: number;
@@ -128,6 +137,7 @@ export type DealApiInput = {
   expectedCloseAt?: number | null;
   risk?: string;
   source?: string;
+  outcomeReason?: string | null;
 };
 
 export type RadarTaskStatus =
@@ -150,6 +160,9 @@ export type RadarTaskApiRecord = {
   name: string;
   icp: string;
   mode: string;
+  strategy: string;
+  dataSources: string[];
+  intentSignals: string[];
   depth: string;
   candidateLimit: number;
   knowledgeScope: string;
@@ -164,16 +177,157 @@ export type RadarTaskApiRecord = {
   highMatchCount: number;
   lastError: string | null;
   ownerUserId: string | null;
+  acquisitionPlanId: string | null;
+  runNumber: number;
+  triggerType: "manual" | "scheduled" | "catch_up";
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
   updatedAt: number;
 };
 
+export type AcquisitionPlanStatus = "active" | "paused" | "blocked";
+export type AcquisitionPlanApiRecord = {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string | null;
+  name: string;
+  icp: string;
+  mode: string;
+  strategy: string;
+  dataSources: string[];
+  intentSignals: string[];
+  depth: string;
+  candidateLimit: number;
+  dailyCandidateLimit: number;
+  knowledgeScope: string;
+  targetRegion: string;
+  researchLanguage: string;
+  inputSource: string;
+  seedUrls: string[];
+  scheduleType: "manual" | "daily" | "weekdays" | "weekly";
+  runTimeLocal: string;
+  timezone: string;
+  weekdays: number[];
+  enabled: boolean;
+  status: AcquisitionPlanStatus;
+  requireAi: boolean;
+  automationMode: "research_only" | "safe_autopilot";
+  minAutoScore: number;
+  autoPromoteEnabled: boolean;
+  autoOutreachEnabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastSuccessAt: number | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  totalRuns: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type AcquisitionPlanApiInput = RadarTaskApiInput & {
+  scheduleType?: "manual" | "daily" | "weekdays" | "weekly";
+  runTimeLocal?: string;
+  timezone?: string;
+  weekdays?: number[];
+  requireAi?: boolean;
+  automationMode?: "research_only" | "safe_autopilot";
+  autoOutreachEnabled?: boolean;
+  minAutoScore?: number;
+  dailyCandidateLimit?: number;
+  runImmediately?: boolean;
+};
+
+export type AiReadinessApiRecord = {
+  configured: boolean;
+  ready: boolean;
+  serviceCount: number;
+  healthyServiceCount: number;
+  message: string;
+};
+
+export type AcquisitionAutomationBrief = {
+  activePlans: number;
+  blockedPlans: number;
+  pausedPlans: number;
+  newCandidatesToday: number;
+  highMatchToday: number;
+  activeRuns: number;
+  failedRunsToday: number;
+  nextRunAt: number | null;
+  nextPlanName: string | null;
+  aiReadiness: AiReadinessApiRecord;
+  salesGuardian: { highIntentOpen: number; overdueTasks: number; staleDeals: number; guardianTasks: number };
+};
+
+export type AcquisitionPlanPerformance = {
+  planId: string;
+  planName: string;
+  periodDays: number;
+  health: "healthy" | "warning";
+  metrics: {
+    candidates: number; highMatch: number; promoted: number; outreachQueued: number; outreachSent: number;
+    delivered: number; replies: number; highIntent: number; deals: number; failures: number;
+    cancelledFollowUps: number; activeSequences: number; qualificationRate: number; deliveryRate: number;
+    replyRate: number; highIntentRate: number; opportunityRate: number;
+  };
+  sources: Array<{ source: string; candidates: number; highMatch: number; promoted: number; outreach: number; replies: number; qualificationRate: number; replyRate: number; priorityScore: number; priority: "优先" | "标准" | "探索" }>;
+  copyExperiment: {
+    status: "waiting" | "collecting" | "optimizing";
+    winner: "evidence-led" | "problem-led" | null;
+    variants: Array<{
+      variant: "evidence-led" | "problem-led"; label: string; assigned: number; sent: number;
+      replies: number; highIntent: number; replyRate: number; highIntentRate: number; score: number;
+    }>;
+  };
+  recommendations: Array<{ level: "info" | "warning" | "success"; title: string; description: string; actionPath?: string }>;
+};
+
+export type AcquisitionFeedbackLearning = {
+  planId: string;
+  planName: string;
+  periodDays: number;
+  status: "waiting" | "learning" | "active";
+  minimumOutcomes: number;
+  labeledOutcomes: number;
+  positiveOutcomes: number;
+  negativeOutcomes: number;
+  basePositiveRate: number;
+  maxScoreAdjustment: number;
+  message: string;
+  positiveFeatures: Array<{ key: string; kind: "source" | "industry" | "region" | "signal"; label: string; samples: number; positive: number; negative: number; positiveRate: number; adjustment: number }>;
+  riskFeatures: Array<{ key: string; kind: "source" | "industry" | "region" | "signal"; label: string; samples: number; positive: number; negative: number; positiveRate: number; adjustment: number }>;
+};
+
+export type AutomationProductionControl = {
+  state: "not_configured" | "running" | "paused";
+  readyToSend: boolean;
+  activePlans: number;
+  totalPlans: number;
+  pendingMessages: number;
+  awaitingConfiguration: number;
+  nextScheduledAt: number | null;
+  connections: { total: number; healthy: number; inboundReady: number };
+  domainAuth: Array<{ domain: string; spf: boolean; dmarc: boolean; dkim: "provider_check_required" }>;
+  deliveryHealth: {
+    periodDays: number; sent: number; delivered: number; bounced: number; complained: number; unsubscribed: number; failed: number;
+    deliveryRate: number; bounceRate: number; complaintRate: number; unsubscribeRate: number; failureRate: number;
+  };
+  issues: Array<{ level: "warning" | "error"; title: string; description: string; actionPath?: string }>;
+  ramps: Array<{ planId: string; planName: string; limit: number; used: number; remaining: number; stage: string; ageDays: number }>;
+  today: { candidates: number; promoted: number; queued: number; sent: number; replies: number; highIntent: number; deals: number; needsHuman: number };
+  affectedPlans?: number;
+  cancelledMessages?: number;
+};
+
 export type RadarTaskApiInput = {
   name: string;
   icp: string;
   mode?: string;
+  strategy?: string;
+  dataSources?: string[];
+  intentSignals?: string[];
   depth?: string;
   candidateLimit?: number;
   knowledgeScope?: string;
@@ -226,6 +380,17 @@ export type RadarCandidateApiRecord = {
     confidence: number;
   }[];
   relationships: { label: string; value: string }[];
+  intentSignals: {
+    id: string;
+    signalType: string;
+    title: string;
+    summary: string;
+    source: string;
+    sourceUrl: string;
+    scoreBoost: number;
+    observedAt: number;
+    expiresAt: number | null;
+  }[];
   discoveredAt: number;
   updatedAt: number;
 };
@@ -271,11 +436,12 @@ export type AiServiceApiRecord = {
   workspaceId: string;
   name: string;
   provider: "deepseek" | "dashscope" | "openai-compatible";
+  protocol: "openai-responses" | "openai-chat-completions" | "anthropic-messages";
   model: string;
   endpoint: string;
   priority: number;
   enabled: boolean;
-  status: "untested" | "available" | "error";
+  status: "untested" | "available" | "degraded" | "error";
   lastLatencyMs: number | null;
   lastError: string | null;
   lastTestedAt: number | null;
@@ -300,9 +466,9 @@ export type AiServiceKeyApiRecord = {
 export type IntegrationConnectionApiRecord = {
   id: string;
   workspaceId: string;
-  category: "search" | "map";
+  category: "search" | "map" | "procurement";
   name: string;
-  provider: "brave" | "tavily" | "serpapi" | "google" | "bing" | "searxng" | "google-places";
+  provider: "brave" | "tavily" | "serpapi" | "google" | "bing" | "searxng" | "google-places" | "sam-gov" | "ungm";
   endpoint: string;
   priority: number;
   enabled: boolean;
@@ -317,6 +483,64 @@ export type IntegrationConnectionApiRecord = {
   updatedAt: number;
 };
 
+export type ExternalConnectorField = {
+  key: string;
+  label: string;
+  type: "text" | "url" | "password" | "select";
+  required?: boolean;
+  secret?: boolean;
+  options?: string[];
+  placeholder?: string;
+  defaultValue?: string;
+};
+
+export type ExternalConnectorConfiguration = {
+  id: string;
+  connectorKey: string;
+  name: string;
+  enabled: boolean;
+  status: "configured" | "validated" | "available" | "error";
+  settings: Record<string, string>;
+  credentialEndings: Record<string, string>;
+  hasCredentials: boolean;
+  webhookPath: string | null;
+  scheduleEnabled: boolean;
+  scheduleIntervalMinutes: number;
+  scheduleQuery: string | null;
+  perRunLimit: number;
+  dailyLimit: number;
+  nextRunAt: number | null;
+  cursor: string | null;
+  consecutiveFailures: number;
+  pausedReason: string | null;
+  lastRunAt: number | null;
+  lastError: string | null;
+  lastValidatedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ExternalConnectorRunResult = {
+  id: string;
+  status: "completed";
+  fetchedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  cursor: string | null;
+};
+
+export type ExternalConnectorCatalogItem = {
+  key: string;
+  tier: "P2";
+  category: "data-enrichment" | "verification" | "supply-chain" | "crm" | "visitor" | "vertical-data";
+  name: string;
+  description: string;
+  examples: string[];
+  fields: ExternalConnectorField[];
+  configuration: ExternalConnectorConfiguration | null;
+};
+
 export type OutboundConnectionApiRecord = {
   id: string;
   workspaceId: string;
@@ -326,6 +550,9 @@ export type OutboundConnectionApiRecord = {
   port: number;
   secure: boolean;
   username: string;
+  whatsappBusinessAccountId: string | null;
+  whatsappDefaultTemplateName: string | null;
+  whatsappDefaultTemplateLanguage: string | null;
   fromName: string;
   fromEmail: string;
   replyTo: string | null;
@@ -349,6 +576,8 @@ export type OutboundConnectionApiRecord = {
   createdAt: number;
   updatedAt: number;
 };
+
+export type WhatsappTemplateApiRecord = { id: string; connectionId: string; externalId: string | null; name: string; language: string; category: string; status: string; qualityScore: string | null; rejectedReason: string | null; components: unknown[]; lastSyncedAt: number; updatedAt: number };
 
 export type ContactSuppressionApiRecord = {
   id: string;
@@ -668,7 +897,7 @@ export type InboxThreadApiRecord = {
   subject: string;
   channel: string;
   intent: "高意向" | "待判断" | "待跟进";
-  status: "open" | "archived";
+  status: "open" | "closed" | "archived";
   assigneeUserId: string | null;
   lastMessagePreview: string;
   lastMessageAt: number;
@@ -686,7 +915,7 @@ export type InboxMessageApiRecord = {
   direction: "inbound" | "outbound" | "system";
   messageType: string;
   body: string;
-  status: "received" | "draft" | "confirmed" | "sent" | "delivered" | "failed";
+  status: "received" | "draft" | "confirmed" | "sent" | "delivered" | "failed" | "cancelled";
   channel: string;
   senderLabel: string;
   externalId: string | null;
@@ -697,6 +926,54 @@ export type InboxMessageApiRecord = {
   metadata: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
+};
+
+export type InboxReplySuggestionApiRecord = {
+  id?: string;
+  inboundMessageId?: string;
+  version?: number;
+  status: "ready" | "fallback" | "blocked";
+  source: "ai" | "rule" | "none";
+  draft: string;
+  rationale: string;
+  nextAction: string;
+  missingInformation: string[];
+  warnings: string[];
+  language: string;
+  confidence: number;
+  requiresHumanConfirmation: true;
+  generatedAt: number;
+  model?: string;
+  approvedAt?: number | null;
+};
+
+export type WorkspaceNotificationApiRecord = {
+  id: string; workspaceId: string; userId: string | null; notificationType: string;
+  tone: "info" | "success" | "warning" | "error"; title: string; description: string;
+  entityType: string | null; entityId: string | null; actionPath: string | null;
+  readAt: number | null; createdAt: number; updatedAt: number;
+};
+
+export type AutomationEventApiRecord = {
+  id: string; runId: string; stepKey: string; status: string; title: string; description: string;
+  entityType: string | null; entityId: string | null; actionPath: string | null; metadata: Record<string, unknown>; createdAt: number;
+};
+
+export type AutomationRunApiRecord = {
+  id: string; planId: string | null; runType: "live" | "simulation"; triggerType: string; status: string;
+  traceId: string; summary: string; input: Record<string, unknown>; result: Record<string, unknown>;
+  startedAt: number; completedAt: number | null; createdAt: number; events?: AutomationEventApiRecord[];
+};
+
+export type LearningVersionApiRecord = {
+  id: string; planId: string; version: number; status: "candidate" | "active" | "frozen" | "archived";
+  sampleCount: number; positiveRate: number; model: AcquisitionFeedbackLearning; activatedAt: number | null; frozenAt: number | null; createdAt: number;
+};
+
+export type SalesRecommendationApiRecord = {
+  id: string; dealId: string; status: string; title: string; rationale: string; nextAction: string;
+  suggestedStage: string | null; missingInformation: string[]; riskLevel: "low" | "medium" | "high";
+  source: "ai" | "rule"; acceptedAt: number | null; createdAt: number; updatedAt: number;
 };
 
 export type AiPolicyApiRecord = {

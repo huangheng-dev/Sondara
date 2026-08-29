@@ -1,5 +1,5 @@
 import { discoverPlacesWorkspace, hasMapConfiguration, type LocalPlaceResult } from '../../integrations/map-client.js'
-import { ConnectorError, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
 
 const coordinates = (place: LocalPlaceResult) => place.latitude === null || place.longitude === null
   ? ''
@@ -49,7 +49,7 @@ export class MapDiscoveryConnector implements DiscoveryConnector {
   label = '地图与本地企业发现'
 
   async supports(task: RadarTaskContext) {
-    return /智能多渠道|地图找客/.test(task.mode) && (await hasMapConfiguration(task.workspaceId))
+    return effectiveRadarDataSources(task).includes('map') && (await hasMapConfiguration(task.workspaceId))
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {

@@ -27,5 +27,6 @@ export const LEADER_KEYS = {
   outbox: 0x534f4f55, // SOOU
   imap: 0x534f494d, // SOIM
   backup: 0x534f424b, // SOBK
+  externalConnectors: 0x534f4558, // SOEX
+  salesGuardian: 0x534f5347, // SOSG
 } as const;
-

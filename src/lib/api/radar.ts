@@ -1,7 +1,20 @@
 import { request , type ListResponse } from "./core";
-import type { CustomerApiRecord, RadarTaskStatus, RadarCandidateStatus, RadarTaskApiRecord, RadarTaskApiInput, RadarCandidateApiRecord, RadarCandidateApiInput, RadarQueueApiRecord, RadarJobEventApiRecord } from "./types";
+import type { AcquisitionAutomationBrief, AcquisitionFeedbackLearning, AcquisitionPlanApiInput, AcquisitionPlanApiRecord, AcquisitionPlanPerformance, AiReadinessApiRecord, AutomationProductionControl, CustomerApiRecord, RadarTaskStatus, RadarCandidateStatus, RadarTaskApiRecord, RadarTaskApiInput, RadarCandidateApiRecord, RadarCandidateApiInput, RadarQueueApiRecord, RadarJobEventApiRecord } from "./types";
 
 export const radarApi = {
+  listPlans: () => request<ListResponse<AcquisitionPlanApiRecord>>("/radar/plans"),
+  createPlan: (input: AcquisitionPlanApiInput) => request<{
+    plan: AcquisitionPlanApiRecord;
+    initialRun: { task: RadarTaskApiRecord; queue: RadarQueueApiRecord } | null;
+    aiReadiness: AiReadinessApiRecord;
+  }>("/radar/plans", { method: "POST", body: JSON.stringify(input) }),
+  updatePlan: (id: string, input: Partial<AcquisitionPlanApiInput>) => request<AcquisitionPlanApiRecord>(`/radar/plans/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
+  planAction: (id: string, action: "pause" | "resume" | "run" | "archive") => request<{ plan: AcquisitionPlanApiRecord; run?: { task: RadarTaskApiRecord; queue: RadarQueueApiRecord } } | AcquisitionPlanApiRecord>(`/radar/plans/${encodeURIComponent(id)}/actions`, { method: "POST", body: JSON.stringify({ action }) }),
+  automationBrief: () => request<AcquisitionAutomationBrief>("/radar/automation/brief"),
+  automationControl: () => request<AutomationProductionControl>("/radar/automation/control"),
+  setAutomationControl: (action: "pause_all" | "resume_all") => request<AutomationProductionControl>("/radar/automation/control", { method: "POST", body: JSON.stringify({ action }) }),
+  planPerformance: (id: string, days = 30) => request<AcquisitionPlanPerformance>(`/radar/plans/${encodeURIComponent(id)}/performance?days=${days}`),
+  planLearning: (id: string, days = 90) => request<AcquisitionFeedbackLearning>(`/radar/plans/${encodeURIComponent(id)}/learning?days=${days}`),
   listTasks: (
     params: { status?: RadarTaskStatus; page?: number; pageSize?: number } = {},
   ) => {
@@ -94,4 +107,3 @@ export const radarApi = {
     );
   },
 };
-

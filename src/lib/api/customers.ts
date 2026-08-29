@@ -2,6 +2,7 @@ import { request } from "./core";
 import type { CustomerApiRecord, CustomerApiInput, CustomerImportRow, CustomerImportResult, CustomerImportHistory, CustomerListResponse, InboxContactApiRecord } from "./types";
 
 export const customerApi = {
+  summary: () => request<{ total: number; researched: number; contacted: number; replied: number; opportunities: number; won: number; incomplete: number; highIntent: number }>("/customers/summary"),
   list: (
     params: {
       q?: string;
@@ -63,6 +64,8 @@ export const customerApi = {
   },
   addContact: (customerId: string, input: { name: string; jobTitle?: string; email?: string | null; phone?: string | null; primaryChannel?: string }) =>
     request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts`, { method: "POST", body: JSON.stringify(input) }),
+  updateContact: (customerId: string, contactId: string, input: { name?: string; jobTitle?: string; email?: string | null; phone?: string | null; primaryChannel?: string }) =>
+    request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}`, { method: "PATCH", body: JSON.stringify(input) }),
   setWhatsappOptIn: (customerId: string, contactId: string, optedIn: boolean, source = "人工确认") => request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/whatsapp-opt-in`, { method: "POST", body: JSON.stringify({ optedIn, source }) }),
   verifyContact: (customerId: string, contactId: string, status: "verified" | "unverified" | "invalid", source = "人工确认") =>
     request<InboxContactApiRecord>(`/customers/${encodeURIComponent(customerId)}/contacts/${encodeURIComponent(contactId)}/verify`, { method: "POST", body: JSON.stringify({ status, source }) }),

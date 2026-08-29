@@ -39,6 +39,7 @@ output/
 .playwright-amplify/
 playwright-report/
 test-results/
+/artifacts/
 .tmp/
 .workbuddy/
 .workbuddy-ai/

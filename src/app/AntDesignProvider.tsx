@@ -58,6 +58,9 @@ export function AntDesignProvider({ children }: { children: ReactNode }) {
           primaryShadow: '0 5px 14px rgba(79, 70, 229, 0.24)',
           defaultShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
         },
+        Checkbox: {
+          borderRadiusSM: 4,
+        },
         Card: {
           headerBg: 'transparent',
           headerHeight: 56,
@@ -129,8 +132,10 @@ export function AntDesignProvider({ children }: { children: ReactNode }) {
         },
         Form: {
           labelColor: '#34415a',
-          labelFontSize: 13,
-          itemMarginBottom: 18,
+          labelFontSize: 14,
+          labelHeight: 20,
+          itemMarginBottom: 20,
+          verticalLabelPadding: '0 0 6px',
         },
         Pagination: {
           itemActiveBg: '#eef2ff',

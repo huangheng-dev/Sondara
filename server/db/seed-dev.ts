@@ -11,10 +11,10 @@ import { hashPassword } from '../lib/password.js'
 
 if (process.env.NODE_ENV === 'production') throw new Error('开发测试账户不能在生产环境中生成。')
 
-const email = 'demo@sondara.local'
+const email = 'demo@donjoy.local'
 const password = 'Sondara@2026'
-const displayName = 'Sondara 演示账户'
-const workspaceName = 'Sondara 虚构业务演示工作区'
+const displayName = 'DONJOY 外贸管理员'
+const workspaceName = '东正科技有限公司（DONJOY）'
 const now = Date.now()
 const day = 86_400_000
 const passwordHash = await hashPassword(password)
@@ -453,27 +453,32 @@ const radarCandidateRows = radarCandidateSamples.map((sample) => {
 const businessProfile = {
   id: createId('bpr'),
   workspaceId,
-  company: 'NovaFlow Industrial（虚构示例公司）',
-  website: 'https://novaflow.example.com/',
-  products: '虚构工业泵、阀门、执行器、控制器、清洗组件和管件产品线',
-  regions: '虚构市场：华东、华南及海外经销区域',
-  customers: '虚构客户画像：制药工程、半导体设备、新能源材料和食品装备企业',
-  exclusions: '与虚构产品定位无关的普通工业和消费类业务',
-  selectedMarket: '中国生物制药与半导体高洁净设备',
+  company: '东正科技有限公司（DONJOY）',
+  website: 'https://www.donjoypumps.com/',
+  products: '面向海外市场的高洁净流体设备与过程控制解决方案，包括卫生级泵、无菌与卫生级阀门、阀门控制器和执行器、调节阀、罐体清洗、安全控制及 ASME BPE 管件。',
+  regions: '全球海外市场；每次获客任务按国家或区域单独选择',
+  customers: '海外生物制药、食品饮料、乳品与酿酒、半导体、新能源、精细化工和水处理领域的终端工厂、设备制造商、EPC、系统集成商、经销商及代理商',
+  exclusions: '消费类企业、与高洁净流体工艺无关的业务，以及无法核验官网、业务身份或公开来源的联系人',
+  selectedMarket: '海外生物制药与食品饮料高洁净工艺客户',
   analysisStatus: 'complete',
   analysisSummary: JSON.stringify({
-    summary: 'NovaFlow 是仅用于开源演示的虚构工业品牌。本摘要和所有市场判断均为样例数据。',
+    summary: 'DONJOY 面向海外市场提供高洁净泵、卫生级与无菌阀门、阀门控制和工艺管路解决方案，适合围绕洁净生产、过程自动化和工厂扩建场景开展客户开发。',
     publicFacts: [
-      '虚构事实：拥有工业流体产品线',
-      '虚构事实：服务多个演示行业',
-      '虚构事实：支持项目制交付',
+      '产品覆盖卫生级泵、卫生级与无菌阀门、阀门控制器、执行器和调节阀',
+      '公开资料覆盖 ASME BPE、EHEDG、FDA、3-A、PED 等国际标准与认证',
+      '服务生物制药、食品饮料、半导体、新能源、精细化工和水处理应用',
     ],
-    priorityMarkets: [
-      { name: '生物制药 EPC', reason: 'ASME BPE、无菌阀门、CIP/SIP 和验证文件需求明确。' },
-      { name: '半导体湿制程', reason: '316L 高洁净泵阀、阀组控制和执行器接口匹配度高。' },
-      { name: '新能源/电子化学品', reason: '高洁净输送、耐腐蚀密封和清洗系统存在项目制机会。' },
+    recommendedMarkets: [
+      { name: '海外生物制药与制药装备客户', reason: '无菌阀门、高洁净泵和 ASME BPE 管路能力与洁净生产及验证需求匹配。' },
+      { name: '海外食品饮料加工客户', reason: '卫生级泵阀、CIP 清洗和过程控制适用于食品饮料生产线的新建、扩产及设备升级。' },
+      { name: '海外乳品与酿酒工程客户', reason: '乳品和酿酒工艺重视卫生输送、物料隔离、清洗效率与生产线自动化。' },
+      { name: '海外半导体高纯流体客户', reason: '高纯介质输送、洁净管路和精密过程控制适合半导体及相关设备配套场景。' },
+      { name: '海外新能源材料与设备客户', reason: '新能源材料生产和设备配套存在洁净输送、耐腐蚀、计量调节与自动化需求。' },
+      { name: '海外精细化工过程客户', reason: '复杂介质、温压条件和批次控制需要可靠的泵阀选型与过程控制方案。' },
+      { name: '海外水处理与工艺设备客户', reason: '水处理设备制造商、工程商和终端工厂具有持续的泵阀、控制与系统配套需求。' },
+      { name: '海外高洁净设备渠道与系统集成商', reason: '完整的泵、阀门和控制产品组合适合区域分销、设备配套与项目集成。' },
     ],
-    criteria: ['有工程团队或设备集成能力', '出现新建产线、招标、招聘或旧线改造信号', '需要 316L、Ra/EP、3-A/FDA/EHEDG/PED 等文件或控制接口'],
+    criteria: ['具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力', '出现新建工厂、扩产、招标、设备升级或渠道合作信号', '需要卫生级泵、无菌阀门、阀门控制或高洁净管路的技术选型支持'],
   }),
   analyzedAt: now,
   analysisMode: 'local-rules',
@@ -484,14 +489,14 @@ const businessProfile = {
 }
 
 const knowledgeSamples = [
-  { title: 'NovaFlow 虚构公司资料卡', itemType: '公司资料', summary: 'NovaFlow Industrial 是仅用于 Sondara 开源演示的虚构公司，不对应任何真实组织。', source: '虚构示例站点', sourceUrl: 'https://novaflow.example.com/', tags: ['虚构数据', '公司资料', '工业设备'], status: '已启用', referenceCount: 12 },
+  { title: 'DONJOY 公司与海外业务资料', itemType: '公司资料', summary: 'DONJOY 面向国际市场提供高洁净泵、卫生级与无菌阀门、阀门控制器、执行器、调节阀和工艺管路解决方案。', source: 'DONJOY 英文外贸官网', sourceUrl: 'https://www.donjoypumps.com/', tags: ['DONJOY', '公司资料', '海外业务'], status: '已启用', referenceCount: 12 },
   { title: '虚构工业泵技术参数模板', itemType: '产品知识', summary: '示例参数仅用于演示知识检索、内容生成和客户匹配，不代表任何真实产品。', source: '虚构示例站点', sourceUrl: 'https://novaflow.example.com/', tags: ['虚构数据', '产品参数', '演示'], status: '已启用', referenceCount: 9 },
   { title: '工业设备目标行业图谱（虚构）', itemType: '市场知识', summary: '本图谱使用虚构行业需求演示验证文件、材料一致性、耐腐蚀密封、CIP/SIP 和稳定交付等判断维度。', source: '虚构行业整理', sourceUrl: 'https://novaflow.example.com/', tags: ['虚构数据', '行业图谱', '演示'], status: '已启用', referenceCount: 21 },
   { title: 'ASME BPE / EHEDG / FDA / 3-A 认证要点', itemType: '合规知识', summary: '制药和食品客户常要求材质追溯、表面粗糙度、电抛光、密封材料食品级/制药级证明、CIP/SIP 适应性和第三方认证文件。提交资料时应按客户验证目录组织。', source: '行业公开标准说明', sourceUrl: null, tags: ['ASME BPE', 'EHEDG', 'FDA', '3-A', '验证文件'], status: '已启用', referenceCount: 176 },
   { title: '阀门控制器与气动执行器卖点', itemType: '产品知识', summary: '阀组控制方案要明确气源压力、阀位反馈、PLC 信号、NAMUR、电气防护、手动旁路、执行器扭矩和定位器兼容性。半导体与新能源客户尤其关注 IO 清单。', source: '内部销售资料（演示）', sourceUrl: null, tags: ['阀门控制器', '气动执行器', '自控调节阀', 'PLC'], status: '待复核', referenceCount: 58 },
   { title: 'CIP/SIP 清洗技术关注点', itemType: '应用知识', summary: 'CIP 关注流量、压力、清洗球覆盖、死角、回流温度和清洗剂兼容性；SIP 关注纯蒸汽冷凝排放、温度分布、膜片密封和坡度设计。', source: '行业应用整理', sourceUrl: null, tags: ['CIP', 'SIP', '清洗球', '无菌阀门'], status: '已启用', referenceCount: 143 },
   { title: '半导体湿制程客户需求模板', itemType: '客户判断规则', summary: '湿制程客户应确认介质、温度、压力、颗粒物、316L 要求、表面处理、阀组联动、PLC 接口、电气防护、废液回收和验收标准。缺少这些信息时不宜直接报价。', source: '销售方法论（演示）', sourceUrl: null, tags: ['半导体', '湿制程', '需求模板'], status: '已启用', referenceCount: 74 },
-  { title: 'NovaFlow 虚构业务边界', itemType: '客户判断规则', summary: '虚构示例：排除与演示产品定位无关的市场，避免把高洁净产品优势错配到普通工业场景。', source: '虚构定位整理', sourceUrl: null, tags: ['虚构数据', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
+  { title: 'DONJOY 海外客户判断边界', itemType: '客户判断规则', summary: '优先保留具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力的海外企业；排除消费类业务和无法核验公开来源的联系人。', source: 'DONJOY 海外业务定位', sourceUrl: 'https://www.donjoypumps.com/', tags: ['DONJOY', '外贸', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
 ]
 const monthStart = (year: number, month: number) => Date.UTC(year, month, 1)
 const channelCostRows = [
@@ -574,7 +579,7 @@ await db.transaction(async (tx) => {
 const count = async (table: any) =>
   (await db.select().from(table).where(eq(table.workspaceId, workspaceId))).length
 
-console.log(`Sondara fictional demo ready: ${email} / ${password}`)
+console.log(`DONJOY demo ready: ${email} / ${password}`)
 console.log([
   `customers=${(await count(customers))}`, `deals=${(await count(deals))}`, `tasks=${(await count(tasks))}`,
   `contentAssets=${(await count(contentAssets))}`, `campaigns=${(await count(campaigns))}`,

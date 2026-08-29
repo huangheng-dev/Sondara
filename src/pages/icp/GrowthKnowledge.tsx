@@ -14,7 +14,6 @@ import {
   BadgeCheck,
   BookOpenText,
   Building2,
-  CheckCircle2,
   ChevronRight,
   Download,
   Globe2,
@@ -23,7 +22,7 @@ import {
   Link2,
   PackageSearch,
   Plus,
-  RefreshCw,
+  Pencil,
   ShieldCheck,
   Target,
   Trash2,
@@ -44,6 +43,7 @@ import { downloadCsv } from "@/utils/download";
 import { Checkbox, Descriptions, Space, Typography, Upload } from "antd";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PageContainer, SelectionBar, TableToolbar } from "@/components/ui/PageModules";
+import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 import {
   icpApi,
   type KnowledgeItemApiRecord,
@@ -105,6 +105,7 @@ export const GrowthKnowledge = forwardRef<
   GrowthKnowledgeHandle,
   { showToast: (message: string) => void; modal?: boolean }
 >(function GrowthKnowledge({ showToast, modal = false }, ref) {
+  const { canWrite, canDelete } = useWorkspaceAccess();
   const queryClient = useQueryClient();
   const session = queryClient.getQueryData<{ workspace?: { id: string } }>(["auth-session"]);
   const workspaceId = session?.workspace?.id ?? "current";
@@ -112,7 +113,7 @@ export const GrowthKnowledge = forwardRef<
   const [type, setType] = useState<"全部类型" | KnowledgeItemType>("全部类型");
   const [status, setStatus] = useState<"全部状态" | KnowledgeItemStatus>("全部状态");
   const [sort, setSort] = useState<SortKey>("updated_desc");
-  const [dialog, setDialog] = useState<"new" | "url" | null>(null);
+  const [dialog, setDialog] = useState<"new" | "url" | "edit" | null>(null);
   const [selected, setSelected] = useState<KnowledgeItemApiRecord | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -153,11 +154,11 @@ export const GrowthKnowledge = forwardRef<
     openFile: () => fileRef.current?.querySelector<HTMLButtonElement>("button")?.click(),
   }), []);
 
-  const paging = usePagination(items, 6, `${query}|${type}|${status}|${sort}`);
+  const paging = usePagination(items, 10, `${query}|${type}|${status}|${sort}`);
   const pagedItems = paging.pageItems;
 
   const sortIcon = (active: boolean, descending: boolean) => (
-    <span aria-hidden="true">
+    <span className="table-sort-indicator" data-sort-active={active} aria-hidden="true">
       {active ? descending ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
     </span>
   );
@@ -286,11 +287,11 @@ export const GrowthKnowledge = forwardRef<
                 beforeUpload={(file) => { void onFile(file); return Upload.LIST_IGNORE; }}
                 showUploadList={false}
               >
-                <Button><Import />导入资料</Button>
+                <Button disabled={!canWrite}><Import />导入资料</Button>
               </Upload>
             </div>
-            <Button onClick={() => setDialog("url")}><Link2 />添加网页</Button>
-            <Button variant="primary" onClick={() => setDialog("new")}><Plus />新增资料</Button>
+            <Button disabled={!canWrite} onClick={() => setDialog("url")}><Link2 />添加网页</Button>
+            <Button variant="primary" disabled={!canWrite} onClick={() => setDialog("new")}><Plus />新增资料</Button>
         </>} />
       )}
       {modal && <div ref={fileRef} hidden>
@@ -324,54 +325,47 @@ export const GrowthKnowledge = forwardRef<
                 { value: "references_desc", label: "引用最多", icon: <ArrowUpDown /> },
                 { value: "references_asc", label: "引用最少", icon: <ArrowUpDown /> },
               ]} />
-              <Button loading={listQuery.isFetching} onClick={() => { void listQuery.refetch(); showToast("定位资料列表已刷新"); }}>
-                {!listQuery.isFetching && <RefreshCw />}刷新
-              </Button>
               <Button
                 disabled={!query && type === "全部类型" && status === "全部状态" && sort === "updated_desc"}
                 onClick={() => { setQuery(""); setType("全部类型"); setStatus("全部状态"); setSort("updated_desc"); }}>
                 清除筛选
               </Button>
-            </>} selection={selectedIds.size>0 ? <SelectionBar summary={<Space><CheckCircle2/><span>已选择 {selectedIds.size} 条资料</span></Space>} actions={<>
+            </>} selection={selectedIds.size>0 ? <SelectionBar count={selectedIds.size} unit="条资料" actions={<>
                 <Button onClick={() => bulkStatus("已启用")}>启用引用</Button>
                 <Button onClick={() => bulkStatus("已停用")}>停用引用</Button>
                 <Button onClick={exportSelected}><Download />导出所选</Button>
-                <Button onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>
+                {canDelete && <Button onClick={() => setConfirmBulkDelete(true)}>删除所选</Button>}
                 <Button aria-label="取消选择" title="取消选择" onClick={() => setSelectedIds(new Set())}><X /></Button>
               </>} /> : undefined}/>
-          {pagedItems.length ? (
-            <>
+          {listQuery.isError ? <EmptyState title="定位资料加载失败" description={listQuery.error instanceof Error ? listQuery.error.message : "请稍后重试"} icon={BookOpenText}/> : <>
               <DataTable
+                loading={listQuery.isFetching}
                 columns={[
-                  { key: "select", title: <span><Checkbox aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
+                  { key: "select", title: <span><Checkbox disabled={!canWrite} aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
                   { key: "title", title: <Button onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
                   { key: "type", title: "类型" }, { key: "status", title: "状态" }, { key: "source", title: "来源" },
                   { key: "usage", title: <Button onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
                   { key: "updated", title: <Button onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
-                  { key: "actions", title: "操作", width: 72 },
+                  { key: "actions", title: "操作", width: 104 },
                 ]}
                 rows={pagedItems.map(item => { const Icon = typeIcons[item.itemType as KnowledgeItemType] ?? Layers3; return { key: item.id, className: selectedIds.has(item.id) ? "selected" : "", cells: [
-                  <Checkbox aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} />,
-                  <Button type="link" onClick={() => setSelected(item)}><Icon /><Space direction="vertical" size={0}><Typography.Text strong>{item.title}</Typography.Text><Typography.Text type="secondary" ellipsis>{item.summary}</Typography.Text></Space></Button>,
+                  <Checkbox disabled={!canWrite} aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} />,
+                  <Button type="link" onClick={() => setSelected(item)}><Icon /><Space orientation="vertical" size={0}><Typography.Text strong>{item.title}</Typography.Text><Typography.Text type="secondary" ellipsis>{item.summary}</Typography.Text></Space></Button>,
                   <Badge tone="blue">{item.itemType}</Badge>,
                   <Badge tone={item.status === "已启用" ? "green" : item.status === "待复核" ? "orange" : "neutral"}>{item.status}</Badge>,
-                  <Space direction="vertical" size={0}><Typography.Text strong>{item.source}</Typography.Text><Typography.Text type="secondary">{item.sourceUrl || "保留来源记录"}</Typography.Text></Space>,
-                  <Space direction="vertical" size={0}><Typography.Text strong>{item.referenceCount} 次</Typography.Text><Typography.Text type="secondary">累计引用</Typography.Text></Space>,
+                  <Space orientation="vertical" size={0}><Typography.Text strong>{item.source}</Typography.Text><Typography.Text type="secondary">{item.sourceUrl || "保留来源记录"}</Typography.Text></Space>,
+                  <Space orientation="vertical" size={0}><Typography.Text strong>{item.referenceCount} 次</Typography.Text><Typography.Text type="secondary">累计引用</Typography.Text></Space>,
                   <Typography.Text>{formatUpdated(item.updatedAt)}</Typography.Text>,
                   <Button aria-label={`查看 ${item.title}`} title="查看资料" onClick={() => setSelected(item)}><ChevronRight /></Button>,
                 ] }; })}
               />
-              <Pagination
+              {!listQuery.isLoading && items.length > 0 ? <Pagination
                 page={paging.page} pageSize={paging.pageSize} total={items.length}
                 onPageChange={paging.setPage} onPageSizeChange={paging.setPageSize}
-                pageSizeOptions={[6, 10, 20]} itemName="条资料"
-              />
-            </>
-          ) : listQuery.isLoading ? (
-            <EmptyState spinning title="正在加载定位资料" description="从工作区读取中…" icon={RefreshCw} />
-          ) : (
-            <EmptyState title="暂无定位资料" icon={BookOpenText} />
-          )}
+                itemName="条资料"
+              /> : null}
+              {!listQuery.isLoading && items.length === 0 ? <EmptyState title="暂无定位资料" icon={BookOpenText} /> : null}
+            </>}
       </Panel>
 
       <CreateDialog open={dialog === "new"} title="新增客户定位资料"
@@ -393,22 +387,29 @@ export const GrowthKnowledge = forwardRef<
           { name: "title", label: "来源名称", required: true },
           { name: "url", label: "网页地址", required: true, placeholder: "https://example.com/article" },
           { name: "type", label: "知识类型", type: "select", required: true, options: knowledgeTypeOptions.map(option => option.label) },
-          { name: "market", label: "适用市场", placeholder: "例如：德国食品设备" },
+          { name: "market", label: "适用市场", placeholder: "例如：全球油气与石化项目业主及 EPC" },
         ]} />
-      <Modal open={Boolean(selected) && !confirmDelete}
+      <CreateDialog open={dialog === "edit" && Boolean(selected)} title={`编辑资料 · ${selected?.title ?? ''}`}
+        description="更新资料内容、类型、关键词和来源说明。已启用状态保持不变。"
+        submitLabel="保存修改" successMessage="定位资料已更新"
+        onClose={() => { setDialog(null); setSelected(null); }} onSubmit={async values => { if (!selected) return false; await icpApi.updateKnowledge(selected.id, { title: values.title, itemType: values.type as KnowledgeItemType, summary: values.content, tags: values.tags.split(/[，,]/).map(value => value.trim()).filter(Boolean), source: values.source }); await invalidate(); setDialog(null); setSelected(null); }}
+        initialValues={selected ? { title: selected.title, type: selected.itemType, content: selected.summary, tags: selected.tags.join('，'), source: selected.source } : undefined}
+        fields={[{ name: "title", label: "资料标题", required: true }, { name: "type", label: "资料类型", type: "select", required: true, options: knowledgeTypeOptions.map(option => option.label) }, { name: "content", label: "资料内容", type: "textarea", required: true }, { name: "tags", label: "关键词标签" }, { name: "source", label: "来源说明" }]} />
+      <Modal open={Boolean(selected) && !confirmDelete && dialog !== 'edit'}
         title={selected?.title ?? ""}
         description={`${selected?.itemType ?? ""} · ${selected?.source ?? ""}`}
         onClose={() => setSelected(null)}
         footer={
           <>
-            <Button variant="danger" onClick={() => setConfirmDelete(true)}><Trash2 />删除</Button>
-            <Button onClick={() => selected && toggle(selected)}>
+            {canDelete && <Button variant="danger" onClick={() => setConfirmDelete(true)}><Trash2 />删除</Button>}
+            {canWrite && <Button onClick={() => { setDialog('edit'); }}><Pencil />编辑</Button>}
+            {canWrite && <Button onClick={() => selected && toggle(selected)}>
               {selected?.status === "已启用" ? "停用引用" : "启用引用"}
-            </Button>
+            </Button>}
             <Button variant="primary" onClick={() => setSelected(null)}>完成</Button>
           </>
         }>
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="large" style={{ width: "100%" }}>
           <Space wrap>
             <Badge tone={selected?.status === "已启用" ? "green" : "orange"}>{selected?.status}</Badge>
             <Typography.Text type="secondary">更新于 {formatUpdated(selected?.updatedAt)}</Typography.Text>
@@ -425,7 +426,7 @@ export const GrowthKnowledge = forwardRef<
           ]}/>
         </Space>
       </Modal>
-      <Modal open={confirmDelete} title="删除知识条目" description="删除后不会再参与后续客户研究。"
+      <Modal open={confirmDelete} title="删除知识条目" description="删除后不会再参与后续客户研究。" descriptionTone="warning"
         onClose={() => setConfirmDelete(false)}
         footer={
           <>
@@ -435,7 +436,7 @@ export const GrowthKnowledge = forwardRef<
         }>
         <Typography.Paragraph>历史客户研究结果会保留，但将失去这条知识的后续引用。你也可以选择停用，以便将来恢复。</Typography.Paragraph>
       </Modal>
-      <Modal open={confirmBulkDelete} title="删除所选资料" description={`将删除已选择的 ${selectedIds.size} 条资料。`}
+      <Modal open={confirmBulkDelete} title="删除所选资料" description={`将删除已选择的 ${selectedIds.size} 条资料。`} descriptionTone="warning"
         onClose={() => setConfirmBulkDelete(false)}
         footer={
           <>

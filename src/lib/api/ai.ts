@@ -12,6 +12,7 @@ export const aiApi = {
   createService: (input: {
     name: string;
     provider: AiServiceApiRecord["provider"];
+    protocol?: AiServiceApiRecord["protocol"];
     model?: string;
     endpoint?: string;
     priority?: number;
@@ -20,12 +21,24 @@ export const aiApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  createConnection: (input: {
+    name: string;
+    protocol: AiServiceApiRecord["protocol"];
+    endpoint: string;
+    model: string;
+    keyName: string;
+    secret: string;
+    priority?: number;
+  }) => request<AiServiceApiRecord>("/ai/services/connections", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
   updateService: (
     id: string,
     input: Partial<
       Pick<
         AiServiceApiRecord,
-        "name" | "model" | "endpoint" | "priority" | "enabled"
+        "name" | "protocol" | "model" | "endpoint" | "priority" | "enabled"
       >
     >,
   ) =>
@@ -33,6 +46,12 @@ export const aiApi = {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  replaceKey: (id: string, input: { name: string; secret: string }) =>
+    request<{ serviceId: string; ending: string; updatedAt: number }>(`/ai/services/${encodeURIComponent(id)}/key`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteService: (id: string) => request<void>(`/ai/services/${encodeURIComponent(id)}`, { method: "DELETE" }),
   listKeys: (serviceId: string) =>
     request<{ items: AiServiceKeyApiRecord[] }>(
       `/ai/services/${encodeURIComponent(serviceId)}/keys`,

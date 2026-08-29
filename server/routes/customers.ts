@@ -2,10 +2,11 @@ import type { FastifyPluginAsync } from 'fastify'
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
-import { auditLogs, campaignAudienceMembers, customerTags, customers, deals, inboxContacts, messageThreads, tasks, users, workspaceMembers } from '../db/schema.js'
+import { auditLogs, campaignAudienceMembers, companySignals, customerTags, customerTouchpoints, customers, deals, inboxContacts, messageEntries, messageThreads, tasks, users, workspaceMembers } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { pickProvided } from '../lib/input.js'
-import { requireAuth } from '../plugins/auth.js'
+import { requireAuth, requirePermission } from '../plugins/auth.js'
+import { recordCustomerTouchpoint } from '../leads/touchpoints.js'
 import {
   customerImportInputSchema,
   customerInputSchema,
@@ -80,6 +81,40 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     return { items, page: query.page, pageSize: query.pageSize, total }
   })
 
+  app.get('/summary', async request => {
+    const workspaceId = request.auth.workspaceId
+    const activeCustomers = await db.select({ id: customers.id, stage: customers.stage, validContacts: customers.validContacts })
+      .from(customers)
+      .where(and(eq(customers.workspaceId, workspaceId), isNull(customers.archivedAt)))
+    const contactedRows = await db.selectDistinct({ customerId: messageThreads.customerId })
+      .from(messageThreads)
+      .innerJoin(messageEntries, eq(messageEntries.threadId, messageThreads.id))
+      .where(and(
+        eq(messageThreads.workspaceId, workspaceId),
+        isNotNull(messageThreads.customerId),
+        eq(messageEntries.direction, 'outbound'),
+        inArray(messageEntries.status, ['sent', 'delivered']),
+      ))
+    const repliedRows = await db.selectDistinct({ customerId: messageThreads.customerId })
+      .from(messageThreads)
+      .where(and(eq(messageThreads.workspaceId, workspaceId), isNotNull(messageThreads.customerId), isNotNull(messageThreads.lastInboundAt)))
+    const dealRows = await db.select({ customerId: deals.customerId, stage: deals.stage })
+      .from(deals)
+      .where(and(eq(deals.workspaceId, workspaceId), isNotNull(deals.customerId)))
+    const activeIds = new Set(activeCustomers.map(customer => customer.id))
+    const countActive = (rows: Array<{ customerId: string | null }>) => new Set(rows.map(row => row.customerId).filter((id): id is string => Boolean(id && activeIds.has(id)))).size
+    return {
+      total: activeCustomers.length,
+      researched: activeCustomers.filter(customer => customer.validContacts > 0).length,
+      contacted: countActive(contactedRows),
+      replied: countActive(repliedRows),
+      opportunities: countActive(dealRows.filter(deal => deal.stage !== '赢单')),
+      won: countActive(dealRows.filter(deal => deal.stage === '赢单')),
+      incomplete: activeCustomers.filter(customer => customer.validContacts === 0).length,
+      highIntent: activeCustomers.filter(customer => customer.stage === '重点跟进' || customer.stage === '有商机').length,
+    }
+  })
+
   app.post('/', async (request, reply) => {
     const parsed = customerInputSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
@@ -101,8 +136,9 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     const seen = new Set<string>()
     let created = 0; let duplicates = 0; let contactsCreated = 0; let invalid = 0
     const source = `${parsed.data.sourceType} · ${parsed.data.sourceName}${parsed.data.sourceUrl ? ` · ${parsed.data.sourceUrl}` : ''}`.slice(0, 120)
+    const importedTouchpoints: Array<{ customerId: string; externalId: string }> = []
     await db.transaction(async tx => {
-      for (const row of parsed.data.rows) {
+      for (const [rowIndex, row] of parsed.data.rows.entries()) {
         const key = row.company.trim().toLocaleLowerCase()
         if (seen.has(key)) { duplicates += 1; continue }
         seen.add(key)
@@ -113,6 +149,7 @@ export const customerRoutes: FastifyPluginAsync = async app => {
           customer = { id, company: row.company, contacts: 0, validContacts: 0 }
           customerByCompany.set(key, customer); created += 1
         } else duplicates += 1
+        importedTouchpoints.push({ customerId: customer.id, externalId: `${parsed.data.sourceName}:${now}:${rowIndex}` })
         if (!row.contactName) continue
         const contactExists = await db.$first(tx.select({ id: inboxContacts.id }).from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.company, customer.company), eq(inboxContacts.name, row.contactName))))
         if (contactExists) continue
@@ -123,6 +160,18 @@ export const customerRoutes: FastifyPluginAsync = async app => {
         await tx.update(customers).set({ contacts: customer.contacts, validContacts: customer.validContacts, updatedAt: now }).where(eq(customers.id, customer.id))
       }
     })
+    for (const touchpoint of importedTouchpoints) await recordCustomerTouchpoint({
+      workspaceId: request.auth.workspaceId,
+      customerId: touchpoint.customerId,
+      eventType: 'customer_imported',
+      source: parsed.data.sourceType,
+      medium: 'file-import',
+      campaign: parsed.data.sourceName,
+      landingPage: parsed.data.sourceUrl,
+      externalId: touchpoint.externalId,
+      metadata: { sourceName: parsed.data.sourceName, sourceType: parsed.data.sourceType },
+      occurredAt: now,
+    })
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.imported', null, { sourceName: parsed.data.sourceName, sourceType: parsed.data.sourceType, sourceUrl: parsed.data.sourceUrl ?? null, total: parsed.data.rows.length, created, duplicates, contactsCreated, invalid })
     return reply.code(201).send({ total: parsed.data.rows.length, created, duplicates, contactsCreated, invalid })
   })
@@ -130,6 +179,22 @@ export const customerRoutes: FastifyPluginAsync = async app => {
   app.get('/imports', async request => {
     const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.workspaceId, request.auth.workspaceId), eq(auditLogs.action, 'customer.imported'))).orderBy(desc(auditLogs.createdAt)).limit(100)
     return { items: rows.map(row => ({ id: row.id, createdAt: row.createdAt, ...(JSON.parse(row.metadata) as { sourceName: string; sourceType: string; sourceUrl: string | null; total: number; created: number; duplicates: number; contactsCreated: number }) })) }
+  })
+
+  app.get('/:id/touchpoints', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const customer = await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId))))
+    if (!customer) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const items = await db.select().from(customerTouchpoints).where(and(eq(customerTouchpoints.workspaceId, request.auth.workspaceId), eq(customerTouchpoints.customerId, id))).orderBy(desc(customerTouchpoints.occurredAt)).limit(200)
+    return { items: items.map(item => ({ ...item, metadata: (() => { try { return JSON.parse(item.metadataJson) } catch { return {} } })(), metadataJson: undefined })) }
+  })
+
+  app.get('/:id/signals', async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const customer = await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId))))
+    if (!customer) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const items = await db.select().from(companySignals).where(and(eq(companySignals.workspaceId, request.auth.workspaceId), eq(companySignals.customerId, id))).orderBy(desc(companySignals.observedAt)).limit(200)
+    return { items: items.map(item => ({ ...item, metadata: (() => { try { return JSON.parse(item.metadataJson) } catch { return {} } })(), metadataJson: undefined })) }
   })
 
   app.get('/merge-suggestions', async request => {
@@ -311,10 +376,19 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     return { ...updated, scoreOverrideByName: updated.scoreOverrideByUserId ? allUsers.get(updated.scoreOverrideByUserId) ?? null : null }
   })
 
-  app.delete('/:id', async (request, reply) => {
+  app.delete('/:id', { preHandler: requirePermission('data.delete') }, async (request, reply) => {
     const id = (request.params as { id: string }).id
     const existing = (await db.$first(db.select({ id: customers.id, company: customers.company }).from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))))
     if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: '客户不存在。' })
+    const [relations] = await db.select({
+      tasks: sql<number>`(select count(*) from ${tasks} where ${tasks.customerId} = ${id})`,
+      deals: sql<number>`(select count(*) from ${deals} where ${deals.customerId} = ${id})`,
+      threads: sql<number>`(select count(*) from ${messageThreads} where ${messageThreads.customerId} = ${id})`,
+      campaigns: sql<number>`(select count(*) from ${campaignAudienceMembers} where ${campaignAudienceMembers.customerId} = ${id})`,
+    }).from(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
+    if ((relations?.tasks ?? 0) + (relations?.deals ?? 0) + (relations?.threads ?? 0) + (relations?.campaigns ?? 0) > 0) {
+      return reply.code(409).send({ error: 'CUSTOMER_HAS_HISTORY', message: '该客户已有任务、商机、会话或活动记录，请改用归档以保留业务历史。' })
+    }
     await db.delete(customers).where(and(eq(customers.id, id), eq(customers.workspaceId, request.auth.workspaceId)))
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.deleted', id, { company: existing.company })
     return reply.code(204).send()
@@ -409,6 +483,36 @@ export const customerRoutes: FastifyPluginAsync = async app => {
     await db.update(customers).set({ contacts: counts?.total ?? 0, validContacts: counts?.valid ?? 0, updatedAt: now }).where(eq(customers.id, id))
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.contact_created', record.id, { customerId: id })
     return reply.code(201).send(record)
+  })
+
+  app.patch('/:id/contacts/:contactId', async (request, reply) => {
+    const customerId = (request.params as { id: string }).id
+    const contactId = (request.params as { contactId: string }).contactId
+    const parsed = z.object({
+      name: z.string().trim().min(1).max(100).optional(),
+      jobTitle: z.string().trim().max(120).optional(),
+      email: z.string().trim().email().nullable().optional(),
+      phone: z.string().trim().max(50).nullable().optional(),
+      primaryChannel: z.string().trim().max(50).optional(),
+    }).refine(value => Object.keys(value).length > 0, '至少提供一个要更新的字段。').safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const contact = await db.$first(db.select().from(inboxContacts).where(and(eq(inboxContacts.id, contactId), eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, customerId))))
+    if (!contact) return reply.code(404).send({ error: 'NOT_FOUND', message: '联系人不存在。' })
+    const now = Date.now()
+    const identityChanged = parsed.data.email !== undefined || parsed.data.phone !== undefined
+    try {
+      await db.update(inboxContacts).set({
+        ...parsed.data,
+        ...(identityChanged ? { verificationStatus: 'unverified', verifiedAt: null, verificationSource: null } : {}),
+        updatedAt: now,
+      }).where(eq(inboxContacts.id, contactId))
+    } catch {
+      return reply.code(409).send({ error: 'CONTACT_EXISTS', message: '该客户已存在同名联系人。' })
+    }
+    const counts = await db.$first(db.select({ total: sql<number>`count(*)`, reachable: sql<number>`sum(case when ${inboxContacts.email} is not null or ${inboxContacts.phone} is not null then 1 else 0 end)` }).from(inboxContacts).where(eq(inboxContacts.customerId, customerId)))
+    await db.update(customers).set({ contacts: counts?.total ?? 0, validContacts: counts?.reachable ?? 0, updatedAt: now }).where(and(eq(customers.id, customerId), eq(customers.workspaceId, request.auth.workspaceId)))
+    await writeAudit(request.auth.workspaceId, request.auth.userId, 'customer.contact_updated', contactId, { customerId, fields: Object.keys(parsed.data), verificationReset: identityChanged })
+    return await db.$first(db.select().from(inboxContacts).where(eq(inboxContacts.id, contactId)))
   })
 
   app.post('/:id/contacts/:contactId/whatsapp-opt-in', async (request, reply) => {

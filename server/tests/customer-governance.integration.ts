@@ -102,6 +102,25 @@ const run = async () => {
       payload: { name: 'Anna Meyer', email: 'anna@primary.example.com' },
     })
     assert.equal(primarySharedContact.statusCode, 201, primarySharedContact.body)
+    const verifiedContact = await app.inject({
+      method: 'POST',
+      url: `/api/customers/${primaryId}/contacts/${primarySharedContact.json().id}/verify`,
+      headers,
+      payload: { status: 'verified', source: '测试验证' },
+    })
+    assert.equal(verifiedContact.statusCode, 200, verifiedContact.body)
+    assert.equal(verifiedContact.json().verificationStatus, 'verified')
+    const editedContact = await app.inject({
+      method: 'PATCH',
+      url: `/api/customers/${primaryId}/contacts/${primarySharedContact.json().id}`,
+      headers,
+      payload: { jobTitle: '采购负责人', email: 'anna.updated@primary.example.com' },
+    })
+    assert.equal(editedContact.statusCode, 200, editedContact.body)
+    assert.equal(editedContact.json().jobTitle, '采购负责人')
+    assert.equal(editedContact.json().email, 'anna.updated@primary.example.com')
+    assert.equal(editedContact.json().verificationStatus, 'unverified')
+    assert.equal(editedContact.json().verifiedAt, null)
     const duplicateSharedContact = await app.inject({
       method: 'POST',
       url: `/api/customers/${duplicateId}/contacts`,
@@ -223,7 +242,7 @@ const run = async () => {
     assert.equal(primaryContacts.statusCode, 200, primaryContacts.body)
     assert.equal(primaryContacts.json().items.length, 2)
     const mergedShared = primaryContacts.json().items.find((item: { name: string }) => item.name === 'Anna Meyer')
-    assert.equal(mergedShared.email, 'anna@primary.example.com')
+    assert.equal(mergedShared.email, 'anna.updated@primary.example.com')
     assert.equal(mergedShared.phone, '+49 555 0100')
     const duplicateContacts = await app.inject({ method: 'GET', url: `/api/customers/${duplicateId}/contacts`, headers })
     assert.equal(duplicateContacts.statusCode, 200, duplicateContacts.body)
@@ -267,5 +286,3 @@ run().then(
   () => process.exit(0),
   error => { console.error(error); process.exit(1) },
 )
-
-

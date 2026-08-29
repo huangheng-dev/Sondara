@@ -2,7 +2,7 @@ import { hasSearchConfiguration, searchWorkspace, type SearchResult } from '../.
 import { isExcludedHost } from './host-blocklist.js'
 import { fetchPublicPage, normalizeCompanyName } from './website-seed.js'
 import { isLikelyOverseasProspect, isOverseasMarket } from './prospect-quality.js'
-import { ConnectorError, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
 
 type IndustryMode = '行业名录' | '展会协会' | '招投标项目'
 type IndustryEntity = { name: string; url: string; region: string; evidenceTitle: string; extraction: 'structured' | 'page' | 'search' }
@@ -16,10 +16,11 @@ const modeMeta: Record<IndustryMode, { source: string; signal: string; query: st
 const cleanText = (value: string) => value.replace(/<script(?![^>]*application\/ld\+json)[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/&amp;/gi, '&').replace(/&#39;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, ' ').trim()
 const normalizeName = (value: string) => normalizeCompanyName(cleanText(value)).replace(/^[\s·•|–—-]+|[\s·•|–—-]+$/g, '').replace(/\s+(?:member|exhibitor|supplier|vendor|profile|company)\s*$/i, '').slice(0, 160)
 const NAV_DENYLIST = /(?:公司新闻|公司通讯|公司简介|公司概况|新闻中心|产品中心|关于我们|联系我们|招贤纳士|人才招聘|服务支持|下载中心|解决方案|成功案例|资质荣誉|企业文化|发展历程|组织架构|营销网络|售后服务|常见问题|网站地图|法律声明|隐私政策|会员登录|用户注册|english|首页)/i
-const ORGANIZATION_SUFFIX = /(?:有限公司|股份有限公司|有限责任公司|集团有限公司|集团|工厂|研究院|设计院|研究所|公司|\b(?:Ltd\.?|Limited|GmbH|AG|Inc\.?|Corp\.?|Corporation|LLC|Co\.?|Company|S\.A\.?|S\.r\.l\.?|B\.V\.?|Oy|OÜ)\b)/i
+const PERSON_ROLE_NOISE = /(?:负责人|总经理|经理|总监|主管|分析师|研究员|职员|工程师|教授|主席|董事|顾问)/
+const ORGANIZATION_SUFFIX = /(?:有限公司|股份有限公司|有限责任公司|集团有限公司|集团|工厂|研究院|设计院|研究所|公司|\b(?:Ltd\.?|Limited|GmbH|AG|Inc\.?|Corp\.?|Corporation|LLC|Co\.?|Company|S\.A\.?|S\.r\.l\.?|B\.V\.?|Oy|OÜ)\b)\s*$/i
 const organizationLike = (value: string) => {
   const name = normalizeName(value)
-  if (name.length < 4 || name.length > 60 || NAV_DENYLIST.test(name)) return false
+  if (name.length < 4 || name.length > 60 || NAV_DENYLIST.test(name) || PERSON_ROLE_NOISE.test(name)) return false
   return ORGANIZATION_SUFFIX.test(name)
 }
 const safeUrl = (value: unknown, pageUrl: URL) => {
@@ -97,15 +98,21 @@ const resultFallbackEntity = (result: SearchResult): IndustryEntity | null => {
   return { name, url: result.url, region: '', evidenceTitle: result.title, extraction: 'search' }
 }
 
-const modeList = (task: RadarTaskContext): IndustryMode[] => task.mode === '智能多渠道' ? ['行业名录', '展会协会', '招投标项目'] : [task.mode as IndustryMode]
+const modeList = (task: RadarTaskContext): IndustryMode[] => {
+  const sources = effectiveRadarDataSources(task)
+  return [
+    sources.includes('industry-directory') ? '行业名录' as const : null,
+    sources.includes('trade-show') ? '展会协会' as const : null,
+    sources.includes('procurement') ? '招投标项目' as const : null,
+  ].filter((value): value is IndustryMode => value !== null)
+}
 
 export class IndustrySourceConnector implements DiscoveryConnector {
   id = 'industry-source'
   label = '行业与公开机会来源'
 
   async supports(task: RadarTaskContext) {
-    const explicit = /行业名录|展会协会|招投标项目/.test(task.mode)
-    return (task.mode === '智能多渠道' && (await hasSearchConfiguration(task.workspaceId))) || (explicit && ((await hasSearchConfiguration(task.workspaceId)) || task.seedUrls.length > 0))
+    return modeList(task).length > 0 && ((await hasSearchConfiguration(task.workspaceId)) || task.seedUrls.length > 0)
   }
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
@@ -126,7 +133,10 @@ export class IndustrySourceConnector implements DiscoveryConnector {
         } catch (cause) { errors.push(cause instanceof Error ? cause.message : `${mode}搜索失败`) }
       }
     }
-    if (task.mode !== '智能多渠道') task.seedUrls.forEach(url => pages.set(url, { mode: task.mode as IndustryMode }))
+    if (task.seedUrls.length) {
+      const fallbackMode = modes[0] ?? '行业名录'
+      task.seedUrls.forEach(url => pages.set(url, { mode: fallbackMode }))
+    }
     const discovered: { entity: IndustryEntity; mode: IndustryMode; sourceUrl: string; sourceLabel: string }[] = []
     for (const [index, [sourceUrl, context]] of [...pages.entries()].slice(0, 18).entries()) {
       onProgress(`正在核验行业来源 ${index + 1}/${Math.min(pages.size, 18)}`, 34 + Math.round(index / Math.max(1, Math.min(pages.size, 18)) * 48))

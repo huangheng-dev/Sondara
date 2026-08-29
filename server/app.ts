@@ -30,6 +30,9 @@ import { staticRoutes } from "./routes/static.js";
 import { adminRoutes } from "./routes/admin.js";
 import { approvalRoutes } from "./routes/approvals.js";
 import { leadSourceRoutes } from "./routes/lead-sources.js";
+import { procurementRoutes } from "./routes/procurement.js";
+import { externalConnectorWebhookRoutes } from "./routes/external-connector-webhooks.js";
+import { automationRoutes } from "./routes/automation.js";
 import { captureObservabilityException } from "./lib/observability.js";
 
 export const buildApp = async () => {
@@ -44,6 +47,16 @@ export const buildApp = async () => {
     trustProxy: config.trustProxy,
     requestIdHeader: 'x-request-id',
     genReqId: () => randomUUID(),
+  });
+  // Preserve the exact JSON bytes for webhook signature verification while
+  // keeping the same parsed request.body contract for all existing routes.
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
+    const rawBody = body as Buffer;
+    (request as typeof request & { rawBody?: Buffer }).rawBody = rawBody;
+    if (!rawBody.length) return done(null, null);
+    try { done(null, JSON.parse(rawBody.toString('utf8'))); }
+    catch (cause) { done(cause instanceof Error ? cause : new Error('请求 JSON 格式无效。'), undefined); }
   });
   await app.register(cookie);
   await app.register(cors, { origin: config.webOrigin, credentials: true });
@@ -86,6 +99,9 @@ export const buildApp = async () => {
   await app.register(adminRoutes, { prefix: "/api/admin" });
   await app.register(approvalRoutes, { prefix: "/api/approvals" });
   await app.register(leadSourceRoutes, { prefix: "/api/lead-sources" });
+  await app.register(procurementRoutes, { prefix: "/api/procurement" });
+  await app.register(externalConnectorWebhookRoutes, { prefix: "/api/external-connectors" });
+  await app.register(automationRoutes, { prefix: "/api/automation" });
 
   // Serve built frontend in production (when dist/ exists)
   const distDir = resolve(process.cwd(), "dist");

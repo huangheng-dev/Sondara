@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { buildApp } from '../app.js'
 import { db } from '../db/client.js'
-import { passwordResetTokens, users } from '../db/schema.js'
+import { passwordResetTokens, radarTasks, users } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { hashSessionToken } from '../lib/session.js'
 
@@ -58,6 +58,34 @@ const run = async () => {
     const customer = await app.inject({ method: 'POST', url: '/api/customers', headers: { cookie: ownerCookie }, payload: { company: '闭环客户有限公司', region: '德国', industry: '工业设备', score: 93, ownerUserId: memberId } })
     assert.equal(customer.statusCode, 201, customer.body)
     const customerId = customer.json().id
+    const domesticCandidate = await app.inject({ method: 'POST', url: '/api/radar/candidates', headers: { cookie: ownerCookie }, payload: { company: '华东流程设备有限公司', region: '中国 · 江苏', industry: '工业设备', score: 78, source: '用户自定义区域' } })
+    assert.equal(domesticCandidate.statusCode, 201, domesticCandidate.body)
+    const domesticPromotion = await app.inject({ method: 'POST', url: `/api/radar/candidates/${domesticCandidate.json().id}/promote`, headers: { cookie: ownerCookie } })
+    assert.equal(domesticPromotion.statusCode, 201, domesticPromotion.body)
+    assert.equal(domesticPromotion.json().customer.region, '中国 · 江苏')
+    const customerSummary = await app.inject({ method: 'GET', url: '/api/customers/summary', headers: { cookie: ownerCookie } })
+    assert.equal(customerSummary.statusCode, 200, customerSummary.body)
+    assert.equal(customerSummary.json().contacted, 0)
+    assert.equal(customerSummary.json().total, 2)
+    const taskNow = Date.now()
+    const firstRadarTaskId = createId('rdr')
+    const secondRadarTaskId = createId('rdr')
+    await db.insert(radarTasks).values([
+      { id: firstRadarTaskId, workspaceId: register.json().workspace.id, name: '欧洲 EPC', icp: '欧洲能源 EPC', createdAt: taskNow, updatedAt: taskNow },
+      { id: secondRadarTaskId, workspaceId: register.json().workspace.id, name: '中东 EPC', icp: '中东能源 EPC', createdAt: taskNow + 1, updatedAt: taskNow + 1 },
+    ])
+    const repeatedCompany = { company: 'Global EPC Example Ltd.', region: '全球', industry: '能源工程', score: 82, source: '任务隔离测试' }
+    const firstTaskCandidate = await app.inject({ method: 'POST', url: '/api/radar/candidates', headers: { cookie: ownerCookie }, payload: { ...repeatedCompany, radarTaskId: firstRadarTaskId } })
+    const secondTaskCandidate = await app.inject({ method: 'POST', url: '/api/radar/candidates', headers: { cookie: ownerCookie }, payload: { ...repeatedCompany, radarTaskId: secondRadarTaskId } })
+    assert.equal(firstTaskCandidate.statusCode, 201, firstTaskCandidate.body)
+    assert.equal(secondTaskCandidate.statusCode, 201, secondTaskCandidate.body)
+    assert.notEqual(firstTaskCandidate.json().id, secondTaskCandidate.json().id)
+    const firstTaskList = await app.inject({ method: 'GET', url: `/api/radar/candidates?taskId=${firstRadarTaskId}`, headers: { cookie: ownerCookie } })
+    const secondTaskList = await app.inject({ method: 'GET', url: `/api/radar/candidates?taskId=${secondRadarTaskId}`, headers: { cookie: ownerCookie } })
+    assert.equal(firstTaskList.json().items.length, 1)
+    assert.equal(secondTaskList.json().items.length, 1)
+    assert.equal(firstTaskList.json().items[0].radarTaskId, firstRadarTaskId)
+    assert.equal(secondTaskList.json().items[0].radarTaskId, secondRadarTaskId)
     const tags = await app.inject({ method: 'POST', url: '/api/customers/tags/bulk', headers: { cookie: ownerCookie }, payload: { customerIds: [customerId], name: '本周重点', color: 'orange' } })
     assert.equal(tags.statusCode, 201, tags.body)
     const contact = await app.inject({ method: 'POST', url: `/api/customers/${customerId}/contacts`, headers: { cookie: ownerCookie }, payload: { name: 'Anna Meyer', jobTitle: '采购经理', email: 'anna@example.com', phone: '+49 555 0100', primaryChannel: '邮件' } })
@@ -122,12 +150,23 @@ const run = async () => {
     assert.equal(policyRead.statusCode, 200, policyRead.body)
     assert.equal(policyRead.json().rotationStrategy, 'round-robin')
     assert.equal(policyRead.json().failoverEnabled, false)
-    const service = await app.inject({ method: 'POST', url: '/api/ai/services', headers: { cookie: ownerCookie }, payload: { name: `闭环 AI ${suffix}`, provider: 'openai-compatible', endpoint: 'https://ai.example.com/v1', model: 'closed-loop-model' } })
+    const service = await app.inject({ method: 'POST', url: '/api/ai/services/connections', headers: { cookie: ownerCookie }, payload: { name: `闭环 AI ${suffix}`, endpoint: 'https://ai.example.com/v1', model: 'closed-loop-model', keyName: '生产密钥', secret: 'test-ai-credential-primary' } })
     assert.equal(service.statusCode, 201, service.body)
-    const key = await app.inject({ method: 'POST', url: `/api/ai/services/${service.json().id}/keys`, headers: { cookie: ownerCookie }, payload: { name: '生产密钥', secret: 'sk-closed-loop-secret' } })
-    assert.equal(key.statusCode, 201, key.body)
-    const keyDelete = await app.inject({ method: 'DELETE', url: `/api/ai/keys/${key.json().id}`, headers: { cookie: ownerCookie } })
-    assert.equal(keyDelete.statusCode, 204, keyDelete.body)
+    assert.equal(service.json().keyCount, 1)
+    const serviceList = await app.inject({ method: 'GET', url: '/api/ai/services', headers: { cookie: ownerCookie } })
+    assert.equal(serviceList.statusCode, 200, serviceList.body)
+    assert.equal(serviceList.json().items.find((item: { id: string }) => item.id === service.json().id)?.keyCount, 1)
+    const replacedKey = await app.inject({ method: 'PUT', url: `/api/ai/services/${service.json().id}/key`, headers: { cookie: ownerCookie }, payload: { name: '替换密钥', secret: 'test-ai-credential-replaced' } })
+    assert.equal(replacedKey.statusCode, 200, replacedKey.body)
+    assert.equal(replacedKey.json().ending, 'ACED')
+    const keys = await app.inject({ method: 'GET', url: `/api/ai/services/${service.json().id}/keys`, headers: { cookie: ownerCookie } })
+    assert.equal(keys.statusCode, 200, keys.body)
+    assert.equal(keys.json().items.length, 1)
+    assert.equal(keys.json().items[0].ending, 'ACED')
+    const serviceDelete = await app.inject({ method: 'DELETE', url: `/api/ai/services/${service.json().id}`, headers: { cookie: ownerCookie } })
+    assert.equal(serviceDelete.statusCode, 204, serviceDelete.body)
+    const afterServiceDelete = await app.inject({ method: 'GET', url: '/api/ai/services', headers: { cookie: ownerCookie } })
+    assert.ok(!afterServiceDelete.json().items.some((item: { id: string }) => item.id === service.json().id))
 
     const audit = await app.inject({ method: 'GET', url: '/api/admin/audit-logs', headers: { cookie: ownerCookie } })
     assert.equal(audit.statusCode, 200, audit.body)

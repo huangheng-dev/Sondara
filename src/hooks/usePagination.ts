@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination'
 
-export function usePagination<T>(items: T[], initialPageSize = 6, resetKey = '') {
+export function usePagination<T>(items: T[], initialPageSize = DEFAULT_PAGE_SIZE, resetKey = '') {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSizeState] = useState(initialPageSize)
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize))

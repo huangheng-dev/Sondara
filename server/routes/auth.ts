@@ -392,11 +392,19 @@ export const authRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: '请输入当前密码并填写 DELETE 确认。' })
     const user = (await db.$first(db.select().from(users).where(eq(users.id, request.auth.userId))))
     if (!user || !(await verifyPassword(parsed.data.currentPassword, user.passwordHash))) return reply.code(401).send({ error: 'INVALID_PASSWORD', message: '当前密码不正确。' })
-    if (request.auth.role === 'owner') {
+    const deleteOwnedWorkspace = request.auth.role === 'owner'
+    if (deleteOwnedWorkspace) {
       const memberCount = (await db.$first(db.select({ count: sql<number>`count(*)` }).from(workspaceMembers).where(eq(workspaceMembers.workspaceId, request.auth.workspaceId))))?.count ?? 0
       if (memberCount > 1) return reply.code(409).send({ error: 'WORKSPACE_HAS_MEMBERS', message: '请先移除其他成员，再删除所有者账户和工作区。' })
     }
-    await db.delete(users).where(eq(users.id, request.auth.userId))
+    await db.transaction(async tx => {
+      // Removing the owner must remove the workspace first so every
+      // workspace-scoped record is deleted through its foreign-key cascade.
+      // Deleting only the user would leave an orphaned workspace and retained
+      // business data, which contradicts the account deletion contract.
+      if (deleteOwnedWorkspace) await tx.delete(workspaces).where(eq(workspaces.id, request.auth.workspaceId))
+      await tx.delete(users).where(eq(users.id, request.auth.userId))
+    })
     clearSessionCookie(reply)
     clearChallengeCookie(reply)
     return reply.code(204).send()

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Alert, Card, Checkbox, Col, Flex, Form, Input, List, Result, Row, Segmented, Space, Typography } from 'antd'
+import { Alert, Card, Checkbox, Col, Flex, Form, Input, Result, Row, Segmented, Space, Typography } from 'antd'
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,10 +11,11 @@ import {
   MessagesSquare,
   SearchCheck,
   ShieldCheck,
-  Sparkles,
   UserRound,
 } from 'lucide-react'
+import { BrandMark } from '@/components/ui/BrandMark'
 import { Button } from '@/components/ui/Button'
+import { List } from '@/components/ui/List'
 import { ApiError, authApi } from '@/lib/api'
 import { useBusinessStore } from '@/stores/business-store'
 
@@ -117,10 +118,10 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
   return <Flex className="auth-shell" component="main" align="center" justify="center">
     <Row className="auth-layout" gutter={[24, 24]} align="stretch">
       <Col xs={24} lg={12}>
-        <Card className="auth-hero" title={<Space className="auth-brand"><span className="auth-brand__mark"><Sparkles/></span>Sondara</Space>}>
+        <Card className="auth-hero" title={<Space className="auth-brand"><BrandMark className="auth-brand__mark" size={34}/>Sondara</Space>}>
           <Typography.Title level={1}>让客户开发成为连续的增长工作流</Typography.Title>
           <Typography.Paragraph type="secondary">把客户定位、AI 获客、内容触达、消息跟进、商机推进和转化分析集中在一个工作空间。</Typography.Paragraph>
-          <List className="auth-capabilities" dataSource={capabilities} renderItem={({icon:Icon,title,copy})=><List.Item><Space align="start"><span className="auth-capability__icon"><Icon/></span><Space direction="vertical" size={2}><Typography.Text strong>{title}</Typography.Text><Typography.Text type="secondary">{copy}</Typography.Text></Space></Space></List.Item>}/>
+          <List className="auth-capabilities" dataSource={capabilities} renderItem={({icon:Icon,title,copy})=><List.Item><Space align="start"><span className="auth-capability__icon"><Icon/></span><Space orientation="vertical" size={2}><Typography.Text strong>{title}</Typography.Text><Typography.Text type="secondary">{copy}</Typography.Text></Space></Space></List.Item>}/>
           <Space className="auth-trust" wrap><Typography.Text><ShieldCheck size={15}/> 可部署到自己的服务器</Typography.Text><Typography.Text><LockKeyhole size={15}/> 数据与密钥按账户隔离</Typography.Text></Space>
         </Card>
       </Col>
@@ -128,9 +129,9 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
       <Card className="auth-form-card">
         {mode === 'login' || mode === 'register' ? <Segmented className="auth-segmented" aria-label="账户入口" block value={mode} options={[{label:'登录',value:'login'},{label:'创建账户',value:'register'}]} onChange={value=>navigate(value==='login'?'/login':'/register')}/> : <Link className="auth-back" to="/login"><ArrowLeft/>返回登录</Link>}
 
-        <Space className="auth-form-heading" direction="vertical" size={4}><Typography.Text className="auth-eyebrow">{copy.eyebrow}</Typography.Text><Typography.Title level={2}>{copy.title}</Typography.Title><Typography.Text type="secondary">{copy.description}</Typography.Text></Space>
+        <Space className="auth-form-heading" orientation="vertical" size={4}><Typography.Text className="auth-eyebrow">{copy.eyebrow}</Typography.Text><Typography.Title level={2}>{copy.title}</Typography.Title><Typography.Text type="secondary">{copy.description}</Typography.Text></Space>
 
-        {sent ? <Result status="success" title={mode === 'reset' ? '密码已经更新' : '重置指引已创建'} subTitle={mode === 'reset' ? '请使用新密码重新登录。' : '如果该邮箱已注册，系统会通过已配置的邮件服务发送重置链接。'} extra={<Space direction="vertical">{resetUrl && <Link to={resetUrl}>当前为本地开发环境，直接打开重置链接<ArrowRight/></Link>}<Link to="/login">返回登录<ArrowRight/></Link></Space>}/>
+        {sent ? <Result status="success" title={mode === 'reset' ? '密码已经更新' : '重置指引已创建'} subTitle={mode === 'reset' ? '请使用新密码重新登录。' : '如果该邮箱已注册，系统会通过已配置的邮件服务发送重置链接。'} extra={<Space orientation="vertical">{resetUrl && <Link to={resetUrl}>当前为本地开发环境，直接打开重置链接<ArrowRight/></Link>}<Link to="/login">返回登录<ArrowRight/></Link></Space>}/>
         : <Form className="auth-form ui-form" form={form} onFinish={submit} layout="vertical" initialValues={{displayName:'',email:'',password:'',confirmPassword:'',twoFactorCode:''}}>
           {mode==='register'&&<Form.Item name="displayName" label="显示名称" required rules={[{required:true,message:'请输入显示名称'}]}><Input autoComplete="name" prefix={<UserRound/>} placeholder="你的姓名或称呼"/></Form.Item>}
           {mode !== 'reset' && <Form.Item name="email" label="邮箱" required rules={[{required:true,type:'email',message:'请输入有效邮箱'}]}><Input autoComplete="email" type="email" prefix={<Mail/>} placeholder="name@example.com"/></Form.Item>}
@@ -140,7 +141,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
           {mode==='login'&&!twoFactorChallenge&&<Flex justify="space-between" style={{ marginBottom: 16 }}><Checkbox checked={remember} onChange={event=>setRemember(event.target.checked)}>保持登录</Checkbox><Link to="/forgot-password">忘记密码？</Link></Flex>}
           {twoFactorChallenge&&<Form.Item name="twoFactorCode" label="6 位验证器验证码或恢复码" extra={`当前账户：${maskedEmail}`} required rules={[{required:true,message:'请输入验证码'}]} normalize={value=>String(value).replace(/\s|-/g,'').slice(0,8)}><Input autoFocus inputMode="numeric" autoComplete="one-time-code" prefix={<ShieldCheck/>} placeholder="000000"/></Form.Item>}
 
-          {error&&<Alert type="error" showIcon message={error}/>}
+          {error&&<Alert type="error" showIcon title={error}/>}
           <Button block variant="primary" type="submit" disabled={submitting}>{submitting?'正在处理…':twoFactorChallenge?'验证并登录':copy.submit}<ArrowRight size={16}/></Button>
         </Form>}
         <Typography.Paragraph className="auth-footnote" type="secondary">自托管部署时，账户、数据和服务配置由你的部署环境管理。</Typography.Paragraph>

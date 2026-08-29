@@ -109,15 +109,22 @@ const run = async () => {
       payload: {},
     });
     assert.equal(rejectedExecution.statusCode, 400, rejectedExecution.body);
+    const readiness = await app.inject({
+      method: "GET",
+      url: `/api/campaigns/${campaign.id}/steps/${campaign.steps[0].id}/readiness`,
+      headers,
+    });
+    assert.equal(readiness.statusCode, 200, readiness.body);
+    assert.equal(readiness.json().canExecute, false);
+    assert.ok(readiness.json().checks.some((check: { key: string; status: string }) => check.key === "sender" && check.status === "block"));
     const execution = await app.inject({
       method: "POST",
       url: `/api/campaigns/${campaign.id}/steps/${campaign.steps[0].id}/execute`,
       headers,
       payload: { confirmation: true },
     });
-    assert.equal(execution.statusCode, 202, execution.body);
-    assert.equal(execution.json().recipientCount, 1);
-    assert.equal(execution.json().awaitingConfiguration, 1);
+    assert.equal(execution.statusCode, 409, execution.body);
+    assert.equal(execution.json().error, "SMTP_REQUIRED");
 
     const activated = await app.inject({
       method: "PATCH",
@@ -159,7 +166,7 @@ const run = async () => {
     });
     assert.equal(listed.statusCode, 200, listed.body);
     assert.equal(listed.json().total, 1);
-    assert.equal(listed.json().items[0].nextStep.name, "第二轮案例触达");
+    assert.equal(listed.json().items[0].nextStep.name, "首次触达");
 
     assert.equal(
       (await db.$first(db.select().from(campaigns).where(eq(campaigns.id, campaign.id))))
@@ -192,7 +199,7 @@ const run = async () => {
                 .select()
                 .from(outboxJobs)
                 .where(eq(outboxJobs.workspaceId, register.json().workspace.id))).length,
-      1,
+      0,
     );
     assert.equal(
       (await db
@@ -201,16 +208,11 @@ const run = async () => {
                 .where(eq(messageEntries.status, "confirmed")))
         .filter((item) => item.workspaceId === register.json().workspace.id)
         .length,
-      1,
+      0,
     );
-    assert.ok(
-      (await db.$first(db
-                .select()
-                .from(campaignExecutionEvents)
-                .where(eq(campaignExecutionEvents.campaignId, campaign.id)))),
-    );
+    assert.equal((await db.select().from(campaignExecutionEvents).where(eq(campaignExecutionEvents.campaignId, campaign.id))).filter(event => event.eventType === "messages_queued" || event.eventType === "manual_tasks_created").length, 0);
     console.log(
-      "Campaigns integration passed: audience, content, schedule, status and execution events verified.",
+      "Campaigns integration passed: audience, content, schedule, readiness and SMTP execution guard verified.",
     );
   } finally {
     if (userId) await db.delete(users).where(eq(users.id, userId));

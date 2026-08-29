@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
-import { Alert, Card, Flex, Skeleton, Space, Typography } from 'antd'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { Alert, Flex, Space, Typography } from 'antd'
+import { AlertTriangle } from 'lucide-react'
 import { Button } from './Button'
 import { EmptyState } from './EmptyState'
+import { ContentSkeleton, PageLoading } from './LoadingState'
 
 export function PageContainer({ children }: { children: ReactNode }) {
   return <Flex className="page-container" vertical gap={20}>{children}</Flex>
@@ -17,25 +18,25 @@ export function TableToolbar({
   selection?: ReactNode
   className?: string
 }) {
-  return <Flex className={['table-toolbar', className].filter(Boolean).join(' ')} vertical gap={12}>
-    <Flex align="center" wrap gap={8}>{filters}</Flex>
+  return <Flex className={['table-toolbar', className].filter(Boolean).join(' ')} align="center" justify="space-between" wrap gap={12}>
+    <Flex className="table-toolbar__filters" align="center" gap={8}>{filters}</Flex>
     {selection}
   </Flex>
 }
 
 export function SelectionBar({
-  summary,
+  count,
+  unit,
   actions,
 }: {
-  summary: ReactNode
+  count: number
+  unit: string
   actions: ReactNode
 }) {
-  return <Card className="selection-bar" size="small">
-    <Flex align="center" justify="space-between" wrap gap={8}>
-      <Typography.Text>{summary}</Typography.Text>
-      <Space wrap>{actions}</Space>
-    </Flex>
-  </Card>
+  return <Flex className="selection-bar" align="center" gap={8}>
+    <Typography.Text className="selection-bar__summary"><span>已选择</span><strong>{count}</strong><span>{unit}</span></Typography.Text>
+    <Space className="selection-bar__actions" size={6}>{actions}</Space>
+  </Flex>
 }
 
 export function PageState({
@@ -43,26 +44,25 @@ export function PageState({
   title,
   description,
   onRetry,
+  loadingVariant = 'content',
 }: {
   status: 'loading' | 'error' | 'empty'
   title: string
   description?: string
   onRetry?: () => void
+  loadingVariant?: 'page' | 'content'
 }) {
   if (status === 'loading') {
-    return <Card role="status" aria-live="polite">
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Flex align="center" gap={10}><RefreshCw/><Typography.Text strong>{title}</Typography.Text></Flex>
-      <Skeleton active paragraph={{ rows: 3 }} title={false}/>
-      </Space>
-    </Card>
+    return loadingVariant === 'page'
+      ? <PageLoading title={title} description={description}/>
+      : <ContentSkeleton rows={4}/>
   }
   if (status === 'error') {
     return <Alert
       type="error"
       showIcon
       icon={<AlertTriangle/>}
-      message={title}
+      title={title}
       description={description}
       action={onRetry && <Button onClick={onRetry}>重新加载</Button>}
     />

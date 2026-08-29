@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import {
   AlertTriangle,
@@ -16,6 +16,7 @@ import {
   Mail,
   MapPinned,
   MonitorSmartphone,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -29,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ListRefreshButton } from "@/components/ui/ListRefreshButton";
 import { Panel } from "@/components/ui/Panel";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -42,6 +44,7 @@ import { useBusinessStore } from "@/stores/business-store";
 import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DataTable } from "@/components/ui/DataTable";
+import { List } from "@/components/ui/List";
 import { usePagination } from "@/hooks/usePagination";
 import {
   Alert,
@@ -53,12 +56,13 @@ import {
   Flex,
   Form,
   Input,
-  List,
+  Popconfirm,
   Row,
   Space,
   Statistic,
   Steps,
   Switch,
+  Tabs,
   Typography,
 } from "antd";
 import {
@@ -67,6 +71,11 @@ import {
   SelectionBar,
   TableToolbar,
 } from "@/components/ui/PageModules";
+import { RecordTime } from "@/components/ui/TableCells";
+import { StatusNotice } from "@/components/ui/StatusNotice";
+import { LeadSourcesPage } from "@/pages/settings/LeadSourcesPage";
+import { ConnectorCatalogPage } from "@/pages/settings/ConnectorCatalogPage";
+import { ProcurementPage } from "@/pages/procurement/ProcurementPage";
 import {
   aiApi,
   authApi,
@@ -74,7 +83,6 @@ import {
   outboxApi,
   systemApi,
   type AiServiceApiRecord,
-  type AiServiceKeyApiRecord,
   type ChannelWebhookEventApiRecord,
   type ContactSuppressionApiRecord,
   type OutboundConnectionApiRecord,
@@ -95,12 +103,12 @@ const sectionMeta = {
   },
   "AI 模型配置": {
     title: "AI 模型配置",
-    description: "管理多模型服务、密钥池、轮转重试与自动故障切换。",
+    description: "管理模型连接、调用顺序、请求重试与自动故障切换。",
     icon: Bot,
   },
   数据源与集成: {
-    title: "数据源与外部服务",
-    description: "管理客户发现、触达发送、联系人补全与自动化连接。",
+    title: "集成中心",
+    description: "统一管理内置能力、线索入口、外部服务和运行状态。",
     icon: KeyRound,
   },
   数据与备份: {
@@ -115,42 +123,53 @@ const sectionMeta = {
   },
 } as const;
 
-type AiServiceStatus = "可用" | "未验证" | "停用" | "异常";
+type AiServiceStatus = "可用" | "性能退化" | "未验证" | "停用" | "异常";
+type AiProtocol = AiServiceApiRecord["protocol"];
 type AiServiceSort =
   | "优先级最高"
   | "服务名称 A–Z"
   | "服务名称 Z–A"
-  | "延迟最低"
-  | "密钥最多";
+  | "延迟最低";
 type AiService = {
   id: string;
   name: string;
   provider: string;
+  protocol: AiProtocol;
   model: string;
   endpoint: string;
   keyCount: number;
   status: AiServiceStatus;
   priority: number;
   latency: string;
-};
-type AiKeyRecord = {
-  id: string;
-  serviceId: string;
-  name: string;
-  ending: string;
-  status: "启用" | "停用";
-  lastUsed: string;
+  lastTestedAt: number | null;
 };
 const providerLabel = (provider: AiServiceApiRecord["provider"]) =>
   provider === "deepseek"
     ? "DeepSeek"
     : provider === "dashscope"
       ? "阿里云百炼"
-      : "OpenAI 兼容服务";
+      : "自定义模型服务";
+const aiProtocolOptions: Array<{ value: AiProtocol; label: string }> = [
+  { value: "openai-responses", label: "OpenAI Responses" },
+  { value: "openai-chat-completions", label: "OpenAI Chat Completions" },
+  { value: "anthropic-messages", label: "Anthropic Messages" },
+];
+const aiProtocolLabel = Object.fromEntries(aiProtocolOptions.map(option => [option.value, option.label])) as Record<AiProtocol, string>;
+const aiConnectionTemplates: Record<string, { name: string; endpoint: string; model: string; protocol: AiProtocol }> = {
+  OpenAI: { name: "OpenAI 主模型", endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini", protocol: "openai-responses" },
+  "Google Gemini": { name: "Gemini 主模型", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-3.7-flash", protocol: "openai-chat-completions" },
+  "xAI Grok": { name: "Grok 主模型", endpoint: "https://api.x.ai/v1", model: "grok-4.5", protocol: "openai-chat-completions" },
+  "Mistral AI": { name: "Mistral 主模型", endpoint: "https://api.mistral.ai/v1", model: "mistral-small-latest", protocol: "openai-chat-completions" },
+  Groq: { name: "Groq 高速模型", endpoint: "https://api.groq.com/openai/v1", model: "llama-3.1-8b-instant", protocol: "openai-chat-completions" },
+  OpenRouter: { name: "OpenRouter 聚合模型", endpoint: "https://openrouter.ai/api/v1", model: "~openai/gpt-latest", protocol: "openai-chat-completions" },
+  DeepSeek: { name: "DeepSeek 主模型", endpoint: "https://api.deepseek.com", model: "deepseek-v4-flash", protocol: "openai-chat-completions" },
+  "阿里云百炼": { name: "千问主模型", endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", protocol: "openai-chat-completions" },
+};
 const mapAiService = (service: AiServiceApiRecord): AiService => ({
   id: service.id,
   name: service.name,
   provider: providerLabel(service.provider),
+  protocol: service.protocol,
   model: service.model,
   endpoint: service.endpoint,
   keyCount: service.keyCount,
@@ -158,6 +177,8 @@ const mapAiService = (service: AiServiceApiRecord): AiService => ({
     ? "停用"
     : service.keyCount === 0
       ? "未验证"
+    : service.status === "degraded" || (service.lastLatencyMs ?? 0) > 10_000
+      ? "性能退化"
     : service.status === "available"
       ? "可用"
       : service.status === "error"
@@ -165,27 +186,13 @@ const mapAiService = (service: AiServiceApiRecord): AiService => ({
         : "未验证",
   priority: service.priority,
   latency: service.lastLatencyMs ? `${service.lastLatencyMs} ms` : "—",
-});
-const mapAiKey = (key: AiServiceKeyApiRecord): AiKeyRecord => ({
-  id: key.id,
-  serviceId: key.serviceId,
-  name: key.name,
-  ending: key.ending,
-  status: key.enabled ? "启用" : "停用",
-  lastUsed: key.lastUsedAt
-    ? new Date(key.lastUsedAt).toLocaleString("zh-CN")
-    : "尚未使用",
+  lastTestedAt: service.lastTestedAt,
 });
 const integrationGroups = [
   {
     title: "客户发现与验证",
     description: "用于寻找企业、补全联系人并核验公开商业信号",
     services: integrationServices.filter((service) => service.name !== "邮件发送服务"),
-  },
-  {
-    title: "邮件触达与投递治理",
-    description: "用于人工确认发送、退信退订处理与入站回复同步",
-    services: integrationServices.filter((service) => service.name === "邮件发送服务"),
   },
 ];
 const builtInIntegrations = new Set(["联系人补全 API", "行业与招投标数据"]);
@@ -209,10 +216,17 @@ function OutboundSettings() {
   const [webhookConnection, setWebhookConnection] =
     useState<OutboundConnectionApiRecord | null>(null);
   const [webhookSecret, setWebhookSecret] = useState("");
+  const [templateConnection, setTemplateConnection] = useState<OutboundConnectionApiRecord | null>(null);
   const [jobStatus, setJobStatus] = useState("all");
   const connections = useQuery({
     queryKey: ["outbound-connections"],
     queryFn: outboxApi.listConnections,
+    retry: 1,
+  });
+  const whatsappTemplates = useQuery({
+    queryKey: ["whatsapp-templates", templateConnection?.id],
+    queryFn: () => outboxApi.listWhatsappTemplates(templateConnection!.id),
+    enabled: Boolean(templateConnection),
     retry: 1,
   });
   const jobs = useQuery({
@@ -259,6 +273,9 @@ function OutboundSettings() {
       port: Number(values.port) || 587,
       secure: values.security === "SSL / TLS",
       username: values.username,
+      whatsappBusinessAccountId: values.whatsappBusinessAccountId || null,
+      whatsappDefaultTemplateName: values.whatsappDefaultTemplateName || null,
+      whatsappDefaultTemplateLanguage: values.whatsappDefaultTemplateLanguage || null,
       password: values.password,
       fromName: values.fromName,
       fromEmail: values.fromEmail,
@@ -314,24 +331,11 @@ function OutboundSettings() {
           <List
             dataSource={connections.data.items}
             renderItem={(connection) => (
-              <List.Item key={connection.id}>
-                <Flex vertical gap={12} style={{ width: "100%" }}>
-                  <List.Item.Meta
-                    style={{ minWidth: 0 }}
-                    avatar={<Avatar icon={<Mail size={18} />} />}
-                    title={connection.name}
-                    description={
-                      <Space direction="vertical" size={0}>
-                        <Typography.Text type="secondary">
-                          {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
-                        </Typography.Text>
-                        <Typography.Text type="secondary">
-                          优先级 {connection.priority}{connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}
-                        </Typography.Text>
-                      </Space>
-                    }
-                  />
-                  <Space wrap>
+              <List.Item
+                className="settings-service-row"
+                key={connection.id}
+                extra={
+                  <Space className="settings-service-row__actions" wrap>
                 <Badge
                   tone={
                     connection.status === "available"
@@ -372,6 +376,11 @@ function OutboundSettings() {
                 <Button size="sm" onClick={() => setEditing(connection)}>
                   管理
                 </Button>
+                {connection.provider === "whatsapp-cloud" && (
+                  <Button size="sm" onClick={() => setTemplateConnection(connection)}>
+                    模板
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   onClick={() => {
@@ -382,7 +391,23 @@ function OutboundSettings() {
                   回调
                 </Button>
                   </Space>
-                </Flex>
+                }
+              >
+                <List.Item.Meta
+                  style={{ minWidth: 0 }}
+                  avatar={<Avatar icon={<Mail size={18} />} />}
+                  title={connection.name}
+                  description={
+                    <Space orientation="vertical" size={0}>
+                      <Typography.Text type="secondary">
+                        {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
+                      </Typography.Text>
+                      <Typography.Text type="secondary">
+                        优先级 {connection.priority}{connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}
+                      </Typography.Text>
+                    </Space>
+                  }
+                />
               </List.Item>
             )}
           />
@@ -410,6 +435,9 @@ function OutboundSettings() {
                 port: String(current.port),
                 security: current.secure ? "SSL / TLS" : "STARTTLS",
                 username: current.username,
+                whatsappBusinessAccountId: current.whatsappBusinessAccountId ?? "",
+                whatsappDefaultTemplateName: current.whatsappDefaultTemplateName ?? "",
+                whatsappDefaultTemplateLanguage: current.whatsappDefaultTemplateLanguage ?? "",
                 password: "",
                 fromName: current.fromName,
                 fromEmail: current.fromEmail,
@@ -456,10 +484,13 @@ function OutboundSettings() {
           },
           {
             name: "username",
-            label: "登录账号",
+            label: "登录账号 / WhatsApp Phone Number ID",
             required: true,
-            placeholder: "通常为完整邮箱地址",
+            placeholder: "邮箱账号或 WhatsApp Phone Number ID",
           },
+          { name: "whatsappBusinessAccountId", label: "WhatsApp Business Account ID", placeholder: "仅 WhatsApp Cloud API 需要" },
+          { name: "whatsappDefaultTemplateName", label: "WhatsApp 默认模板", placeholder: "可选；使用正文作为 {{1}} 参数" },
+          { name: "whatsappDefaultTemplateLanguage", label: "WhatsApp 模板语言", placeholder: "例如 en_US、zh_CN" },
           {
             name: "password",
             label: current
@@ -502,6 +533,20 @@ function OutboundSettings() {
         ]}
       />
       <Modal
+        open={Boolean(templateConnection)}
+        title={`WhatsApp 模板 · ${templateConnection?.name ?? ""}`}
+        description="从 Meta Business Account 同步模板审核状态；只有 APPROVED 模板可作为默认模板发送。"
+        width={820}
+        onClose={() => setTemplateConnection(null)}
+        footer={<><Button onClick={() => setTemplateConnection(null)}>关闭</Button><Button variant="primary" loading={whatsappTemplates.isFetching} onClick={async () => { if (!templateConnection) return; try { await outboxApi.syncWhatsappTemplates(templateConnection.id); await whatsappTemplates.refetch(); showToast("WhatsApp 模板状态已同步"); } catch (cause) { showToast(cause instanceof Error ? cause.message : "模板同步失败"); } }}>同步模板</Button></>}
+      >
+        {whatsappTemplates.isLoading
+          ? <EmptyState spinning title="正在读取模板" icon={RefreshCw}/>
+          : whatsappTemplates.data?.items.length
+            ? <List dataSource={whatsappTemplates.data.items} renderItem={item => <List.Item extra={<Badge tone={item.status === "APPROVED" ? "green" : item.status === "REJECTED" ? "red" : "orange"}>{item.status}</Badge>}><List.Item.Meta title={`${item.name} · ${item.language}`} description={`${item.category}${item.rejectedReason ? ` · ${item.rejectedReason}` : ""} · 更新 ${new Date(item.lastSyncedAt).toLocaleString("zh-CN")}`}/></List.Item>}/>
+            : <EmptyState title="尚未同步模板" description="先在连接中填写 WhatsApp Business Account ID，再点击同步模板。" icon={RefreshCw}/>}
+      </Modal>
+      <Modal
         open={queueOpen}
         title="邮件发送队列"
         description="统一查看待配置、发送中、已发送与失败任务；失败重试仍需人工确认。"
@@ -509,7 +554,7 @@ function OutboundSettings() {
         onClose={() => setQueueOpen(false)}
         footer={<Button onClick={() => setQueueOpen(false)}>关闭</Button>}
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <TableToolbar filters={<>
             <CustomSelect
               ariaLabel="发送状态"
@@ -524,18 +569,15 @@ function OutboundSettings() {
                 { label: "失败", value: "failed" },
               ]}
             />
-            <Button size="sm" disabled={jobs.isFetching} onClick={() => jobs.refetch()}>
-              <RefreshCw size={14} />
-              刷新
-            </Button>
+            <ListRefreshButton label="更新发送状态" loading={jobs.isFetching} onClick={() => jobs.refetch()}/>
             <Typography.Text type="secondary">共 {jobs.data?.total ?? 0} 个任务</Typography.Text>
           </>} />
           {jobs.data?.items.length ? <DataTable
             columns={[{key:"recipient",title:"收件人"},{key:"message",title:"主题与内容"},{key:"status",title:"状态"},{key:"attempts",title:"尝试"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]}
             rows={jobs.data.items.map(job=>({key:job.id,cells:[
-              <Space direction="vertical" size={0}><Typography.Text strong>{job.contact.name}</Typography.Text><Typography.Text type="secondary">{job.contact.company} · {job.contact.email??"缺少邮箱"}</Typography.Text></Space>,
-              <Space direction="vertical" size={0}><Typography.Text strong>{job.thread.subject}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:job.message.body}}>{job.message.body}</Typography.Text></Space>,
-              <Space direction="vertical" size={0}><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<Typography.Text type="danger" ellipsis={{tooltip:job.lastError}}>{job.lastError}</Typography.Text>}</Space>,
+              <Space orientation="vertical" size={0}><Typography.Text strong>{job.contact.name}</Typography.Text><Typography.Text type="secondary">{job.contact.company} · {job.contact.email??"缺少邮箱"}</Typography.Text></Space>,
+              <Space orientation="vertical" size={0}><Typography.Text strong>{job.thread.subject}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:job.message.body}}>{job.message.body}</Typography.Text></Space>,
+              <Space orientation="vertical" size={0}><Badge tone={job.status==="sent"?"green":job.status==="failed"?"red":job.status==="awaiting_configuration"?"orange":"blue"}>{{awaiting_configuration:"等待配置",queued:"待发送",processing:"发送中",sent:"已发送",failed:"失败",cancelled:"已取消"}[job.status]}</Badge>{job.lastError&&<Typography.Text type="danger" ellipsis={{tooltip:job.lastError}}>{job.lastError}</Typography.Text>}</Space>,
               <Typography.Text>{job.attempts} / {job.maxAttempts}</Typography.Text>,<Typography.Text>{new Date(job.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
               <Space>{["failed","awaiting_configuration"].includes(job.status)&&<Button title="确认重试" onClick={async()=>{try{await outboxApi.retryJob(job.id);await jobs.refetch();showToast("发送任务已重新进入队列")}catch(cause){showToast(cause instanceof Error?cause.message:"任务重试失败")}}}><RefreshCw/></Button>}</Space>,
             ]}))}
@@ -550,7 +592,7 @@ function OutboundSettings() {
         onClose={() => setGovernanceOpen(false)}
         footer={<Button onClick={() => setGovernanceOpen(false)}>关闭</Button>}
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <TableToolbar filters={<>
             <CustomSelect
               ariaLabel="治理内容"
@@ -571,32 +613,25 @@ function OutboundSettings() {
                     { label: "全部状态", value: "all" },
                   ]}
                 />
-                <Button size="sm" disabled={suppressions.isFetching} onClick={() => suppressions.refetch()}>
-                  <RefreshCw size={14} />
-                  刷新
-                </Button>
                 <Typography.Text type="secondary">共 {suppressions.data?.total ?? 0} 条记录</Typography.Text>
               </>
             )}
             {governanceView === "渠道事件" && (
               <>
-                <Button size="sm" disabled={channelEvents.isFetching} onClick={() => channelEvents.refetch()}>
-                  <RefreshCw size={14} />
-                  刷新
-                </Button>
+                <ListRefreshButton label="检查新事件" loading={channelEvents.isFetching} onClick={() => channelEvents.refetch()}/>
                 <Typography.Text type="secondary">最近 {channelEvents.data?.items.length ?? 0} 条事件</Typography.Text>
               </>
             )}
           </>} />
           {governanceView === "抑制名单" ? (
             suppressions.data?.items.length ? <DataTable columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
-              <Space direction="vertical" size={0}><Typography.Text strong>{item.destination}</Typography.Text><Typography.Text type="secondary">邮件渠道</Typography.Text></Space>,<Typography.Text>{item.reason}</Typography.Text>,<Typography.Text>{item.source==="channel_event"?"渠道事件":item.source}</Typography.Text>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<Typography.Text>{new Date(item.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
+              <Space orientation="vertical" size={0}><Typography.Text strong>{item.destination}</Typography.Text><Typography.Text type="secondary">邮件渠道</Typography.Text></Space>,<Typography.Text>{item.reason}</Typography.Text>,<Typography.Text>{item.source==="channel_event"?"渠道事件":item.source}</Typography.Text>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<Typography.Text>{new Date(item.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
               <Space>{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</Space>,
             ]}))}/> : <EmptyState title="暂无抑制记录" icon={Mail}/>
           ) : (
             channelEvents.data?.items.length ? <DataTable columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
               <Badge tone={item.eventType==="bounced"||item.eventType==="complained"?"red":item.eventType==="unsubscribed"?"orange":"blue"}>{{delivered:"已送达",bounced:"退信",complained:"投诉",unsubscribed:"退订",inbound_reply:"客户回复"}[item.eventType]}</Badge>,
-              <Space direction="vertical" size={0}><Typography.Text strong>{item.sender??item.recipient??"—"}</Typography.Text><Typography.Text type="secondary">{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</Typography.Text></Space>,<Typography.Text ellipsis={{tooltip:item.externalMessageId??""}}>{item.externalMessageId??"未关联"}</Typography.Text>,
+              <Space orientation="vertical" size={0}><Typography.Text strong>{item.sender??item.recipient??"—"}</Typography.Text><Typography.Text type="secondary">{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</Typography.Text></Space>,<Typography.Text ellipsis={{tooltip:item.externalMessageId??""}}>{item.externalMessageId??"未关联"}</Typography.Text>,
               <Badge tone={item.processingStatus==="processed"?"green":item.processingStatus==="unlinked"?"orange":item.processingStatus==="failed"?"red":"blue"}>{{processed:"已处理",unlinked:"未关联",failed:"失败",pending:"处理中"}[item.processingStatus]}</Badge>,<Typography.Text>{new Date(item.occurredAt).toLocaleString("zh-CN")}</Typography.Text>,<Typography.Text>{item.reason??item.processingError??"—"}</Typography.Text>,
             ]}))}/> : <EmptyState title="暂无渠道事件" icon={Mail}/>
           )}
@@ -650,7 +685,7 @@ function OutboundSettings() {
           </>
         }
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="事件接收地址">
               <Space wrap>
@@ -673,10 +708,10 @@ function OutboundSettings() {
               </Space>
             </Descriptions.Item>
           </Descriptions>
-          <Alert
-            type="info"
-            showIcon
-            message="签名协议"
+          <StatusNotice
+            tone="info"
+            icon={<ShieldCheck size={17}/>}
+            title="签名协议"
             description={<>请求头携带 <Typography.Text code>x-sondara-timestamp</Typography.Text> 和 <Typography.Text code>x-sondara-signature</Typography.Text>。签名内容为 <Typography.Text code>timestamp.JSON</Typography.Text>，使用 HMAC-SHA256；超过 5 分钟或重复事件不会重复处理。</>}
           />
         </Space>
@@ -688,18 +723,23 @@ function OutboundSettings() {
 export function SettingsPage() {
   const params = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const tab = sections[params.section as keyof typeof sections] ?? "个人资料";
-  const [confirmDelete, setConfirmDelete] = useState<"key" | "account" | null>(
-    null,
-  );
-  const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
+  const [integrationSection, setIntegrationSection] = useState("core");
+  useEffect(() => {
+    if (tab !== "数据源与集成") return;
+    setIntegrationSection(location.hash === "#lead-source-settings" ? "leads" : location.hash === "#external-service-settings" ? "extensions" : "core");
+  }, [location.hash, tab]);
+  const [confirmDelete, setConfirmDelete] = useState<"account" | null>(null);
   const [aiServices, setAiServices] = useState<AiService[]>([]);
-  const [aiKeys, setAiKeys] = useState<AiKeyRecord[]>([]);
   const [serviceDialog, setServiceDialog] = useState(false);
-  const [keyService, setKeyService] = useState<AiService | null>(null);
-  const [addKeyService, setAddKeyService] = useState<AiService | null>(null);
+  const [serviceSaving, setServiceSaving] = useState(false);
+  const [aiConnectionForm] = Form.useForm();
+  const [editingAiService, setEditingAiService] = useState<AiService | null>(null);
+  const [editServiceSaving, setEditServiceSaving] = useState(false);
+  const [editServiceForm] = Form.useForm();
   const [failoverEnabled, setFailoverEnabled] = useState(true);
-  const [rotationStrategy, setRotationStrategy] = useState("失败后切换密钥");
+  const [rotationStrategy, setRotationStrategy] = useState("按优先级故障切换");
   const [retryCount, setRetryCount] = useState("2 次");
   const [retryDelay, setRetryDelay] = useState("指数退避");
   const [cooldown, setCooldown] = useState("5 分钟");
@@ -868,12 +908,6 @@ export function SettingsPage() {
     retry: 1,
     enabled: tab === "AI 模型配置",
   });
-  const aiKeyQuery = useQuery({
-    queryKey: ["ai-service-keys", keyService?.id],
-    queryFn: () => aiApi.listKeys(keyService!.id),
-    retry: 1,
-    enabled: Boolean(keyService?.id),
-  });
   const integrationQuery = useQuery({
     queryKey: ["integration-connections"],
     queryFn: integrationApi.list,
@@ -898,6 +932,11 @@ export function SettingsPage() {
   const smtpConnection = outboundConnectionsQuery.data?.items.find(
     (item) => item.enabled && item.provider === "smtp",
   ) ?? outboundConnectionsQuery.data?.items[0];
+  const integrationIssues = [
+    !searchConnection ? "搜索与网页 API 未配置" : searchConnection.status !== "available" ? "搜索与网页 API 需要测试或修复" : null,
+    !mapConnection ? "地图 API 未配置" : mapConnection.status !== "available" ? "地图 API 需要测试或修复" : null,
+    !smtpConnection ? "消息发送服务未配置" : smtpConnection.status !== "available" ? "消息发送服务需要测试或修复" : null,
+  ].filter((item): item is string => Boolean(item));
   const activeMeta = sectionMeta[tab];
   const filteredAiServices = useMemo(
     () =>
@@ -918,15 +957,13 @@ export function SettingsPage() {
               : serviceSort === "延迟最低"
                 ? (Number.parseInt(a.latency) || 99999) -
                   (Number.parseInt(b.latency) || 99999)
-                : serviceSort === "密钥最多"
-                  ? b.keyCount - a.keyCount
-                  : a.priority - b.priority,
+                : a.priority - b.priority,
         ),
     [aiServices, serviceQuery, serviceSort, serviceStatus],
   );
   const aiServicePaging = usePagination(
     filteredAiServices,
-    3,
+    10,
     `${serviceQuery}|${serviceStatus}|${serviceSort}|${aiServices.length}`,
   );
   useEffect(() => {
@@ -937,12 +974,9 @@ export function SettingsPage() {
       setAiServices(aiServiceQuery.data.items.map(mapAiService));
   }, [aiServiceQuery.data]);
   useEffect(() => {
-    if (aiKeyQuery.data) setAiKeys(aiKeyQuery.data.items.map(mapAiKey));
-  }, [aiKeyQuery.data]);
-  useEffect(() => {
     const policy = aiPolicyQuery.data;
     if (!policy) return;
-    setRotationStrategy(policy.rotationStrategy === "round-robin" ? "按请求轮询" : policy.rotationStrategy === "least-used" ? "最少使用优先" : "失败后切换密钥");
+    setRotationStrategy(policy.rotationStrategy === "round-robin" ? "按连接轮询" : policy.rotationStrategy === "least-used" ? "最久未用优先" : "按优先级故障切换");
     setRetryCount(policy.retryCount ? `${policy.retryCount} 次` : "不重试");
     setRetryDelay(policy.retryBackoff === "exponential" ? "指数退避" : policy.retryDelayMs === 3000 ? "固定 3 秒" : "固定 1 秒");
     setCooldown(policy.cooldownMs === 60_000 ? "1 分钟" : policy.cooldownMs === 900_000 ? "15 分钟" : policy.cooldownMs === 1_800_000 ? "30 分钟" : "5 分钟");
@@ -989,36 +1023,83 @@ export function SettingsPage() {
     await aiServiceQuery.refetch();
     showToast(enabledValue ? "所选服务已启用" : "所选服务已停用");
   };
-  const addAiService = async (values: Record<string, string>) => {
-    const provider =
-      values.provider === "DeepSeek"
-        ? "deepseek"
-        : values.provider === "阿里云百炼"
-          ? "dashscope"
-          : "openai-compatible";
-    await aiApi.createService({
-      name: values.name,
-      provider,
-      model: values.model || undefined,
-      endpoint: values.endpoint || undefined,
-    });
-    await aiServiceQuery.refetch();
+  const openAiConnectionDialog = () => {
+    aiConnectionForm.setFieldsValue({ template: "自定义接口", protocol: "openai-responses", keyName: "主密钥", priority: aiServices.length + 1 });
+    setServiceDialog(true);
   };
-  const addAiKey = async (values: Record<string, string>) => {
-    if (!addKeyService) return;
-    await aiApi.addKey(addKeyService.id, {
-      name: values.name,
-      secret: values.key,
-    });
-    await Promise.all([aiServiceQuery.refetch(), aiKeyQuery.refetch()]);
+  const applyAiTemplate = (template: string) => {
+    const preset = aiConnectionTemplates[template];
+    aiConnectionForm.setFieldsValue(preset ?? { name: "", endpoint: "", model: "", protocol: "openai-responses" });
   };
-  const toggleAiKey = async (key: AiKeyRecord) => {
-    await aiApi.updateKey(key.id, key.status !== "启用");
-    await Promise.all([aiServiceQuery.refetch(), aiKeyQuery.refetch()]);
+  const saveAiConnection = async () => {
+    let created: AiServiceApiRecord | null = null;
+    try {
+      const values = await aiConnectionForm.validateFields();
+      setServiceSaving(true);
+      created = await aiApi.createConnection({
+        name: values.name,
+        protocol: values.protocol,
+        endpoint: values.endpoint,
+        model: values.model,
+        keyName: values.keyName,
+        secret: values.secret,
+        priority: Number(values.priority),
+      });
+      try {
+        const result = await aiApi.testService(created.id);
+        showToast(`模型连接已保存，测试通过，延迟 ${result.latencyMs} ms`);
+      } catch (cause) {
+        showToast(`模型连接已保存，但测试失败：${cause instanceof Error ? cause.message : "请检查地址、模型和密钥"}`);
+      }
+      await aiServiceQuery.refetch();
+      aiConnectionForm.resetFields();
+      setServiceDialog(false);
+    } catch (cause) {
+      if (created) await aiServiceQuery.refetch();
+      if (cause instanceof Error) showToast(cause.message);
+    } finally {
+      setServiceSaving(false);
+    }
+  };
+  const openEditAiService = (service: AiService) => {
+    setEditingAiService(service);
+    editServiceForm.setFieldsValue({ name: service.name, endpoint: service.endpoint, model: service.model, priority: service.priority, protocol: service.protocol });
+  };
+  const saveEditedAiService = async () => {
+    if (!editingAiService) return;
+    try {
+      const values = await editServiceForm.validateFields();
+      setEditServiceSaving(true);
+      await aiApi.updateService(editingAiService.id, { name: values.name, protocol: values.protocol, endpoint: values.endpoint, model: values.model, priority: Number(values.priority) });
+      if (values.secret) await aiApi.replaceKey(editingAiService.id, { name: "连接密钥", secret: values.secret });
+      try {
+        const result = await aiApi.testService(editingAiService.id);
+        showToast(`模型连接已更新，测试通过，延迟 ${result.latencyMs} ms`);
+      } catch (cause) {
+        showToast(`模型连接已更新，但测试失败：${cause instanceof Error ? cause.message : "请检查地址、模型和密钥"}`);
+      }
+      await aiServiceQuery.refetch();
+      setEditingAiService(null);
+      editServiceForm.resetFields();
+    } catch (cause) {
+      if (cause instanceof Error) showToast(cause.message);
+    } finally {
+      setEditServiceSaving(false);
+    }
+  };
+  const deleteAiService = async (service: AiService) => {
+    try {
+      await aiApi.deleteService(service.id);
+      setSelectedAiServices(current => { const next = new Set(current); next.delete(service.id); return next; });
+      await aiServiceQuery.refetch();
+      showToast(`模型连接“${service.name}”已删除`);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "模型连接删除失败");
+    }
   };
   const saveAiPolicy = async () => {
     await aiApi.updatePolicy({
-      rotationStrategy: rotationStrategy === "按请求轮询" ? "round-robin" : rotationStrategy === "最少使用优先" ? "least-used" : "failover",
+      rotationStrategy: rotationStrategy === "按连接轮询" ? "round-robin" : rotationStrategy === "最久未用优先" ? "least-used" : "failover",
       retryCount: retryCount === "不重试" ? 0 : Number.parseInt(retryCount),
       retryBackoff: retryDelay === "指数退避" ? "exponential" : "fixed",
       retryDelayMs: retryDelay === "固定 3 秒" ? 3000 : 1000,
@@ -1110,12 +1191,13 @@ export function SettingsPage() {
           <Route size={16} />
           轮转与重试
         </Button>
-        <Button variant="primary" onClick={() => setServiceDialog(true)}>
+        <Button variant="primary" onClick={openAiConnectionDialog}>
           <Plus size={16} />
-          添加服务
+          添加模型
         </Button>
       </>
     ) : undefined;
+  const SettingsContentFrame = ["登录与安全", "AI 模型配置", "数据源与集成", "数据与备份"].includes(tab) ? Fragment : Card;
   return (
     <PageContainer>
       <PageHeader
@@ -1123,13 +1205,12 @@ export function SettingsPage() {
         description={`应用设置 · ${activeMeta.description}`}
         actions={pageActions}
       />
-      <Card>
-        {tab === "个人资料" ? (
-          <Row gutter={[16, 16]}>
+      {tab === "个人资料" ? (
+          <Row className="settings-profile-grid" gutter={[16, 16]}>
             <Col xs={24} lg={12}>
-              <Card title={<Space><UserRound size={18} />身份资料</Space>} extra={<Typography.Text type="secondary">用于账户显示和消息通知</Typography.Text>}>
-                <Space direction="vertical" size="large" style={{ width: "100%" }}>
-                  <Space align="center"><Avatar size="large">{profileDraft.displayName?.trim().slice(0, 1) || "用"}</Avatar><Space direction="vertical" size={0}><Typography.Text strong>{profileDraft.displayName || "未设置名称"}</Typography.Text><Typography.Text type="secondary">{profileDraft.email || "未设置邮箱"}</Typography.Text></Space></Space>
+              <Card className="settings-profile-card" title={<Space><UserRound size={18} />身份资料</Space>} extra={<Typography.Text type="secondary">用于账户显示和消息通知</Typography.Text>}>
+                <Space orientation="vertical" size="large" style={{ width: "100%" }}>
+                  <Space align="center"><Avatar size="large">{profileDraft.displayName?.trim().slice(0, 1) || "用"}</Avatar><Space orientation="vertical" size={0}><Typography.Text strong>{profileDraft.displayName || "未设置名称"}</Typography.Text><Typography.Text type="secondary">{profileDraft.email || "未设置邮箱"}</Typography.Text></Space></Space>
                   <Form layout="vertical">
                     <Form.Item label="显示名称">
                   <Input aria-label="显示名称"
@@ -1159,63 +1240,87 @@ export function SettingsPage() {
               </Card>
             </Col>
             <Col xs={24} lg={12}>
-              <Card title={<Space><Database size={18} />区域与经营偏好</Space>} extra={<Typography.Text type="secondary">经营数据的默认口径</Typography.Text>}>
+              <Card className="settings-profile-card" title={<Space><Database size={18} />区域与经营偏好</Space>} extra={<Typography.Text type="secondary">经营数据的默认口径</Typography.Text>}>
                 <Form layout="vertical">
-                  <Form.Item label="默认语言">
-                  <CustomSelect
-                    ariaLabel="默认语言"
-                    value={profileDraft.language}
-                    onChange={(language) =>
-                      setProfileDraft((value) => ({ ...value, language }))
-                    }
-                    options={["简体中文", "English"]}
-                  />
-                  </Form.Item>
-                  <Form.Item label="时区">
-                  <CustomSelect
-                    ariaLabel="时区"
-                    value={profileDraft.timezone}
-                    onChange={(timezone) =>
-                      setProfileDraft((value) => ({ ...value, timezone }))
-                    }
-                    options={["Asia/Shanghai (UTC+8)", "Europe/Berlin (UTC+2)"]}
-                  />
-                  </Form.Item>
-                  <Form.Item label="基准币种">
-                  <CustomSelect
-                    ariaLabel="基准币种"
-                    value={profileDraft.currency}
-                    onChange={(currency) =>
-                      setProfileDraft((value) => ({ ...value, currency }))
-                    }
-                    options={["CNY · 人民币", "EUR · 欧元", "USD · 美元"]}
-                  />
-                  </Form.Item>
-                  <Form.Item label="经营名称">
-                  <Input aria-label="经营名称"
-                    value={profileDraft.businessName}
-                    onChange={(e) =>
-                      setProfileDraft((value) => ({
-                        ...value,
-                        businessName: e.target.value,
-                      }))
-                    }
-                  />
-                  </Form.Item>
+                  <Row gutter={[16, 0]}>
+                    <Col xs={24} md={8}>
+                      <Form.Item label="默认语言">
+                        <CustomSelect
+                          width="100%"
+                          ariaLabel="默认语言"
+                          value={profileDraft.language}
+                          onChange={(language) =>
+                            setProfileDraft((value) => ({ ...value, language }))
+                          }
+                          options={["简体中文", "English"]}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label="时区">
+                        <CustomSelect
+                          width="100%"
+                          ariaLabel="时区"
+                          value={profileDraft.timezone}
+                          onChange={(timezone) =>
+                            setProfileDraft((value) => ({ ...value, timezone }))
+                          }
+                          options={["Asia/Shanghai (UTC+8)", "Europe/Berlin (UTC+2)"]}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label="基准币种">
+                        <CustomSelect
+                          width="100%"
+                          ariaLabel="基准币种"
+                          value={profileDraft.currency}
+                          onChange={(currency) =>
+                            setProfileDraft((value) => ({ ...value, currency }))
+                          }
+                          options={["CNY · 人民币", "EUR · 欧元", "USD · 美元"]}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={24}>
+                      <Form.Item label="经营名称" style={{ marginBottom: 0 }}>
+                        <Input aria-label="经营名称"
+                          value={profileDraft.businessName}
+                          onChange={(e) =>
+                            setProfileDraft((value) => ({
+                              ...value,
+                              businessName: e.target.value,
+                            }))
+                          }
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                 </Form>
               </Card>
             </Col>
           </Row>
-        ) : tab === "AI 模型配置" ? (
-            <Panel title="服务优先级与密钥池" subtitle="所有模型服务采用相同的状态、筛选、批量操作和表格排版。">
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        ) : (
+          <SettingsContentFrame>
+          {tab === "AI 模型配置" ? (
+            <Panel>
+            <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+              {aiServices.some(service => ["异常", "性能退化", "未验证"].includes(service.status)) && (
+                <StatusNotice
+                  tone="warning"
+                  icon={<Bot size={17}/>}
+                  title={`${aiServices.filter(service => ["异常", "性能退化", "未验证"].includes(service.status)).length} 个模型连接需要处理`}
+                  description={aiServices.filter(service => ["异常", "性能退化", "未验证"].includes(service.status)).map(service => `${service.name}：${service.status}`).join("；")}
+                  action={<Button onClick={async()=>{for(const service of aiServices.filter(item=>item.status!=="停用"))await testAiService(service.id)}}>重新检测</Button>}
+                />
+              )}
                 <TableToolbar filters={<>
                   <SearchInput ariaLabel="搜索 AI 服务" value={serviceQuery} onChange={(event) => setServiceQuery(event.target.value)} placeholder="搜索服务、模型或提供商" />
-                  <CustomSelect
+                  {aiServices.length > 4 && <><CustomSelect
                     ariaLabel="筛选 AI 服务状态"
                     value={serviceStatus}
                     onChange={setServiceStatus}
-                    options={["全部状态", "可用", "未验证", "异常", "停用"]}
+                    options={["全部状态", "可用", "性能退化", "未验证", "异常", "停用"]}
                   />
                   <CustomSelect
                     ariaLabel="AI 服务排序"
@@ -1226,25 +1331,9 @@ export function SettingsPage() {
                       "服务名称 A–Z",
                       "服务名称 Z–A",
                       "延迟最低",
-                      "密钥最多",
                     ]}
-                  />
-                  <Button
-                    disabled={aiServiceQuery.isFetching}
-                    onClick={async () => {
-                      await aiServiceQuery.refetch();
-                      showToast("AI 服务列表已刷新");
-                    }}
-                   >
-                    <RefreshCw />
-                    刷新
-                  </Button>
-                  <Button
-                    disabled={
-                      !serviceQuery &&
-                      serviceStatus === "全部状态" &&
-                      serviceSort === "优先级最高"
-                    }
+                  /></>}
+                  {(serviceQuery || serviceStatus !== "全部状态" || serviceSort !== "优先级最高") && <Button
                     onClick={() => {
                       setServiceQuery("");
                       setServiceStatus("全部状态");
@@ -1252,10 +1341,11 @@ export function SettingsPage() {
                     }}
                   >
                     清除筛选
-                  </Button>
+                  </Button>}
                 </>} selection={selectedAiServices.size > 0 ? (
                   <SelectionBar
-                    summary={<>已选择 <Typography.Text strong>{selectedAiServices.size}</Typography.Text> 个服务</>}
+                    count={selectedAiServices.size}
+                    unit="个服务"
                     actions={<>
                     <Button onClick={() => bulkToggleAiServices(true)}>
                       启用所选
@@ -1273,23 +1363,28 @@ export function SettingsPage() {
                     </>}
                   />
                 ) : undefined} />
+              {failoverEnabled && aiServices.filter(service=>service.status!=="停用").length<2 && <StatusNotice tone="warning" icon={<Bot size={17}/>} title="AI 服务缺少备用连接" description="当前只有一个已启用的模型连接；建议添加第二个服务用于自动故障切换。"/>}
               {aiServiceQuery.isLoading ? (
                 <PageState status="loading" title="正在加载 AI 服务" />
               ) : aiServiceQuery.isError ? (
                 <PageState status="error" title="AI 服务加载失败" description="请检查服务端连接后重试。" onRetry={() => aiServiceQuery.refetch()} />
               ) : (
-              <DataTable minWidth={880} columns={[
+              <DataTable ariaLabel="AI 模型连接表格" className="ai-model-table" minWidth={1120} columns={[
                 {key:"select",title:<span><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
-                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>服务、模型与优先级{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:260},
-                {key:"keys",title:<Button onClick={()=>setServiceSort("密钥最多")}>密钥与状态{aiSortIcon(serviceSort==="密钥最多",true)}</Button>,width:150},
-                {key:"quality",title:<Button onClick={()=>setServiceSort("延迟最低")}>连接质量与接口{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:260},
-                {key:"enabled",title:"启用状态",width:90},{key:"actions",title:"操作",width:120},
+                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>模型连接{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:300},
+                {key:"interface",title:"接口配置",width:280},
+                {key:"routing",title:<Button onClick={()=>setServiceSort("优先级最高")}>调用顺序{aiSortIcon(serviceSort==="优先级最高")}</Button>,width:160},
+                {key:"status",title:<Button onClick={()=>setServiceSort("延迟最低")}>运行状态{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:190},
+                {key:"enabled",title:"启用",width:82},
+                {key:"actions",title:"操作",width:168},
               ]} rows={aiServicePaging.pageItems.map(service=>({key:service.id,cells:[
                 <Checkbox aria-label={`选择 ${service.name}`} checked={selectedAiServices.has(service.id)} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);event.target.checked?next.add(service.id):next.delete(service.id);return next;})}/>,
-                <Space><Avatar icon={<Bot/>}/><Space direction="vertical" size={0}><Typography.Text strong>{service.name}</Typography.Text><Typography.Text type="secondary">{service.provider} · {service.model}</Typography.Text><Typography.Text type="secondary"><Route size={13}/> {service.priority===1?"当前主服务":`备用服务 ${service.priority-1}`}</Typography.Text></Space></Space>,
-                <Space direction="vertical" size={0}><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><Typography.Text type="secondary">{service.keyCount} 个密钥参与轮转</Typography.Text></Space>,<Space direction="vertical" size={0}><Typography.Text strong>{service.latency}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:service.endpoint}}>{service.endpoint}</Typography.Text></Space>,
+                <Space className="ai-model-table__profile" align="center"><Avatar icon={<Bot size={17}/>}/><Space className="ai-model-table__copy" orientation="vertical" size={0}><Typography.Text strong ellipsis={{tooltip:service.name}}>{service.name}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:`${service.provider} · ${service.model}`}}>{service.provider} · {service.model}</Typography.Text></Space></Space>,
+                <Space className="ai-model-table__copy" orientation="vertical" size={3}><Badge tone="blue">{aiProtocolLabel[service.protocol]}</Badge><Typography.Text type="secondary" ellipsis={{tooltip:service.endpoint}}>{service.endpoint}</Typography.Text></Space>,
+                <Space orientation="vertical" size={2}><Typography.Text strong>优先级 {String(service.priority).padStart(2,"0")}</Typography.Text><Typography.Text type="secondary">{service.priority===1?"主连接":`备用连接 ${service.priority-1}`}</Typography.Text><Typography.Text type={service.keyCount>0?"secondary":"danger"}>{service.keyCount>0?"API Key 已配置":"缺少 API Key"}</Typography.Text></Space>,
+                <Space orientation="vertical" size={2}><Space size={8}><Badge tone={service.status==="可用"?"green":service.status==="异常"?"red":service.status==="性能退化"||service.status==="未验证"?"orange":"neutral"}>{service.status}</Badge><Typography.Text strong type={service.status==="性能退化"?"warning":undefined}>{service.latency}</Typography.Text></Space><RecordTime value={service.lastTestedAt} label={service.lastTestedAt?"最近检测":"尚未检测"}/></Space>,
                 <Switch aria-label={`${service.name}启用状态`} checked={service.status!=="停用"} onChange={()=>toggleAiService(service.id)}/>,
-                <Space><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button aria-label={`管理 ${service.name} 密钥`} title="管理密钥" onClick={()=>setKeyService(service)}><KeyRound/></Button><Button disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button></Space>,
+                <Space><Button aria-label={`编辑 ${service.name}`} title="编辑模型连接" onClick={()=>openEditAiService(service)}><Pencil/></Button><Button aria-label={`测试 ${service.name}`} title="测试连接" onClick={()=>testAiService(service.id)}><RefreshCw/></Button><Button disabled={service.priority===1} aria-label={service.priority===1?`${service.name} 已是最高优先级`:`将 ${service.name} 上移一个优先级`} title={service.priority===1?"已是最高优先级":"上移一个优先级"} onClick={()=>moveServiceUp(service.id)}><ArrowUp/></Button><Popconfirm title={`删除模型连接“${service.name}”？`} description="对应 API Key 和连接状态会一并删除，此操作不可撤销。" okText="删除" cancelText="取消" okButtonProps={{danger:true}} onConfirm={()=>deleteAiService(service)}><Button variant="danger" aria-label={`删除 ${service.name}`} title="删除模型连接"><Trash2/></Button></Popconfirm></Space>,
               ]}))}/>
               )}
               {filteredAiServices.length > 0 && (
@@ -1299,17 +1394,41 @@ export function SettingsPage() {
                   total={filteredAiServices.length}
                   onPageChange={aiServicePaging.setPage}
                   onPageSizeChange={aiServicePaging.setPageSize}
-                  pageSizeOptions={[3, 6, 10]}
                   itemName="个服务"
                 />
               )}
-              </Space>
+            </Space>
             </Panel>
         ) : tab === "数据源与集成" ? (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Tabs
+            className="settings-integration-tabs"
+            activeKey={integrationSection}
+            aria-label="集成分类导航"
+            onChange={(key) => {
+              setIntegrationSection(key);
+              navigate({ pathname: location.pathname, hash: key === "leads" ? "lead-source-settings" : key === "extensions" ? "external-service-settings" : "" }, { replace: true });
+            }}
+            items={[{
+              key: "core",
+              label: "核心服务",
+              children: <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+            {!integrationQuery.isLoading && !outboundConnectionsQuery.isLoading && (
+              <StatusNotice
+                tone={integrationIssues.length ? "warning" : "success"}
+                icon={<Route size={17}/>}
+                title={integrationIssues.length ? `${integrationIssues.length} 项集成需要处理` : "核心集成运行正常"}
+                description={integrationIssues.length ? integrationIssues.join("；") : "搜索、地图和消息发送服务均已配置并通过连接测试。"}
+                action={integrationIssues.length ? <Button onClick={async()=>{await Promise.all([integrationQuery.refetch(),outboundConnectionsQuery.refetch()]);showToast("已重新检查集成状态")}}>重新检查</Button> : undefined}
+              />
+            )}
             <OutboundSettings />
             {integrationGroups.map((group, groupIndex) => (
-              <Card key={group.title} title={<Space direction="vertical" size={0}><Typography.Text strong>{group.title}</Typography.Text><Typography.Text type="secondary">{group.description}</Typography.Text></Space>}>
+              <Panel
+                className="settings-section-card"
+                key={group.title}
+                title={group.title}
+                subtitle={group.description}
+              >
                 <List dataSource={[...group.services] as Array<{ name: string; description: string }>} renderItem={(service) => {
                     const index = integrationServices.findIndex(
                       (item) => item.name === service.name,
@@ -1354,10 +1473,11 @@ export function SettingsPage() {
                         ? `${connection.name} · ${(connection as { endpoint?: string }).endpoint ?? ""}`
                         : service.description;
                     return (
-                      <List.Item key={service.name}>
-                        <Flex vertical gap={12} style={{ width: "100%" }}>
-                          <Space align="start"><Avatar icon={<Icon size={19} />} /><Space direction="vertical" size={0}><Typography.Text strong>{service.name}</Typography.Text><Typography.Text type="secondary">{connectionDetail}</Typography.Text></Space></Space>
-                          <Space wrap>
+                      <List.Item
+                        className="settings-service-row"
+                        key={service.name}
+                        extra={
+                          <Space className="settings-service-row__actions" wrap>
                             <Badge
                               tone={statusLabel === "可用" || statusLabel === "内置可用" ? "green" : statusLabel === "异常" ? "red" : "neutral"}
                             >
@@ -1403,19 +1523,43 @@ export function SettingsPage() {
                               </>
                             )}
                           </Space>
-                        </Flex>
+                        }
+                      >
+                        <List.Item.Meta
+                          avatar={<Avatar icon={<Icon size={19} />} />}
+                          title={<Typography.Text strong>{service.name}</Typography.Text>}
+                          description={<Typography.Text type="secondary">{connectionDetail}</Typography.Text>}
+                        />
                       </List.Item>
                     );
                   }} />
                 {groupIndex === 0 && (
-                  <Alert type="info" showIcon icon={<ShieldCheck size={14} />} message="连接凭据由服务端加密保存并按工作区隔离；公开联系人与行业来源具备无需密钥的内置基础能力。" />
+                  <StatusNotice tone="info" icon={<ShieldCheck size={17}/>} title="连接凭据已加密并按工作区隔离" description="公开联系人与行业来源属于无需密钥的内置基础能力。"/>
                 )}
-              </Card>
+              </Panel>
             ))}
-          </Space>
+            <Panel
+              className="settings-section-card"
+              title="采购公告数据源"
+              subtitle="仅管理官方数据源凭据；采购条件和目标地区直接在 AI 获客任务中设置。"
+            >
+              <ProcurementPage embedded view="settings" />
+            </Panel>
+              </Space>,
+            }, {
+              key: "leads",
+              label: "线索入口",
+              children: <div id="lead-source-settings"><LeadSourcesPage embedded /></div>,
+            }, {
+              key: "extensions",
+              label: "扩展服务",
+              children: <div id="external-service-settings"><ConnectorCatalogPage embedded /></div>,
+            }]}
+          />
         ) : tab === "数据与备份" ? (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            <Card title={<Space><MonitorSmartphone size={20} />数据存储</Space>} extra={<Badge tone="green">已持久化</Badge>}>
+          <Row className="settings-data-grid" gutter={[16, 16]}>
+            <Col xs={24} lg={12}>
+            <Card className="settings-data-card" title={<Space><MonitorSmartphone size={18} />数据存储</Space>} extra={<Badge tone="green">已持久化</Badge>}>
               <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
                 <Descriptions.Item label="部署方式">本地 SQLite 文件持久化，按工作区隔离</Descriptions.Item>
                 <Descriptions.Item label="保存范围">客户、任务、内容、活动与商机</Descriptions.Item>
@@ -1423,9 +1567,11 @@ export function SettingsPage() {
                 <Descriptions.Item label="状态">修改即时生效</Descriptions.Item>
               </Descriptions>
             </Card>
-            <Card title="数据导出与备份" extra={<Typography.Text type="secondary">下载当前工作区的真实数据</Typography.Text>}>
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                <Space wrap>
+            </Col>
+            <Col xs={24} lg={12}>
+            <Card className="settings-data-card" title={<Space><Database size={18} />数据导出与备份</Space>} extra={<Typography.Text type="secondary">下载当前工作区的真实数据</Typography.Text>}>
+              <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+                <Space className="settings-data-actions" wrap>
                 <Button
                   onClick={async () => {
                     try {
@@ -1453,22 +1599,35 @@ export function SettingsPage() {
                   完整数据库备份
                 </Button>
                 </Space>
-                <Alert
-                  type={backupsQuery.data?.automatic ? "success" : "warning"}
-                  showIcon
-                  message={backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}
+                <StatusNotice
+                  tone={backupsQuery.data?.automatic ? "success" : "warning"}
+                  icon={<Database size={17}/>}
+                  title={backupsQuery.data?.automatic ? `自动备份已启用 · 保留最近 ${backupsQuery.data.retentionCount} 份` : "自动备份未启用"}
                   description="每份自动备份生成后均执行 SQLite 完整性校验；升级前仍建议额外下载一份。"
-                  action={<Button size="sm" disabled={backupsQuery.isFetching} onClick={()=>backupsQuery.refetch()}><RefreshCw size={15}/>刷新</Button>}
                 />
                 {(backupsQuery.data?.items ?? []).length > 0 && (
                   <List
-                    header={<Space><Typography.Text strong>最近持久化备份</Typography.Text><Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button></Space>}
+                    header={<Flex align="center" justify="space-between" gap={12} wrap><Typography.Text strong>最近持久化备份</Typography.Text><Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button></Flex>}
                     dataSource={backupsQuery.data!.items.slice(0, 3)}
                     renderItem={(item) => <List.Item><Flex align="center" gap={12}><Avatar icon={<Database size={16}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>{new Date(item.createdAt).toLocaleString("zh-CN")}</Typography.Text><Typography.Text type="secondary">{`${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`}</Typography.Text></Space></Flex></List.Item>}
                   />
                 )}
+              </Space>
+            </Card>
+            </Col>
+            <Col span={24}>
+            <Card
+              className="settings-data-card"
+              title={<Space><Route size={18} />运行与连接健康</Space>}
+              extra={<Typography.Text type="secondary">业务数据量、后台任务和连接器状态</Typography.Text>}
+            >
+              <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
                 {operationsQuery.data && (
-                  <Card size="small" title="运行概览" extra={<Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>}>
+                  <div className="settings-data-overview">
+                    <Flex className="settings-data-overview__heading" align="center" justify="space-between" gap={12} wrap>
+                      <Typography.Text strong>运行概览</Typography.Text>
+                      <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
+                    </Flex>
                     <Row gutter={[16, 16]}>
                       <Col xs={12} md={4}><Statistic title="客户" value={operationsQuery.data.counts.customers}/></Col>
                       <Col xs={12} md={4}><Statistic title="任务" value={operationsQuery.data.counts.tasks}/></Col>
@@ -1476,16 +1635,16 @@ export function SettingsPage() {
                       <Col xs={12} md={4}><Statistic title="雷达任务" value={operationsQuery.data.counts.radarTasks}/></Col>
                       <Col xs={12} md={4}><Statistic title="外发队列" value={operationsQuery.data.counts.queuedOutbound}/></Col>
                     </Row>
-                  </Card>
+                  </div>
                 )}
               {connectorHealthQuery.data && (() => {
                 const s = connectorHealthQuery.data.summary;
                 const totalIssues = s.totalIssues;
                 if (totalIssues === 0) return (
-                  <Alert type="success" showIcon message="连接器健康" description="所有连接器正常，过去 7 天无失败" />
+                  <StatusNotice tone="success" icon={<CheckCircle2 size={17}/>} title="连接器运行正常" description="过去 7 天未发现失败记录。"/>
                 );
                 return (
-                  <Alert type="warning" showIcon message={`连接器失败告警 · 过去 7 天共 ${totalIssues} 项异常`} description={
+                  <StatusNotice tone="warning" icon={<AlertTriangle size={17}/>} title={`过去 7 天有 ${totalIssues} 项连接异常`} description={
                     <Space wrap>
                       {s.outboundUnhealthy > 0 && <Badge tone="red">外发渠道 {s.outboundUnhealthy}</Badge>}
                       {s.integrationUnhealthy > 0 && <Badge tone="red">数据源 {s.integrationUnhealthy}</Badge>}
@@ -1520,7 +1679,7 @@ export function SettingsPage() {
                       const tone = connStatusTone(c);
                       return (
                         <List.Item key={`${c.type}-${c.name}`} extra={<Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>}>
-                          <List.Item.Meta title={`${c.type} · ${c.name}`} description={<Space direction="vertical" size={0}><Typography.Text type="secondary">{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</Typography.Text>{c.lastError && <Typography.Text type="danger">{c.lastError}</Typography.Text>}</Space>} />
+                          <List.Item.Meta title={`${c.type} · ${c.name}`} description={<Space orientation="vertical" size={0}><Typography.Text type="secondary">{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</Typography.Text>{c.lastError && <Typography.Text type="danger">{c.lastError}</Typography.Text>}</Space>} />
                         </List.Item>
                       );
                     }),
@@ -1538,51 +1697,52 @@ export function SettingsPage() {
               })()}
               </Space>
             </Card>
-          </Space>
+            </Col>
+          </Row>
         ) : (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
             <Card title={<Space><LockKeyhole size={18} />账户保护</Space>} extra={<Typography.Text type="secondary">管理登录凭据与第二重身份验证</Typography.Text>}>
               <List dataSource={["password", "two-factor"]} renderItem={(item) => item === "password" ? (
                 <List.Item actions={[<Button key="password" size="sm" onClick={() => setSecurityDialog("password")}>修改密码</Button>]}>
-                  <Space align="center"><Avatar icon={<LockKeyhole size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>登录密码</Typography.Text><Typography.Text type="secondary">使用当前密码验证后可设置新密码</Typography.Text></Space></Space>
+                  <Space align="center"><Avatar icon={<LockKeyhole size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>登录密码</Typography.Text><Typography.Text type="secondary">使用当前密码验证后可设置新密码</Typography.Text></Space></Space>
                 </List.Item>
               ) : (
                 <List.Item actions={[<Badge key="status" tone={twoFactorStatusQuery.data?.enabled ? "green" : "orange"}>{twoFactorStatusQuery.data?.enabled ? "已启用" : "未启用"}</Badge>, <Button key="two-factor" size="sm" onClick={openTwoFactorDialog}>{twoFactorStatusQuery.data?.enabled ? "管理" : "设置"}</Button>]}>
-                  <Space align="center"><Avatar icon={<ShieldCheck size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>双重验证</Typography.Text><Typography.Text type="secondary">{twoFactorStatusQuery.data?.enabled ? "已启用验证器应用和恢复码" : "使用验证器应用保护账户"}</Typography.Text></Space></Space>
+                  <Space align="center"><Avatar icon={<ShieldCheck size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>双重验证</Typography.Text><Typography.Text type="secondary">{twoFactorStatusQuery.data?.enabled ? "已启用验证器应用和恢复码" : "使用验证器应用保护账户"}</Typography.Text></Space></Space>
                 </List.Item>
               )}/>
             </Card>
             <Card title={<Space><MonitorSmartphone size={18} />登录会话</Space>} extra={<Typography.Text type="secondary">查看当前设备和其他活动会话</Typography.Text>}>
-              <List dataSource={sessionsQuery.data?.items ?? []} renderItem={(session) => <List.Item key={session.id} actions={[session.current ? <Badge key="current" tone="green">当前</Badge> : <Button key="revoke" size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>]}>
-                  <Space align="center"><Avatar icon={<MonitorSmartphone size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>{`${/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · ${session.ipAddress ?? "未知地址"}`}</Typography.Text><Typography.Text type="secondary">{`${session.current ? "当前设备" : "其他设备"} · 最近活动：${session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}`}</Typography.Text></Space></Space>
+              <List preserveLastDivider={(sessionsQuery.data?.items ?? []).some(session => !session.current)} dataSource={sessionsQuery.data?.items ?? []} renderItem={(session) => <List.Item key={session.id} actions={[session.current ? <Badge key="current" tone="green">当前</Badge> : <Button key="revoke" size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>]}>
+                  <Space align="center"><Avatar icon={<MonitorSmartphone size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>{`${/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · ${session.ipAddress ?? "未知地址"}`}</Typography.Text><Typography.Text type="secondary">{`${session.current ? "当前设备" : "其他设备"} · 最近活动：${session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}`}</Typography.Text></Space></Space>
                 </List.Item>}/>
               {(sessionsQuery.data?.items ?? []).some(session => !session.current) && <List dataSource={["other-sessions"]} renderItem={() => <List.Item actions={[<Button key="revoke-all" size="sm" onClick={async()=>{const result=await authApi.revokeOtherSessions();await sessionsQuery.refetch();showToast(`已退出 ${result.removed} 个其他会话`)}}>全部退出</Button>]}>
-                  <Space align="center"><Avatar icon={<UserRound size={17}/>} /><Space direction="vertical" size={0}><Typography.Text strong>其他登录设备</Typography.Text><Typography.Text type="secondary">一次撤销当前设备之外的全部会话</Typography.Text></Space></Space>
+                  <Space align="center"><Avatar icon={<UserRound size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>其他登录设备</Typography.Text><Typography.Text type="secondary">一次撤销当前设备之外的全部会话</Typography.Text></Space></Space>
                 </List.Item>}/>}
             </Card>
-            <Alert
-              type="error"
-              showIcon
-              icon={<Trash2 size={18} />}
-              message="删除账户和数据"
-              description="永久删除账号、密钥及全部经营数据；建议操作前先导出完整备份。"
-              action={
-              <Button
-                variant="danger"
-                onClick={() => setConfirmDelete("account")}
-              >
-                <Trash2 size={14} />
-                删除账户
-              </Button>
-              }
-            />
+            <Card title={<Space><AlertTriangle size={18}/>危险操作</Space>} extra={<Badge tone="red">不可恢复</Badge>}>
+              <List dataSource={["delete-account"]} renderItem={() => (
+                <List.Item actions={[
+                  <Button key="delete" variant="danger" onClick={() => setConfirmDelete("account")}>删除账户</Button>,
+                ]}>
+                  <List.Item.Meta
+                    avatar={
+                      <Avatar icon={<Trash2 size={17}/>} />
+                    }
+                    title={<Typography.Text strong>删除账户和全部数据</Typography.Text>}
+                    description="永久删除账号、AI 密钥、连接配置及全部经营数据。删除前请先导出完整备份。"
+                  />
+                </List.Item>
+              )}/>
+            </Card>
           </Space>
         )}
-      </Card>
+          </SettingsContentFrame>
+        )}
       <Modal
         open={policyOpen}
         title="轮转与重试策略"
-        description="配置密钥轮转、请求重试和跨服务故障切换。"
+        description="配置模型连接轮转、请求重试和连接故障切换。"
         width={660}
         onClose={() => setPolicyOpen(false)}
         footer={
@@ -1600,7 +1760,7 @@ export function SettingsPage() {
           </>
         }
       >
-        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="large" style={{ width: "100%" }}>
           <Steps
             size="small"
             current={1}
@@ -1617,7 +1777,7 @@ export function SettingsPage() {
                 ariaLabel="密钥轮转方式"
                 value={rotationStrategy}
                 onChange={setRotationStrategy}
-                options={["失败后切换密钥", "按请求轮询", "最少使用优先"]}
+                options={["按优先级故障切换", "按连接轮询", "最久未用优先"]}
               />
               </Form.Item></Col>
               <Col xs={24} sm={12}><Form.Item label="单密钥重试次数">
@@ -1648,155 +1808,66 @@ export function SettingsPage() {
           </Form>
           <Card size="small">
             <Flex justify="space-between" align="center" gap={16}>
-              <Space direction="vertical" size={0}><Typography.Text strong>跨服务自动切换</Typography.Text><Typography.Text type="secondary">当前服务全部密钥失败后，自动使用下一优先级服务。</Typography.Text></Space>
-              <Switch aria-label="跨服务自动切换" checked={failoverEnabled} onChange={setFailoverEnabled} />
+              <Space orientation="vertical" size={0}><Typography.Text strong>连接失败后自动切换</Typography.Text><Typography.Text type="secondary">当前模型连接调用失败后，自动尝试列表中的下一个可用连接。</Typography.Text></Space>
+              <Switch aria-label="连接失败后自动切换" checked={failoverEnabled} onChange={setFailoverEnabled} />
             </Flex>
           </Card>
         </Space>
       </Modal>
-      <CreateDialog
-        open={serviceDialog}
-        title="添加 AI 服务"
-        description="DeepSeek 与阿里云百炼使用官方兼容接口；服务与密钥均按当前工作区隔离。"
-        submitLabel="添加服务"
-        successMessage="AI 服务已添加"
-        onClose={() => setServiceDialog(false)}
-        onSubmit={addAiService}
-        fields={[
-          {
-            name: "name",
-            label: "服务名称",
-            required: true,
-            placeholder: "例如：DeepSeek 主服务",
-          },
-          {
-            name: "provider",
-            label: "服务商",
-            type: "select",
-            required: true,
-            options: ["DeepSeek", "阿里云百炼", "OpenAI 兼容服务"],
-          },
-          {
-            name: "model",
-            label: "默认模型",
-            placeholder: "留空使用服务商推荐模型",
-          },
-          {
-            name: "endpoint",
-            label: "API Base URL",
-            placeholder: "留空使用官方默认地址",
-          },
-        ]}
-      />
       <Modal
-        open={Boolean(keyService)}
-        title={`密钥池 · ${keyService?.name ?? ""}`}
-        description="密钥在服务端使用 AES-256-GCM 加密保存，前端只返回名称和末四位。"
-        onClose={() => setKeyService(null)}
-        footer={
-          <>
-            <Button onClick={() => setKeyService(null)}>关闭</Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setAddKeyService(keyService);
-                setKeyService(null);
-              }}
-            >
-              <Plus size={14} />
-              添加密钥
-            </Button>
-          </>
-        }
+        open={serviceDialog}
+        title="添加模型连接"
+        description="选择服务实际支持的 API 协议；快捷模板只负责预填，不限制服务商。"
+        width={640}
+        onClose={() => { if (!serviceSaving) { setServiceDialog(false); aiConnectionForm.resetFields(); } }}
+        footer={<><Button disabled={serviceSaving} onClick={() => { setServiceDialog(false); aiConnectionForm.resetFields(); }}>取消</Button><Button variant="primary" loading={serviceSaving} onClick={saveAiConnection}>保存并测试</Button></>}
       >
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <Alert
-            type="info"
-            showIcon
-            message={`${aiKeys.filter((item) => item.serviceId === keyService?.id && item.status === "启用").length} 个密钥已启用`}
-            description="失败的密钥会进入冷却，恢复后重新加入轮转。"
-            action={<Badge tone="blue">{rotationStrategy}</Badge>}
-          />
-            {aiKeys.filter((item) => item.serviceId === keyService?.id)
-              .length ? (
-              <List
-                dataSource={aiKeys.filter((item) => item.serviceId === keyService?.id)}
-                renderItem={(key) => (
-                  <List.Item
-                    key={key.id}
-                    actions={[
-                      <Badge key="status" tone={key.status === "启用" ? "green" : "neutral"}>{key.status}</Badge>,
-                      <Switch key="switch" aria-label={`${key.name}启用状态`} checked={key.status === "启用"} onChange={() => toggleAiKey(key)} />,
-                      <Button key="delete" aria-label={`删除 ${key.name}`} title="删除密钥" onClick={() => { setDeleteKeyId(key.id); setConfirmDelete("key"); }}><Trash2 size={14} /></Button>,
-                    ]}
-                  >
-                    <List.Item.Meta avatar={<Avatar icon={<KeyRound />} />} title={key.name} description={`•••• •••• •••• ${key.ending} · 最近使用 ${key.lastUsed}`} />
-                  </List.Item>
-                )}
-              />
-            ) : (
-              <EmptyState
-                title="暂无密钥"
-                icon={KeyRound}
-              />
-            )}
-        </Space>
+        <Form form={aiConnectionForm} layout="vertical" requiredMark="optional">
+          <Row gutter={16}>
+            <Col xs={24} sm={12}><Form.Item name="template" label="快捷模板"><CustomSelect width="100%" ariaLabel="AI 模型快捷模板" options={["自定义接口", ...Object.keys(aiConnectionTemplates)]} onChange={value => { aiConnectionForm.setFieldValue("template", value); applyAiTemplate(value); }}/></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="protocol" label="API 协议" rules={[{ required: true, message: "请选择 API 协议" }]}><CustomSelect width="100%" ariaLabel="API 协议" options={aiProtocolOptions}/></Form.Item></Col>
+          </Row>
+          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: "请输入便于识别的配置名称" }, { max: 120 }]}><Input placeholder="例如：生产主模型、备用模型"/></Form.Item>
+          <Form.Item name="endpoint" label="API Base URL" extra="填写基础地址即可；系统会根据所选协议补充请求路径。" rules={[{ required: true, message: "请输入 API Base URL" }, { type: "url", message: "请输入完整的 http:// 或 https:// 地址" }]}><Input placeholder="https://api.example.com/v1" autoComplete="url"/></Form.Item>
+          <Form.Item name="model" label="模型 ID" rules={[{ required: true, message: "请输入接口实际使用的模型 ID" }, { max: 120 }]}><Input placeholder="例如：model-name"/></Form.Item>
+          <Row gutter={16}>
+            <Col xs={24} sm={16}><Form.Item name="keyName" label="密钥名称" rules={[{ required: true, message: "请输入密钥名称" }]}><Input placeholder="主密钥"/></Form.Item></Col>
+            <Col xs={24} sm={8}><Form.Item name="priority" label="调用优先级" extra="数字越小越优先" rules={[{ required: true, message: "请输入优先级" }]}><Input type="number" min={1} max={100}/></Form.Item></Col>
+          </Row>
+          <Form.Item name="secret" label="API Key" rules={[{ required: true, message: "请输入 API Key" }, { min: 8, message: "API Key 至少需要 8 个字符" }]}><Input.Password placeholder="输入完整密钥" autoComplete="new-password"/></Form.Item>
+          <StatusNotice tone="info" icon={<KeyRound size={17}/>} title="一条连接使用一个密钥" description="API Key 与当前模型连接一起加密保存；需要备用时，请添加另一条完整连接。"/>
+        </Form>
       </Modal>
-      <CreateDialog
-        open={Boolean(addKeyService)}
-        title={`添加密钥 · ${addKeyService?.name ?? ""}`}
-        description="密钥只会传给当前部署的服务端并加密保存；保存后接口不会再次返回明文。"
-        submitLabel="保存密钥"
-        successMessage="密钥已加密加入轮转池"
-        onClose={() => setAddKeyService(null)}
-        onSubmit={addAiKey}
-        fields={[
-          {
-            name: "name",
-            label: "密钥名称",
-            required: true,
-            placeholder: "例如：生产密钥 02",
-          },
-          {
-            name: "key",
-            label: "API Key",
-            required: true,
-            placeholder: "输入新生成的完整密钥",
-          },
-          {
-            name: "note",
-            label: "备注",
-            type: "textarea",
-            placeholder: "记录用途、归属或到期时间",
-          },
-        ]}
-      />
+      <Modal
+        open={Boolean(editingAiService)}
+        title={`编辑模型连接 · ${editingAiService?.name ?? ""}`}
+        description="可修改连接信息或替换 API Key；保存后会立即重新测试。"
+        width={620}
+        onClose={() => { if (!editServiceSaving) { setEditingAiService(null); editServiceForm.resetFields(); } }}
+        footer={<><Button disabled={editServiceSaving} onClick={() => { setEditingAiService(null); editServiceForm.resetFields(); }}>取消</Button><Button variant="primary" loading={editServiceSaving} onClick={saveEditedAiService}>保存并测试</Button></>}
+      >
+        <Form form={editServiceForm} layout="vertical" requiredMark="optional">
+          <Form.Item name="protocol" label="API 协议" rules={[{ required: true, message: "请选择 API 协议" }]}><CustomSelect width="100%" ariaLabel="编辑 API 协议" options={aiProtocolOptions}/></Form.Item>
+          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: "请输入配置名称" }, { max: 120 }]}><Input/></Form.Item>
+          <Form.Item name="endpoint" label="API Base URL" extra="填写基础地址即可；系统会根据所选协议补充请求路径。" rules={[{ required: true, message: "请输入 API Base URL" }, { type: "url", message: "请输入完整的 http:// 或 https:// 地址" }]}><Input autoComplete="url"/></Form.Item>
+          <Form.Item name="model" label="模型 ID" rules={[{ required: true, message: "请输入模型 ID" }, { max: 120 }]}><Input/></Form.Item>
+          <Form.Item name="priority" label="调用优先级" extra="数字越小越优先；相同优先级按创建顺序调用。" rules={[{ required: true, message: "请输入调用优先级" }]}><Input type="number" min={1} max={100}/></Form.Item>
+          <Form.Item name="secret" label="替换 API Key" extra="留空则继续使用当前加密密钥；填写新密钥会直接替换旧密钥。" rules={[{ min: 8, message: "API Key 至少需要 8 个字符" }]}><Input.Password placeholder="留空表示不更换" autoComplete="new-password"/></Form.Item>
+          <StatusNotice tone="info" icon={<KeyRound size={17}/>} title="连接级故障切换" description="轮转发生在模型连接之间；每条连接只使用一个 API Key。"/>
+        </Form>
+      </Modal>
       <Modal
         open={Boolean(confirmDelete)}
-        title={
-          confirmDelete === "account" ? "确认删除账户" : "确认删除 API Key"
-        }
+        title="确认删除账户"
         description="此操作不可撤销"
-        onClose={() => { setConfirmDelete(null); setDeleteKeyId(null); setAccountDeletePassword(""); setAccountDeleteConfirmation(""); }}
+        descriptionTone="warning"
+        onClose={() => { setConfirmDelete(null); setAccountDeletePassword(""); setAccountDeleteConfirmation(""); }}
         footer={
           <>
             <Button onClick={() => setConfirmDelete(null)}>取消</Button>
             <Button
               variant="danger"
               onClick={async () => {
-                if (confirmDelete === "key") {
-                  if (!deleteKeyId) return;
-                  try {
-                    await aiApi.deleteKey(deleteKeyId);
-                    await Promise.all([aiServiceQuery.refetch(), aiKeyQuery.refetch()]);
-                    setConfirmDelete(null);
-                    setDeleteKeyId(null);
-                    showToast("API Key 已删除");
-                  } catch (cause) {
-                    showToast(cause instanceof Error ? cause.message : "密钥删除失败");
-                  }
-                  return;
-                }
                 try {
                   await authApi.deleteAccount({ currentPassword: accountDeletePassword, confirmation: accountDeleteConfirmation as "DELETE" });
                   setConfirmDelete(null);
@@ -1811,12 +1882,8 @@ export function SettingsPage() {
           </>
         }
       >
-        <Typography.Paragraph>
-          {confirmDelete === "account"
-            ? "账号、客户、活动、消息、商机和密钥都将永久删除。建议先导出完整备份。"
-            : "删除后，依赖该密钥的 AI 研究与内容生成功能将停止。"}
-        </Typography.Paragraph>
-        {confirmDelete === "account" && <Form layout="vertical"><Form.Item label="当前密码" extra="用于确认账户所有权"><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></Form.Item><Form.Item label="确认文字" extra="请输入 DELETE"><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></Form.Item></Form>}
+        <Typography.Paragraph className="ui-form-intro">账号、客户、活动、消息、商机和密钥都将永久删除。建议先导出完整备份。</Typography.Paragraph>
+        <Form layout="vertical"><Form.Item label="当前密码" extra="用于确认账户所有权"><Input.Password value={accountDeletePassword} onChange={event=>setAccountDeletePassword(event.target.value)} autoComplete="current-password"/></Form.Item><Form.Item label="确认文字" extra="请输入 DELETE"><Input value={accountDeleteConfirmation} onChange={event=>setAccountDeleteConfirmation(event.target.value.toUpperCase())} placeholder="DELETE"/></Form.Item></Form>
       </Modal>
       <CreateDialog
         open={Boolean(integration)}
@@ -1981,8 +2048,8 @@ export function SettingsPage() {
         footer={twoFactorRecovery ? <Button variant="primary" onClick={closeTwoFactorDialog}>我已保存</Button> : <><Button onClick={closeTwoFactorDialog} disabled={twoFactorBusy}>取消</Button><Button variant="primary" onClick={submitTwoFactor} disabled={twoFactorBusy}>{twoFactorBusy ? "正在处理…" : twoFactorStatusQuery.data?.enabled ? "关闭验证" : "验证并启用"}</Button></>}
       >
         {twoFactorRecovery ? (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-            <Alert type="warning" showIcon icon={<ShieldCheck />} message="请立即保存恢复码" description="每个恢复码只能使用一次；丢失验证器时可用其中一个登录。" />
+          <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+            <Alert type="warning" showIcon icon={<ShieldCheck />} title="请立即保存恢复码" description="每个恢复码只能使用一次；丢失验证器时可用其中一个登录。" />
             <Card size="small" title="一次性恢复码" extra={<Typography.Text type="secondary">请离线保存</Typography.Text>}>
               <Row gutter={[12, 12]}>
                 {twoFactorRecovery.map(code=><Col xs={12} key={code}><Typography.Text code copyable>{code}</Typography.Text></Col>)}
@@ -1990,7 +2057,7 @@ export function SettingsPage() {
             </Card>
           </Space>
         ) : (
-          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
             {!twoFactorStatusQuery.data?.enabled && (
               <Card size="small">
                 <Flex vertical align="center" gap={12}>

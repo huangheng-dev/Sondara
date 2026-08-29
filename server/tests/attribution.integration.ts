@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { buildApp } from '../app.js'
 import { db } from '../db/client.js'
 import {
-  channelCosts, customers, deals, tasks, users,
+  channelCosts, customers, customerTouchpoints, deals, tasks, users,
 } from '../db/schema.js'
 
 const run = async () => {
@@ -50,6 +50,13 @@ const run = async () => {
             stageEnteredAt: now, createdAt: monthStart + 172800000, updatedAt: now,
           })
 
+    await db.insert(customerTouchpoints).values({
+      id: 'ctp-test-attr-1', workspaceId, customerId: 'cus-test-attr-1', contactId: null,
+      eventType: 'lead_submitted', source: 'google-ads-lead-form', medium: 'paid-search', campaign: 'demo-campaign',
+      content: null, term: null, referrer: null, landingPage: 'https://example.test/demo', externalId: 'google-lead-attr-1', metadataJson: '{}',
+      occurredAt: monthStart + 86400000, createdAt: now,
+    })
+
     // Overview should now show the customer and deal
     const overview = await app.inject({ method: 'GET', url: '/api/attribution/overview?period=month&currency=EUR', headers })
     assert.equal(overview.statusCode, 200, overview.body)
@@ -57,6 +64,8 @@ const run = async () => {
     assert.ok(data.funnel.find((s: { key: string }) => s.key === 'qualified').value >= 1)
     assert.ok(data.funnel.find((s: { key: string }) => s.key === 'won').value >= 1)
     assert.ok(data.totals.revenue >= 500000)
+    assert.equal(data.channels.find((channel: { name: string }) => channel.name === 'Google Ads')?.discovered, 1)
+    assert.equal(data.channels.find((channel: { name: string }) => channel.name === '地图找客'), undefined)
 
     // Channel costs CRUD
     const costStart = monthStart

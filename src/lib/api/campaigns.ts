@@ -104,6 +104,16 @@ export const campaignApi = {
       `/campaigns/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/execute`,
       { method: "POST", body: JSON.stringify({ confirmation: true }) },
     ),
+  stepReadiness: (id: string, stepId: string) =>
+    request<{
+      campaignId: string;
+      stepId: string;
+      channel: string;
+      audienceCount: number;
+      reachableCount: number;
+      canExecute: boolean;
+      checks: Array<{ key: string; label: string; status: "pass" | "warning" | "block"; detail: string }>;
+    }>(`/campaigns/${encodeURIComponent(id)}/steps/${encodeURIComponent(stepId)}/readiness`),
   linkContent: (id: string, contentAssetId: string, purpose?: string) =>
     request<CampaignApiRecord>(`/campaigns/${encodeURIComponent(id)}/content`, {
       method: "POST",
@@ -115,4 +125,3 @@ export const campaignApi = {
       { method: "POST", body: JSON.stringify({ customerIds }) },
     ),
 };
-

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, count, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
 import { aiServiceKeys, aiServices, auditLogs, workspaceAiPolicies } from '../db/schema.js'
@@ -9,6 +9,7 @@ import { encryptSecret } from '../lib/secret-vault.js'
 import { requireAdmin, requireAuth } from '../plugins/auth.js'
 
 const provider = z.enum(['deepseek', 'dashscope', 'openai-compatible'])
+const protocol = z.enum(['openai-responses', 'openai-chat-completions', 'anthropic-messages'])
 const defaults = {
   deepseek: { endpoint: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
   dashscope: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
@@ -18,11 +19,21 @@ const defaults = {
 const serviceInput = z.object({
   name: z.string().trim().min(1).max(120),
   provider,
+  protocol: protocol.optional().default('openai-chat-completions'),
   model: z.string().trim().max(120).optional(),
   endpoint: z.string().trim().url().optional(),
   priority: z.number().int().min(1).max(100).optional(),
 })
-const servicePatch = z.object({ enabled: z.boolean().optional(), priority: z.number().int().min(1).max(100).optional(), name: z.string().trim().min(1).max(120).optional(), model: z.string().trim().min(1).max(120).optional(), endpoint: z.string().trim().url().optional() })
+const connectionInput = z.object({
+  name: z.string().trim().min(1).max(120),
+  protocol: protocol.optional().default('openai-chat-completions'),
+  endpoint: z.string().trim().url(),
+  model: z.string().trim().min(1).max(120),
+  keyName: z.string().trim().min(1).max(120).default('主密钥'),
+  secret: z.string().trim().min(8).max(500),
+  priority: z.number().int().min(1).max(100).optional(),
+})
+const servicePatch = z.object({ enabled: z.boolean().optional(), priority: z.number().int().min(1).max(100).optional(), name: z.string().trim().min(1).max(120).optional(), protocol: protocol.optional(), model: z.string().trim().min(1).max(120).optional(), endpoint: z.string().trim().url().optional() })
 const keyInput = z.object({ name: z.string().trim().min(1).max(120), secret: z.string().trim().min(8).max(500) })
 const keyPatch = z.object({ enabled: z.boolean() })
 const policyInput = z.object({
@@ -39,13 +50,17 @@ const audit = async (workspaceId: string, actorUserId: string, action: string, e
   await db.insert(auditLogs).values({ id: createId('aud'), workspaceId, actorUserId, action, entityType, entityId, metadata: JSON.stringify(metadata), createdAt: Date.now() })
 }
 
-const serviceView = async (workspaceId: string) => (await db.select({
-  id: aiServices.id, workspaceId: aiServices.workspaceId, name: aiServices.name, provider: aiServices.provider,
-  model: aiServices.model, endpoint: aiServices.endpoint, priority: aiServices.priority, enabled: aiServices.enabled,
-  status: aiServices.status, lastLatencyMs: aiServices.lastLatencyMs, lastError: aiServices.lastError,
-  lastTestedAt: aiServices.lastTestedAt, createdAt: aiServices.createdAt, updatedAt: aiServices.updatedAt,
-  keyCount: sql<number>`(select count(*) from ${aiServiceKeys} where ${aiServiceKeys.serviceId} = ${aiServices.id})`,
-}).from(aiServices).where(eq(aiServices.workspaceId, workspaceId)).orderBy(asc(aiServices.priority)))
+const serviceView = async (workspaceId: string) => {
+  const [services, keyCounts] = await Promise.all([
+    db.select().from(aiServices).where(eq(aiServices.workspaceId, workspaceId)).orderBy(asc(aiServices.priority)),
+    db.select({ serviceId: aiServiceKeys.serviceId, keyCount: count(aiServiceKeys.id) })
+      .from(aiServiceKeys)
+      .where(eq(aiServiceKeys.workspaceId, workspaceId))
+      .groupBy(aiServiceKeys.serviceId),
+  ])
+  const countByService = new Map(keyCounts.map(item => [item.serviceId, item.keyCount]))
+  return services.map(service => ({ ...service, keyCount: countByService.get(service.id) ?? 0 }))
+}
 
 export const aiServiceRoutes: FastifyPluginAsync = async app => {
   app.addHook('preHandler', requireAuth)
@@ -78,10 +93,31 @@ export const aiServiceRoutes: FastifyPluginAsync = async app => {
     if (!endpoint || !model) return reply.code(400).send({ error: 'INVALID_INPUT', message: '兼容服务必须填写接口地址和模型名称。' })
     const now = Date.now()
     const nextPriority = parsed.data.priority ?? (((await db.$first(db.select({ max: sql<number>`coalesce(max(${aiServices.priority}), 0)` }).from(aiServices).where(eq(aiServices.workspaceId, request.auth.workspaceId))))?.max ?? 0) + 1)
-    const record = { id: createId('ais'), workspaceId: request.auth.workspaceId, name: parsed.data.name, provider: parsed.data.provider, model, endpoint, priority: nextPriority, enabled: true, status: 'untested', lastLatencyMs: null, lastError: null, lastTestedAt: null, createdAt: now, updatedAt: now }
+    const record = { id: createId('ais'), workspaceId: request.auth.workspaceId, name: parsed.data.name, provider: parsed.data.provider, protocol: parsed.data.protocol, model, endpoint, priority: nextPriority, enabled: true, status: 'untested', lastLatencyMs: null, lastError: null, lastTestedAt: null, createdAt: now, updatedAt: now }
     try { await db.insert(aiServices).values(record) } catch { return reply.code(409).send({ error: 'SERVICE_EXISTS', message: '已存在同名 AI 服务。' }) }
     await audit(request.auth.workspaceId, request.auth.userId, 'ai.service.created', 'ai_service', record.id, { provider: record.provider, model: record.model })
     return reply.code(201).send({ ...record, keyCount: 0 })
+  })
+
+  app.post('/services/connections', { preHandler: requireAdmin }, async (request, reply) => {
+    const parsed = connectionInput.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const now = Date.now()
+    const nextPriority = parsed.data.priority ?? (((await db.$first(db.select({ max: sql<number>`coalesce(max(${aiServices.priority}), 0)` }).from(aiServices).where(eq(aiServices.workspaceId, request.auth.workspaceId))))?.max ?? 0) + 1)
+    const service = { id: createId('ais'), workspaceId: request.auth.workspaceId, name: parsed.data.name, provider: 'openai-compatible' as const, protocol: parsed.data.protocol, model: parsed.data.model, endpoint: parsed.data.endpoint.replace(/\/+$/, ''), priority: nextPriority, enabled: true, status: 'untested' as const, lastLatencyMs: null, lastError: null, lastTestedAt: null, createdAt: now, updatedAt: now }
+    const encrypted = encryptSecret(parsed.data.secret)
+    const key = { id: createId('aik'), workspaceId: request.auth.workspaceId, serviceId: service.id, name: parsed.data.keyName, secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, ending: parsed.data.secret.slice(-4).toUpperCase(), enabled: true, failureCount: 0, cooldownUntil: null, lastUsedAt: null, createdAt: now, updatedAt: now }
+    try {
+      await db.transaction(async tx => {
+        await tx.insert(aiServices).values(service)
+        await tx.insert(aiServiceKeys).values(key)
+      })
+    } catch {
+      return reply.code(409).send({ error: 'SERVICE_EXISTS', message: '已存在同名 AI 模型连接。' })
+    }
+    await audit(request.auth.workspaceId, request.auth.userId, 'ai.service.created', 'ai_service', service.id, { provider: service.provider, model: service.model, withInitialKey: true })
+    await audit(request.auth.workspaceId, request.auth.userId, 'ai.key.created', 'ai_service_key', key.id, { serviceId: service.id, ending: key.ending })
+    return reply.code(201).send({ ...service, keyCount: 1 })
   })
 
   app.patch('/services/:id', { preHandler: requireAdmin }, async (request, reply) => {
@@ -93,6 +129,33 @@ export const aiServiceRoutes: FastifyPluginAsync = async app => {
     await db.update(aiServices).set({ ...parsed.data, updatedAt: Date.now() }).where(and(eq(aiServices.id, id), eq(aiServices.workspaceId, request.auth.workspaceId)))
     await audit(request.auth.workspaceId, request.auth.userId, 'ai.service.updated', 'ai_service', id, { fields: Object.keys(parsed.data) })
     return (await serviceView(request.auth.workspaceId)).find(item => item.id === id)
+  })
+
+  app.put('/services/:id/key', { preHandler: requireAdmin }, async (request, reply) => {
+    const serviceId = (request.params as { id: string }).id
+    const parsed = keyInput.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    const service = await db.$first(db.select({ id: aiServices.id }).from(aiServices).where(and(eq(aiServices.id, serviceId), eq(aiServices.workspaceId, request.auth.workspaceId))))
+    if (!service) return reply.code(404).send({ error: 'NOT_FOUND', message: 'AI 模型连接不存在。' })
+    const encrypted = encryptSecret(parsed.data.secret)
+    const now = Date.now()
+    const record = { id: createId('aik'), workspaceId: request.auth.workspaceId, serviceId, name: parsed.data.name, secretCiphertext: encrypted.ciphertext, secretIv: encrypted.iv, secretTag: encrypted.tag, ending: parsed.data.secret.slice(-4).toUpperCase(), enabled: true, failureCount: 0, cooldownUntil: null, lastUsedAt: null, createdAt: now, updatedAt: now }
+    await db.transaction(async tx => {
+      await tx.delete(aiServiceKeys).where(and(eq(aiServiceKeys.serviceId, serviceId), eq(aiServiceKeys.workspaceId, request.auth.workspaceId)))
+      await tx.insert(aiServiceKeys).values(record)
+      await tx.update(aiServices).set({ status: 'untested', lastError: null, lastTestedAt: null, updatedAt: now }).where(eq(aiServices.id, serviceId))
+    })
+    await audit(request.auth.workspaceId, request.auth.userId, 'ai.key.replaced', 'ai_service', serviceId, { ending: record.ending })
+    return { serviceId, ending: record.ending, updatedAt: now }
+  })
+
+  app.delete('/services/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const existing = await db.$first(db.select({ id: aiServices.id, name: aiServices.name }).from(aiServices).where(and(eq(aiServices.id, id), eq(aiServices.workspaceId, request.auth.workspaceId))))
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND', message: 'AI 模型连接不存在。' })
+    await db.delete(aiServices).where(and(eq(aiServices.id, id), eq(aiServices.workspaceId, request.auth.workspaceId)))
+    await audit(request.auth.workspaceId, request.auth.userId, 'ai.service.deleted', 'ai_service', id, { name: existing.name })
+    return reply.code(204).send()
   })
 
   app.get('/services/:id/keys', async (request, reply) => {

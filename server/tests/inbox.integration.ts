@@ -5,12 +5,15 @@ import { db } from "../db/client.js";
 import {
   campaignExecutionEvents,
   customers,
+  inboxContacts,
   messageEntries,
   messageThreadReads,
   messageThreads,
   outboxJobs,
+  tasks,
   users,
 } from "../db/schema.js";
+import { ingestMail } from "../inbox/imap-receiver.js";
 
 const run = async () => {
   const app = await buildApp();
@@ -126,6 +129,25 @@ const run = async () => {
     assert.equal(messages.json().items.length, 1);
     assert.equal(messages.json().items[0].direction, "inbound");
 
+    const suggestion = await app.inject({
+      method: "POST",
+      url: `/api/inbox/threads/${threadId}/reply-suggestion`,
+      headers,
+    });
+    assert.equal(suggestion.statusCode, 200, suggestion.body);
+    assert.equal(suggestion.json().status, "fallback");
+    assert.equal(suggestion.json().source, "rule");
+    assert.equal(suggestion.json().requiresHumanConfirmation, true);
+    assert.match(suggestion.json().draft, /感谢您的回复/);
+    assert.equal((await db.select().from(messageEntries).where(eq(messageEntries.threadId, threadId))).length, 1);
+
+    await db.update(messageThreads).set({ status: "closed", updatedAt: Date.now() }).where(eq(messageThreads.id, second.json().id));
+    const blockedSuggestion = await app.inject({ method: "POST", url: `/api/inbox/threads/${second.json().id}/reply-suggestion`, headers });
+    assert.equal(blockedSuggestion.statusCode, 200, blockedSuggestion.body);
+    assert.equal(blockedSuggestion.json().status, "blocked");
+    const blockedReply = await app.inject({ method: "POST", url: `/api/inbox/threads/${second.json().id}/replies/confirm`, headers, payload: { body: "不应发送", confirmation: true } });
+    assert.equal(blockedReply.statusCode, 409, blockedReply.body);
+
     const rejected = await app.inject({
       method: "POST",
       url: `/api/inbox/threads/${threadId}/replies/confirm`,
@@ -219,8 +241,23 @@ const run = async () => {
                 .where(eq(customers.id, customer.json().id))))?.interaction,
       "刚刚 · 已确认回复",
     );
+
+    const organicResult = await ingestMail({
+      connectionId: 'imap-integration', workspaceId, host: 'imap.example.com', port: 993,
+      secure: true, user: 'sales@example.com', password: 'unused',
+    }, {
+      messageId: `organic-${Date.now()}@example.com`, fromAddress: 'buyer@newco.example.com', fromName: 'Alex Buyer',
+      subject: 'Request for quotation', text: 'Please send pricing, lead time and a product catalog for our project.',
+      inReplyTo: null, references: [], date: Date.now(),
+    });
+    assert.equal(organicResult, 'ingested');
+    const organicCustomer = await db.$first(db.select().from(customers).where(and(eq(customers.workspaceId, workspaceId), eq(customers.company, 'newco.example.com'))));
+    assert.ok(organicCustomer);
+    assert.equal(organicCustomer?.signal, '主动邮件询盘');
+    assert.equal((await db.select().from(inboxContacts).where(and(eq(inboxContacts.workspaceId, workspaceId), eq(inboxContacts.customerId, organicCustomer!.id)))).length, 1);
+    assert.equal((await db.select().from(tasks).where(and(eq(tasks.workspaceId, workspaceId), eq(tasks.customerId, organicCustomer!.id), eq(tasks.source, '邮件询盘 · IMAP')))).length, 1);
     console.log(
-      "Inbox integration passed: threads, contacts, cursor loading, read state, campaign link and confirmed replies verified.",
+      "Inbox integration passed: threads, contacts, AI-safe reply suggestions, closed-thread protection, cursor loading, confirmed replies and organic inquiry auto-entry verified.",
     );
   } finally {
     if (userId) await db.delete(users).where(eq(users.id, userId));

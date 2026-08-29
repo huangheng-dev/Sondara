@@ -10,6 +10,9 @@ import { booleanQuerySchema } from '../contracts/query.js'
 
 const taskInput = z.object({
   customerId: z.string().trim().min(1).nullable().optional(),
+  entityType: z.string().trim().max(80).nullable().optional(),
+  entityId: z.string().trim().max(160).nullable().optional(),
+  actionPath: z.string().trim().max(500).nullable().optional(),
   title: z.string().trim().min(1).max(200),
   priority: z.enum(['高', '中', '低']).default('中'),
   dueAt: z.number().int().nullable().optional(),
@@ -56,12 +59,15 @@ export const taskRoutes: FastifyPluginAsync = async app => {
   app.post('/', async (request, reply) => {
     const parsed = taskInput.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_INPUT', message: parsed.error.issues[0]?.message })
+    let relatedCustomer: { id: string } | undefined
     if (parsed.data.customerId) {
       const customer = (await db.$first(db.select({ id: customers.id }).from(customers).where(and(eq(customers.id, parsed.data.customerId), eq(customers.workspaceId, request.auth.workspaceId)))))
       if (!customer) return reply.code(404).send({ error: 'CUSTOMER_NOT_FOUND', message: '关联客户不存在。' })
+      relatedCustomer = customer
     }
     const now = Date.now()
-    const record = { id: createId('tsk'), workspaceId: request.auth.workspaceId, ownerUserId: request.auth.userId, status: 'open', createdAt: now, updatedAt: now, ...parsed.data }
+    const record = { id: createId('tsk'), workspaceId: request.auth.workspaceId, ownerUserId: request.auth.userId, status: 'open', createdAt: now, updatedAt: now,
+      ...(relatedCustomer ? { entityType: 'customer', entityId: relatedCustomer.id, actionPath: `/customers?open=${encodeURIComponent(relatedCustomer.id)}` } : {}), ...parsed.data }
     await db.insert(tasks).values(record)
     await writeAudit(request.auth.workspaceId, request.auth.userId, 'task.created', record.id, { title: record.title, customerId: record.customerId })
     return reply.code(201).send(record)
