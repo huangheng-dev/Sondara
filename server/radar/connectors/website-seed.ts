@@ -2,6 +2,7 @@ import type { DiscoveryConnector, DiscoveredCandidate, RadarTaskContext } from '
 import { ConnectorError, effectiveRadarDataSources } from '../types.js'
 import { assertSafeOutboundUrl, UnsafeUrlError } from '../../lib/url-safety.js'
 import { config } from '../../config.js'
+import { inferMarketFromEvidence, toInternationalSearchText } from '../market-targeting.js'
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 const MAX_REDIRECTS = 3
@@ -123,6 +124,7 @@ const NAV_NOISE = /^(?:首页|主页|网站首页|公司新闻|公司通讯|新�
 const COPYRIGHT_PREFIX = /^(?:版权所有|copyright)\s*(?:©|&copy;|\(c\))?\s*/i
 const ARTICLE_LIKE = /(?:本文|指南|报价|清单|参数|对比|附录|附件|如何|怎么|怎样|方案|白皮书|新闻|资讯|专题|深度|报道|流程|步骤|排名|哪家好|哪个品牌|选购|知识|问答|百科|视频|图片|下载|手册|说明书|标准|规范)/
 const GENERIC_PATTERNS = [
+  /^(?:company|company profile|about company|our company|the company)$/i,
   /(?:服务商|解决方案|生产厂家|厂家|供应商|制造商|批发商|代理商|经销商|官网|网站|平台|系统|设备|产品中心|公司新闻|联系我们|关于我们|首页|主页)/,
   /^(?:skip to content|skip navigation|main menu|menu|home|about(?: us)?|contact(?: us)?|products?|view products|download catalogs?|catalogs?|solutions|services|industries?|applications?|blog|news|support|search|login|register|cart|sanitary products|instrumentation products|uhp products|event details|news details|view details|details|learn more|read more|show more|media partners|photo galleries|newsletter|demographics summary|exhibitor showcase schedule|schedule|agenda|events?|careers|resources|attendees?|exhibitors?|speakers?|sessions?|venue|travel|hotels?|sponsors?|partners|register|visit|floor plan|restaurant recommendations|why attend)$/i,
   /\b(?:manufacturer|supplier|distributor|integrator|representative|wholesale|factory|process equipment|flow control|official website)\b/i,
@@ -202,7 +204,7 @@ const BUYING_SIGNAL_TERMS = [
 
 const scoreWebsite = (task: RadarTaskContext, text: string, secure: boolean) => {
   const lower = text.toLowerCase()
-  const taskText = task.icp.toLowerCase()
+  const taskText = `${task.icp} ${toInternationalSearchText(task.icp)}`.toLowerCase()
   const bigrams = new Set<string>()
   for (let i = 0; i < taskText.length - 1; i += 1) {
     const gram = taskText.slice(i, i + 2)
@@ -212,7 +214,7 @@ const scoreWebsite = (task: RadarTaskContext, text: string, secure: boolean) => 
   const bigramHits = [...bigrams].filter(g => lower.includes(g)).length
   const asciiHits = asciiTerms.filter(t => lower.includes(t)).length
   const highSignalHits = BUYING_SIGNAL_TERMS.filter(t => lower.includes(t.toLowerCase())).length
-  const score = 45 + Math.min(bigramHits * 3, 24) + Math.min(asciiHits * 5, 16) + Math.min(highSignalHits * 6, 24) + (secure ? 4 : 0)
+  const score = 24 + Math.min(bigramHits * 3, 24) + Math.min(asciiHits * 6, 30) + Math.min(highSignalHits * 5, 18) + (secure ? 4 : 0)
   return Math.min(95, Math.round(score))
 }
 
@@ -241,10 +243,10 @@ export class WebsiteSeedConnector implements DiscoveryConnector {
         const researchText = pages.map(page => `${pageTitle(page.html)} ${metaContent(page.html, 'description')} ${visiblePageText(page.html)}`).join(' ')
         const score = scoreWebsite(task, researchText, url.protocol === 'https:')
         const confidence = Math.min(95, 58 + (title ? 8 : 0) + (description ? 12 : 0) + (url.protocol === 'https:' ? 5 : 0) + Math.min(12, (pages.length - 1) * 4))
-        results.push({
+        const candidate: DiscoveredCandidate = {
           company: name,
-          region: task.targetRegion || '待补全',
-          industry: task.icp || '待补全',
+          region: '待补全',
+          industry: '待验证',
           size: '待补全',
           score,
           signal: '官网公开页面可访问',
@@ -262,7 +264,11 @@ export class WebsiteSeedConnector implements DiscoveryConnector {
           evidence: pages.map((page, pageIndex) => ({ title: pageTitle(page.html) || `${name} 官网${pageIndex ? '研究页面' : '首页'}`, source: page.url.hostname, time: new Date().toISOString(), strength: pageIndex === 0 ? '强' as const : '中' as const, sourceUrl: page.url.toString() })),
           committee: [{ name: '待补全', role: '采购或技术负责人', influence: '待判断', contact: '待验证' }],
           relationships: [{ label: '企业官网', value: url.toString() }],
-        })
+        }
+        const inferred = inferMarketFromEvidence(`${researchText} ${description}`, [url.toString()])
+        results.push(inferred?.country && inferred.country !== 'china'
+          ? { ...candidate, region: `${inferred.country.label}（${inferred.country.english}）` }
+          : candidate)
       } catch (cause) {
         errors.push(cause instanceof Error ? cause.message : `官网处理失败：${rawUrl}`)
       }

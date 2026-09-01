@@ -152,14 +152,20 @@ export const getAutomationProductionControl = async (workspaceId: string) => {
       eq(tasks.workspaceId, workspaceId), eq(tasks.source, 'AI 回复识别'), eq(tasks.status, 'open'),
     ))),
   ])
-  const emailConnections = connections.filter(connection => connection.fromEmail.includes('@'))
+  const emailProviders = new Set(['smtp', 'sendgrid', 'mailgun'])
+  const emailConnections = connections.filter(connection => emailProviders.has(connection.provider))
+  const whatsappConnections = connections.filter(connection => connection.provider === 'whatsapp-cloud')
   const domains = [...new Set(emailConnections.map(connection => connection.fromEmail.split('@')[1]?.toLowerCase()).filter((value): value is string => Boolean(value)))]
   const domainAuth = await Promise.all(domains.map(domainAuthentication))
   const healthyConnections = emailConnections.filter(connection => connection.status === 'available')
   const inboundConnections = healthyConnections.filter(connection => connection.imapEnabled && connection.imapHost && connection.imapSecretCiphertext)
+  const healthyWhatsappConnections = whatsappConnections.filter(connection => connection.status === 'available')
+  const automatedConnections = [...emailConnections, ...whatsappConnections]
+  const healthyAutomatedConnections = [...healthyConnections, ...healthyWhatsappConnections]
+  const inboundReadyCount = inboundConnections.length + healthyWhatsappConnections.length
   const issues: Array<{ level: 'warning' | 'error'; title: string; description: string; actionPath?: string }> = []
-  if (!healthyConnections.length) issues.push({ level: 'error', title: '没有可用的邮件发送服务', description: '自动研究会继续，但所有真实触达必须等待邮件连接测试通过。', actionPath: '/settings/integrations' })
-  if (healthyConnections.length && !inboundConnections.length) issues.push({ level: 'error', title: '客户回复接收尚未就绪', description: '至少启用一个 IMAP 收件连接，系统才能及时停止跟进并识别客户意向。', actionPath: '/settings/integrations' })
+  if (!healthyAutomatedConnections.length) issues.push({ level: 'error', title: '没有可用的自动发送服务', description: '请至少配置并测试一个邮件服务，或配置已通过测试的 WhatsApp Cloud API。', actionPath: '/settings/integrations' })
+  if (healthyConnections.length && !inboundConnections.length && !healthyWhatsappConnections.length) issues.push({ level: 'error', title: '客户回复接收尚未就绪', description: '邮件自动触达需要至少启用一个 IMAP 收件连接，系统才能及时停止跟进并识别客户意向。', actionPath: '/settings/integrations' })
   if (domainAuth.some(item => !item.spf)) issues.push({ level: 'warning', title: '部分发件域名未检测到 SPF', description: '请在域名 DNS 中确认发件服务已被 SPF 授权。', actionPath: '/settings/integrations' })
   if (domainAuth.some(item => !item.dmarc)) issues.push({ level: 'warning', title: '部分发件域名未检测到 DMARC', description: '建议先使用监控策略，再逐步提高 DMARC 执行强度。', actionPath: '/settings/integrations' })
   safety.reasons.forEach(reason => issues.push({ level: 'error', title: '触达安全阈值已触发', description: reason }))
@@ -176,13 +182,13 @@ export const getAutomationProductionControl = async (workspaceId: string) => {
   const pending = pendingRows.filter(row => metadata(row.metadataJson).automationApprovedByPlan === true)
   return {
     state: !plans.length ? 'not_configured' as const : activePlans.length ? 'running' as const : 'paused' as const,
-    readyToSend: healthyConnections.length > 0 && inboundConnections.length > 0 && safety.safe,
+    readyToSend: healthyAutomatedConnections.length > 0 && inboundReadyCount > 0 && safety.safe,
     activePlans: activePlans.length,
     totalPlans: plans.length,
     pendingMessages: pending.length,
     awaitingConfiguration: pending.filter(item => item.status === 'awaiting_configuration').length,
     nextScheduledAt: pending.length ? Math.min(...pending.map(item => item.scheduledAt)) : null,
-    connections: { total: emailConnections.length, healthy: healthyConnections.length, inboundReady: inboundConnections.length },
+    connections: { total: automatedConnections.length, healthy: healthyAutomatedConnections.length, inboundReady: inboundReadyCount },
     domainAuth,
     deliveryHealth: safety.health,
     issues,

@@ -56,13 +56,23 @@ const run = async () => {
     assert.equal(duplicate.statusCode, 201, duplicate.body)
     assert.match(duplicate.json().title, /副本/)
 
+    const archived = await app.inject({ method: 'PATCH', url: `/api/content/assets/${asset.id}`, headers, payload: { status: '已归档' } })
+    assert.equal(archived.statusCode, 200, archived.body)
+    assert.equal(archived.json().status, '已归档')
+    assert.equal(typeof archived.json().archivedAt, 'number')
+
+    const restored = await app.inject({ method: 'PATCH', url: `/api/content/assets/${asset.id}`, headers, payload: { status: '草稿' } })
+    assert.equal(restored.statusCode, 200, restored.body)
+    assert.equal(restored.json().status, '草稿')
+    assert.equal(restored.json().archivedAt, null)
+
     const listed = await app.inject({ method: 'GET', url: '/api/content/assets?q=工业设备&pageSize=20', headers })
     assert.equal(listed.statusCode, 200, listed.body)
     assert.ok(listed.json().total >= 2)
     assert.ok((await db.select().from(contentVersions).where(eq(contentVersions.contentAssetId, asset.id))).length >= 2)
     assert.ok((await db.select().from(contentQualityChecks).where(eq(contentQualityChecks.contentAssetId, asset.id))).length >= 2)
     assert.ok((await db.$first(db.select().from(contentGenerationRuns).where(eq(contentGenerationRuns.contentAssetId, generated.json().assetId)))))
-    console.log('Content assets integration passed: CRUD, versions, quality checks, generation records and duplication verified.')
+    console.log('Content assets integration passed: CRUD, archive/restore, versions, quality checks, generation records and duplication verified.')
   } finally {
     if (userId) await db.delete(users).where(eq(users.id, userId))
     await app.close()

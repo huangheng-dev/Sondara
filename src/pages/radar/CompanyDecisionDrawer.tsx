@@ -9,7 +9,7 @@ import { useUiStore } from '@/stores/ui-store'
 import { Avatar, Card, Col, Descriptions, Flex, Progress, Row, Space, Statistic, Typography } from 'antd'
 import { StatusNotice } from '@/components/ui/StatusNotice'
 
-export function CompanyDecisionDrawer({ candidate, open, onClose, onSave, onEnrich, onCreateTask }: { candidate: Candidate | null; open: boolean; onClose: () => void; onSave: (candidate: Candidate) => void | Promise<void>; onEnrich: (candidate: Candidate) => void | Promise<void | string>; onCreateTask: (candidate: Candidate) => void | Promise<void> }) {
+export function CompanyDecisionDrawer({ candidate, open, canWrite = true, onClose, onSave, onEnrich, onCreateTask, onFeedback }: { candidate: Candidate | null; open: boolean; canWrite?: boolean; onClose: () => void; onSave: (candidate: Candidate) => void | Promise<void>; onEnrich: (candidate: Candidate) => void | Promise<void | string>; onCreateTask: (candidate: Candidate) => void | Promise<void>; onFeedback: (candidate: Candidate, value: 'match' | 'mismatch') => void | Promise<void> }) {
   const [done, setDone] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState<Set<string>>(new Set())
   const [brief, setBrief] = useState(false)
@@ -33,9 +33,18 @@ export function CompanyDecisionDrawer({ candidate, open, onClose, onSave, onEnri
       setBusy(value=>{const next=new Set(value);next.delete(key);return next})
     }
   }
-  const submitFeedback = (value: 'match' | 'mismatch') => {
-    setFeedback(value)
-    showToast(value === 'match' ? '已记录为符合' : '已标记不符合并进入复核')
+  const submitFeedback = async (value: 'match' | 'mismatch') => {
+    if (!canWrite) return
+    setBusy(current => new Set(current).add('feedback'))
+    try {
+      await onFeedback(candidate, value)
+      setFeedback(value)
+      showToast(value === 'match' ? '已记录为符合，候选进入人工复核' : '已记录为不符合，系统会用于后续画像学习')
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : '反馈保存失败，请稍后重试。')
+    } finally {
+      setBusy(current => { const next = new Set(current); next.delete('feedback'); return next })
+    }
   }
   return <DetailDrawer
     open={open}
@@ -44,8 +53,8 @@ export function CompanyDecisionDrawer({ candidate, open, onClose, onSave, onEnri
     subtitle={`${candidate.industry} · ${candidate.region} · 更新于 ${candidate.updatedAt}`}
     width={720}
     footer={<>
-      <Button disabled={Boolean(feedback)} onClick={() => submitFeedback('mismatch')}>{feedback === 'mismatch' ? '已标记不符合' : '不符合'}</Button>
-      <Button variant="primary" disabled={Boolean(feedback)} onClick={() => submitFeedback('match')}>{feedback === 'match' ? '已标记符合' : '符合'}</Button>
+      <Button loading={busy.has('feedback')} disabled={!canWrite||Boolean(feedback)} onClick={() => submitFeedback('mismatch')}>{feedback === 'mismatch' ? '已标记不符合' : '不符合'}</Button>
+      <Button variant="primary" loading={busy.has('feedback')} disabled={!canWrite||Boolean(feedback)} onClick={() => submitFeedback('match')}>{feedback === 'match' ? '已标记符合' : '符合'}</Button>
     </>}
   >
       <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
@@ -75,21 +84,35 @@ export function CompanyDecisionDrawer({ candidate, open, onClose, onSave, onEnri
           {candidate.contacts.length ? (
             <List
               dataSource={candidate.contacts}
-              renderItem={person=><List.Item extra={<Badge tone={person.verificationStatus === 'verified' ? 'green' : person.verificationStatus === 'needs_review' ? 'orange' : 'blue'}>{person.verificationStatus === 'verified' ? '域名已验证' : person.verificationStatus === 'needs_review' ? '待复核' : '公开来源'}</Badge>}>
-                <List.Item.Meta
-                  avatar={<Avatar>{person.name.trim().slice(0,1) || '联'}</Avatar>}
-                  title={<Typography.Text strong>{person.name}</Typography.Text>}
-                  description={<Space orientation="vertical" size={4} style={{width:'100%'}}>
-                    <Typography.Text type="secondary">{person.role}</Typography.Text>
-                    <Space orientation="vertical" size={2} style={{width:'100%'}}>
-                      {person.email&&<Flex gap={8}><Typography.Text type="secondary" style={{width:48,flex:'0 0 48px'}}>邮箱</Typography.Text><a href={`mailto:${person.email}`}>{person.email}</a></Flex>}
-                      {person.phone&&<Flex gap={8}><Typography.Text type="secondary" style={{width:48,flex:'0 0 48px'}}>电话</Typography.Text><a href={`tel:${person.phone}`}>{person.phone}</a></Flex>}
-                      {person.socialUrl&&<Flex gap={8}><Typography.Text type="secondary" style={{width:48,flex:'0 0 48px'}}>主页</Typography.Text><a href={person.socialUrl} target="_blank" rel="noreferrer">查看公开主页</a></Flex>}
-                      {!person.email&&!person.phone&&!person.socialUrl&&<Typography.Text type="secondary">等待补全公开联系方式</Typography.Text>}
+              renderItem={person=><List.Item>
+                <Row gutter={[16,12]} align="middle" style={{width:'100%'}}>
+                  <Col xs={24} md={7}>
+                    <Space size={10} align="center" style={{width:'100%'}}>
+                      <Avatar>{person.name.trim().slice(0,1) || '联'}</Avatar>
+                      <Space orientation="vertical" size={0} style={{minWidth:0}}>
+                        <Typography.Text strong ellipsis={{tooltip:person.name}}>{person.name}</Typography.Text>
+                        <Typography.Text type="secondary" ellipsis={{tooltip:person.role}}>{person.role}</Typography.Text>
+                      </Space>
                     </Space>
-                    <Typography.Text type="secondary">置信度 {person.confidence}% · <a href={person.sourceUrl} target="_blank" rel="noreferrer">查看公开来源</a></Typography.Text>
-                  </Space>}
-                />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Space orientation="vertical" size={2} style={{width:'100%',minWidth:0}}>
+                      {person.email?<a href={`mailto:${person.email}`} title={person.email} style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{person.email}</a>:<Typography.Text type="secondary">邮箱待补全</Typography.Text>}
+                      {person.phone&&<a href={`tel:${person.phone}`}>{person.phone}</a>}
+                      {person.socialUrl&&<a href={person.socialUrl} target="_blank" rel="noreferrer">查看公开主页</a>}
+                    </Space>
+                  </Col>
+                  <Col xs={12} md={5}>
+                    <Space orientation="vertical" size={3} style={{width:'100%'}}>
+                      <Flex justify="space-between" gap={8}><Typography.Text type="secondary">置信度</Typography.Text><Typography.Text strong>{person.confidence}%</Typography.Text></Flex>
+                      <Progress aria-label={`${person.name}联系人置信度`} percent={person.confidence} showInfo={false} size="small"/>
+                      <a href={person.sourceUrl} target="_blank" rel="noreferrer">查看公开来源</a>
+                    </Space>
+                  </Col>
+                  <Col xs={12} md={4} style={{textAlign:'right'}}>
+                    <Badge tone={person.verificationStatus === 'verified' ? 'green' : person.verificationStatus === 'needs_review' ? 'orange' : 'blue'}>{person.verificationStatus === 'verified' ? '域名已验证' : person.verificationStatus === 'needs_review' ? '待复核' : '公开来源'}</Badge>
+                  </Col>
+                </Row>
               </List.Item>}
             />
           ) : (
@@ -100,7 +123,7 @@ export function CompanyDecisionDrawer({ candidate, open, onClose, onSave, onEnri
           <Descriptions bordered column={1} items={candidate.relationships.map(item=>({key:item.label,label:item.label,children:item.value}))}/>
         </DetailSection>
         <DetailSection title="下一步最佳动作" subtitle="把研究结果直接变成可执行任务">
-          <List dataSource={[['save', '保存至客户库', '在本地建立企业档案并保留全部证据'], ['enrich', '补全公开联系人', '扫描企业官网与联系页并验证公开联系方式'], ['task', '创建 48 小时跟进任务', '加入我的个人待办']]} renderItem={([key,title,desc])=><List.Item actions={[<Button key="run" size="sm" loading={busy.has(key)} onClick={() => runAction(key,title)} disabled={done.has(key)}>{done.has(key) ? '已完成' : '执行'}</Button>]}><List.Item.Meta avatar={done.has(key) ? <Check/> : <Sparkles/>} title={title} description={desc}/></List.Item>}/>
+          <List dataSource={[['save', '保存至客户库', '在本地建立企业档案并保留全部证据'], ['enrich', '补全公开联系人', '扫描企业官网与联系页并验证公开联系方式'], ['task', '创建 48 小时跟进任务', '加入我的个人待办']]} renderItem={([key,title,desc])=><List.Item actions={[<Button key="run" size="sm" loading={busy.has(key)} onClick={() => runAction(key,title)} disabled={!canWrite||done.has(key)}>{done.has(key) ? '已完成' : '执行'}</Button>]}><List.Item.Meta avatar={done.has(key) ? <Check/> : <Sparkles/>} title={title} description={desc}/></List.Item>}/>
           <List dataSource={['brief']} renderItem={()=><List.Item actions={[<Button key="brief" size="sm" onClick={() => setBrief(value => !value)}>{brief ? '收起' : '生成'}</Button>]}><List.Item.Meta avatar={<BrainCircuit/>} title="生成首次沟通简报" description="只生成建议，不自动外发"/></List.Item>}/>
           {brief && <StatusNotice tone="info" icon={<Sparkles size={17}/>} title="沟通切入建议" description={`围绕“${candidate.signal}”展开，先确认项目阶段和现有供应商，再提供与 ${candidate.industry} 场景匹配的案例、验证文件和交付计划。避免直接推销产品。`}/>}
         </DetailSection>

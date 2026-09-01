@@ -1,29 +1,19 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Alert, Card, Checkbox, Col, Flex, Form, Input, Result, Row, Segmented, Space, Typography } from 'antd'
+import { App, Card, Checkbox, Flex, Form, Input, Result, Segmented, Space, Typography } from 'antd'
 import {
   ArrowLeft,
   ArrowRight,
-  BarChart3,
   Check,
   LockKeyhole,
   Mail,
-  MessagesSquare,
-  SearchCheck,
   ShieldCheck,
   UserRound,
 } from 'lucide-react'
 import { BrandMark } from '@/components/ui/BrandMark'
 import { Button } from '@/components/ui/Button'
-import { List } from '@/components/ui/List'
 import { ApiError, authApi } from '@/lib/api'
 import { useBusinessStore } from '@/stores/business-store'
-
-const capabilities = [
-  { icon: SearchCheck, title: '发现与研究', copy: '从多渠道发现目标企业，并核验证据、信号和联系人。' },
-  { icon: MessagesSquare, title: '触达与跟进', copy: '把内容生成、活动执行与客户回复放进同一条工作流。' },
-  { icon: BarChart3, title: '商机与分析', copy: '持续推进下一步动作，并判断真正有效的增长渠道。' },
-]
 
 const pageCopy = {
   login: {
@@ -54,13 +44,13 @@ const pageCopy = {
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 'reset' }) {
   const navigate = useNavigate()
+  const { message } = App.useApp()
   const [searchParams] = useSearchParams()
   const [form] = Form.useForm<{displayName:string;email:string;password:string;confirmPassword:string;twoFactorCode:string}>()
   const [sent, setSent] = useState(false)
   const [resetUrl, setResetUrl] = useState('')
   const [remember, setRemember] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
   const [twoFactorChallenge,setTwoFactorChallenge]=useState(false)
   const [maskedEmail,setMaskedEmail]=useState('')
   const updateAccountPreferences = useBusinessStore(state=>state.updateAccountPreferences)
@@ -68,7 +58,6 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
 
   const submit = async ({displayName,email,password,confirmPassword,twoFactorCode}:{displayName:string;email:string;password:string;confirmPassword:string;twoFactorCode:string}) => {
     setSubmitting(true)
-    setError('')
     try {
       if (mode === 'forgot') {
         const result = await authApi.forgotPassword(email)
@@ -109,23 +98,22 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
       updateAccountPreferences({ ...current, displayName: session.user.displayName, email: session.user.email, businessName: session.workspace.name })
       navigate('/dashboard', { replace: true })
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : '无法连接服务器，请确认后端服务已启动。')
+      const errorMessage = cause instanceof ApiError ? cause.message : '无法连接服务器，请确认后端服务已启动。'
+      void message.error({ key: 'auth-error', content: errorMessage, duration: 3 })
     } finally {
       setSubmitting(false)
     }
   }
 
   return <Flex className="auth-shell" component="main" align="center" justify="center">
-    <Row className="auth-layout" gutter={[24, 24]} align="stretch">
-      <Col xs={24} lg={12}>
-        <Card className="auth-hero" title={<Space className="auth-brand"><BrandMark className="auth-brand__mark" size={34}/>Sondara</Space>}>
-          <Typography.Title level={1}>让客户开发成为连续的增长工作流</Typography.Title>
-          <Typography.Paragraph type="secondary">把客户定位、AI 获客、内容触达、消息跟进、商机推进和转化分析集中在一个工作空间。</Typography.Paragraph>
-          <List className="auth-capabilities" dataSource={capabilities} renderItem={({icon:Icon,title,copy})=><List.Item><Space align="start"><span className="auth-capability__icon"><Icon/></span><Space orientation="vertical" size={2}><Typography.Text strong>{title}</Typography.Text><Typography.Text type="secondary">{copy}</Typography.Text></Space></Space></List.Item>}/>
-          <Space className="auth-trust" wrap><Typography.Text><ShieldCheck size={15}/> 可部署到自己的服务器</Typography.Text><Typography.Text><LockKeyhole size={15}/> 数据与密钥按账户隔离</Typography.Text></Space>
-        </Card>
-      </Col>
-      <Col xs={24} lg={12}>
+    <Flex className="auth-stage" vertical align="center">
+      <Space className="auth-brand" size={12} align="center">
+        <BrandMark className="auth-brand__mark" size={48}/>
+        <Space className="auth-brand__copy" orientation="vertical" size={0}>
+          <Typography.Text strong>SONDARA</Typography.Text>
+          <Typography.Text type="secondary">AI 客户发现与增长系统</Typography.Text>
+        </Space>
+      </Space>
       <Card className="auth-form-card">
         {mode === 'login' || mode === 'register' ? <Segmented className="auth-segmented" aria-label="账户入口" block value={mode} options={[{label:'登录',value:'login'},{label:'创建账户',value:'register'}]} onChange={value=>navigate(value==='login'?'/login':'/register')}/> : <Link className="auth-back" to="/login"><ArrowLeft/>返回登录</Link>}
 
@@ -141,12 +129,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
           {mode==='login'&&!twoFactorChallenge&&<Flex justify="space-between" style={{ marginBottom: 16 }}><Checkbox checked={remember} onChange={event=>setRemember(event.target.checked)}>保持登录</Checkbox><Link to="/forgot-password">忘记密码？</Link></Flex>}
           {twoFactorChallenge&&<Form.Item name="twoFactorCode" label="6 位验证器验证码或恢复码" extra={`当前账户：${maskedEmail}`} required rules={[{required:true,message:'请输入验证码'}]} normalize={value=>String(value).replace(/\s|-/g,'').slice(0,8)}><Input autoFocus inputMode="numeric" autoComplete="one-time-code" prefix={<ShieldCheck/>} placeholder="000000"/></Form.Item>}
 
-          {error&&<Alert type="error" showIcon title={error}/>}
           <Button block variant="primary" type="submit" disabled={submitting}>{submitting?'正在处理…':twoFactorChallenge?'验证并登录':copy.submit}<ArrowRight size={16}/></Button>
         </Form>}
-        <Typography.Paragraph className="auth-footnote" type="secondary">自托管部署时，账户、数据和服务配置由你的部署环境管理。</Typography.Paragraph>
+        <Space className="auth-footnote" size={12} wrap>
+          <Typography.Text type="secondary"><ShieldCheck size={14}/> 支持自托管部署</Typography.Text>
+          <Typography.Text type="secondary"><LockKeyhole size={14}/> 数据与密钥隔离</Typography.Text>
+        </Space>
       </Card>
-      </Col>
-    </Row>
+    </Flex>
   </Flex>
 }

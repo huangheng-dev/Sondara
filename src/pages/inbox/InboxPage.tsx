@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, Mail, MessageCircle, MoreHorizontal, RadioTower, Send, Sparkles, UserRound, X } from 'lucide-react'
+import { AlertCircle, Bot, BriefcaseBusiness, CalendarPlus, CheckCircle2, Clock3, Globe2, Mail, MessageCircle, MoreHorizontal, RadioTower, Send, Sparkles, UserRound, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -11,10 +11,12 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { List } from '@/components/ui/List'
-import { authApi, automationApi, dealApi, inboxApi, taskApi, type InboxMessageApiRecord, type InboxThreadApiRecord } from '@/lib/api'
+import { ActionList } from '@/components/ui/ActionList'
+import { authApi, automationApi, collectAllPages, dealApi, inboxApi, taskApi, type InboxMessageApiRecord, type InboxThreadApiRecord } from '@/lib/api'
 import { Card, Col, Descriptions, Flex, Input, Row, Segmented, Space, Timeline, Typography } from 'antd'
 import { PageContainer } from '@/components/ui/PageModules'
 import { StatusNotice } from '@/components/ui/StatusNotice'
+import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 
 type InboxFilter = '全部' | '未读' | '高意向' | '待跟进'
 type DialogName = 'quick' | 'timeline' | 'deal' | 'task' | 'confirm' | null
@@ -46,6 +48,7 @@ export function InboxPage() {
   const showToast = useUiStore(state => state.showToast)
   const queryClient = useQueryClient()
   const authSession = useQuery({ queryKey: ['auth-session'], queryFn: authApi.session, retry: false })
+  const { canWrite } = useWorkspaceAccess()
 
   const threadsQuery = useInfiniteQuery({
     queryKey: ['inbox-threads', authSession.data?.workspace.id, deferredQuery, filter, channelFilter],
@@ -102,7 +105,7 @@ export function InboxPage() {
     setReply(current => current.trim() ? current : suggestion.draft)
   }, [activeThread?.id, replySuggestionQuery.data])
 
-  const dealQuery = useQuery({ queryKey: ['deals', authSession.data?.workspace.id], queryFn: () => dealApi.list({ pageSize: 100 }), enabled: Boolean(authSession.data?.workspace.id), retry: 1 })
+  const dealQuery = useQuery({ queryKey: ['deals', authSession.data?.workspace.id], queryFn: () => collectAllPages((page, pageSize) => dealApi.list({ page, pageSize })), enabled: Boolean(authSession.data?.workspace.id), retry: 1 })
   const converted = useMemo(() => new Set(dealQuery.data?.items.map(deal => deal.company) ?? []), [dealQuery.data])
   const channelOptions = useMemo(() => ['全部渠道', ...(threadMeta?.channels ?? [])].map(item => ({ value: item, label: item, icon: item === '全部渠道' ? <RadioTower /> : item === '邮件' ? <Mail /> : item === 'LinkedIn' ? <BriefcaseBusiness /> : item === '网站表单' ? <Globe2 /> : <MessageCircle /> })), [threadMeta?.channels])
 
@@ -128,6 +131,7 @@ export function InboxPage() {
     setMobileConversation(true)
   }
   const openConfirm = () => {
+    if (!canWrite) return showToast('当前角色为只读成员，不能发送消息')
     if (!reply.trim()) return showToast('请先输入回复内容')
     setDialog('confirm')
   }
@@ -158,19 +162,19 @@ export function InboxPage() {
                 <Typography.Text>{replySuggestionQuery.data?.rationale??(activeThread.intent==='高意向'?'客户提出具体需求，建议在 4 小时内完成回复。':'正在结合对话和业务资料生成建议。')}</Typography.Text>
                 {replySuggestionQuery.data?.missingInformation.length?<Typography.Text type="secondary">建议补充：{replySuggestionQuery.data.missingInformation.join('、')}</Typography.Text>:null}
                 {replySuggestionQuery.data?.warnings.length?<Typography.Text type="secondary">发送前核对：{replySuggestionQuery.data.warnings.join('；')}</Typography.Text>:null}
-                {replySuggestionQuery.data?.draft&&<Flex justify="flex-end"><Button size="sm" onClick={()=>setReply(replySuggestionQuery.data!.draft)}>采用建议</Button></Flex>}
+                {replySuggestionQuery.data?.draft&&<Flex justify="flex-end"><Button size="sm" disabled={!canWrite} onClick={()=>setReply(replySuggestionQuery.data!.draft)}>采用建议</Button></Flex>}
               </Space>}
             </Card>
-            <Flex wrap gap={8}><Button onClick={() => setReply('您好，感谢您的回复。我们已经整理好相关项目案例与验证资料摘要，请确认接收方式。')}><Mail />发送资料</Button><Button onClick={() => setReply('您好，建议本周安排一次 20 分钟技术交流，您周四或周五方便吗？')}><CalendarPlus />安排会议</Button><Button onClick={() => setDialog('quick')}><MoreHorizontal />更多</Button></Flex>
-            <Input.TextArea rows={5} value={reply} onChange={event => setReply(event.target.value)} maxLength={1000} showCount placeholder="输入回复内容…" aria-label="回复内容" />
-            <Flex justify="flex-end" wrap gap={8}><Button loading={replySuggestionQuery.isFetching} disabled={!activeThread.lastInboundAt||activeThread.status!=='open'} onClick={async()=>{const result=await automationApi.regenerateReplySuggestion(activeThread.id);await queryClient.invalidateQueries({queryKey:['inbox-reply-suggestion',activeThread.id]});if(result.draft)setReply(result.draft)}}><Bot />重新生成建议</Button><Button variant="primary" disabled={activeThread.status!=='open'} onClick={openConfirm}><Send />预览并确认</Button></Flex>
+            <Flex wrap gap={8}><Button disabled={!canWrite} onClick={() => setReply('您好，感谢您的回复。我们已经整理好相关项目案例与验证资料摘要，请确认接收方式。')}><Mail />发送资料</Button><Button disabled={!canWrite} onClick={() => setReply('您好，建议本周安排一次 20 分钟技术交流，您周四或周五方便吗？')}><CalendarPlus />安排会议</Button><Button disabled={!canWrite} onClick={() => setDialog('quick')}><MoreHorizontal />更多</Button></Flex>
+            <Input.TextArea disabled={!canWrite} rows={5} value={reply} onChange={event => setReply(event.target.value)} maxLength={1000} showCount placeholder={canWrite?'输入回复内容…':'当前角色为只读成员'} aria-label="回复内容" />
+            <Flex justify="flex-end" wrap gap={8}><Button loading={replySuggestionQuery.isFetching} disabled={!canWrite||!activeThread.lastInboundAt||activeThread.status!=='open'} onClick={async()=>{const result=await automationApi.regenerateReplySuggestion(activeThread.id);await queryClient.invalidateQueries({queryKey:['inbox-reply-suggestion',activeThread.id]});if(result.draft)setReply(result.draft)}}><Bot />重新生成建议</Button><Button variant="primary" disabled={!canWrite||activeThread.status!=='open'} onClick={openConfirm}><Send />预览并确认</Button></Flex>
           </Space> : <EmptyState title="选择一条客户消息" description="选中左侧会话后，可查看上下文、判断意向并创建跟进动作。" icon={MessageCircle}/>}
         </Card>
       </Col>
-      {activeThread&&detailsOpen&&<Col xs={24} xl={6}><Card className="inbox-details-card" title="客户信息" extra={<Button aria-label="关闭客户详情" onClick={() => setDetailsOpen(false)}><X /></Button>}><Descriptions column={1} items={[{key:'job',label:'职位',children:activeThread.contact.jobTitle},{key:'region',label:'地区',children:activeThread.contact.region},{key:'source',label:'来源',children:activeThread.contact.source},{key:'channel',label:'渠道',children:activeThread.channel}]}/><Space orientation="vertical" style={{ width: '100%', marginTop: 16 }}><Button block onClick={() => setDialog('task')}><CalendarPlus />创建跟进任务</Button><Button block onClick={() => setDialog('timeline')}><Clock3 />查看客户时间线</Button><Button block variant="primary" disabled={converted.has(activeThread.contact.company)} onClick={() => setDialog('deal')}>{converted.has(activeThread.contact.company) ? '已创建商机' : '转为商机'}</Button></Space></Card></Col>}
+      {activeThread&&detailsOpen&&<Col xs={24} xl={6}><Card className="inbox-details-card" title="客户信息" extra={<Button aria-label="关闭客户详情" onClick={() => setDetailsOpen(false)}><X /></Button>}><Descriptions column={1} items={[{key:'job',label:'职位',children:activeThread.contact.jobTitle},{key:'region',label:'地区',children:activeThread.contact.region},{key:'source',label:'来源',children:activeThread.contact.source},{key:'channel',label:'渠道',children:activeThread.channel}]}/><Space orientation="vertical" style={{ width: '100%', marginTop: 16 }}><Button block disabled={!canWrite} onClick={() => setDialog('task')}><CalendarPlus />创建跟进任务</Button><Button block onClick={() => setDialog('timeline')}><Clock3 />查看客户时间线</Button><Button block variant="primary" disabled={!canWrite||converted.has(activeThread.contact.company)} onClick={() => setDialog('deal')}>{converted.has(activeThread.contact.company) ? '已创建商机' : '转为商机'}</Button></Space></Card></Col>}
     </Row>
 
-    <Modal open={dialog === 'quick'} title="更多快捷回复" description="选择后可继续编辑，再由你预览确认。" onClose={() => setDialog(null)}><List dataSource={['感谢回复，我会在今天内整理完整资料发给您。', '为了准备更准确的方案，方便补充一下当前项目时间计划吗？', '收到，我先确认技术资料与交付周期，稍后回复您。']} renderItem={item=><List.Item actions={[<ArrowLeft key="use"/>]} onClick={() => { setReply(item); setDialog(null) }}><Typography.Text>{item}</Typography.Text></List.Item>}/></Modal>
+    <Modal open={dialog === 'quick'} title="更多快捷回复" description="选择后可继续编辑，再由你预览确认。" onClose={() => setDialog(null)}><ActionList ariaLabel="快捷回复" items={['感谢回复，我会在今天内整理完整资料发给您。', '为了准备更准确的方案，方便补充一下当前项目时间计划吗？', '收到，我先确认技术资料与交付周期，稍后回复您。'].map((item,index)=>({key:String(index),title:item,onClick:()=>{setReply(item);setDialog(null)}}))}/></Modal>
     <Modal open={dialog === 'timeline'} title={`${activeThread?.contact.company ?? ''} · 客户时间线`} description="按时间查看当前已加载的真实对话记录" onClose={() => setDialog(null)}><Timeline items={threadMessages.slice().reverse().map(message=>({children:<Space orientation="vertical" size={2}><Typography.Text type="secondary">{new Date(message.createdAt).toLocaleString('zh-CN')}</Typography.Text><Typography.Text strong>{message.direction === 'inbound' ? '客户回复' : message.status === 'confirmed' ? '回复已确认' : '主动触达'}</Typography.Text><Typography.Text>{message.body}</Typography.Text></Space>}))}/></Modal>
     <Modal open={dialog === 'confirm'} title="确认回复内容" description="确认后会写入服务端外发队列，并按当前渠道与连接状态执行。" onClose={() => setDialog(null)} footer={<><Button onClick={() => setDialog(null)} disabled={replyMutation.isPending}>返回编辑</Button><Button variant="primary" loading={replyMutation.isPending} onClick={() => replyMutation.mutate()}>确认并加入待发送</Button></>}><Space orientation="vertical" size="middle" style={{width:'100%'}}><Descriptions column={1} bordered items={[{key:'contact',label:'联系人',children:activeThread?.contact.name},{key:'company',label:'企业与渠道',children:`${activeThread?.contact.company??''} · ${activeThread?.channel??''}`} ]}/><Typography.Paragraph>{reply}</Typography.Paragraph><StatusNotice tone="info" icon={<AlertCircle size={17}/>} title="服务端外发队列" description="邮件会在 SMTP 可用时发送；其他渠道保留可追踪的待执行记录，不会提前标记为已送达。"/></Space></Modal>
     <CreateDialog open={dialog === 'task'} title={`创建跟进任务 · ${activeThread?.contact.company ?? ''}`} description="任务会进入经营总览和客户跟进计划。" submitLabel="创建任务" successMessage="跟进任务已创建" onClose={() => setDialog(null)} onSubmit={async values => { await taskApi.create({ customerId: activeThread?.customerId ?? null, entityType:'message_thread', entityId:activeThread?.id??null, actionPath:activeThread?`/inbox?thread=${encodeURIComponent(activeThread.id)}`:null, title: values.title, priority: values.priority as '高' | '中' | '低', dueAt: Date.parse(values.date), dueLabel: values.date, company: activeThread?.contact.company ?? '客户', nextAction: values.title, source: '客户消息' }); await queryClient.invalidateQueries({ queryKey: ['tasks'] }) }} fields={[{ name: 'title', label: '任务名称', required: true }, { name: 'priority', label: '优先级', type: 'select', required: true, options: ['高', '中', '低'] }, { name: 'date', label: '完成时间', type: 'datetime', required: true }]} />

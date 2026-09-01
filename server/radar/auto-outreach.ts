@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, like, sql } from 'drizzle-orm'
 import { completeWithAi } from '../ai/client.js'
 import { db } from '../db/client.js'
 import {
@@ -30,7 +30,7 @@ type QueueAutomatedOutreachInput = {
 }
 
 type QueueAutomatedOutreachOptions = {
-  generateCopy?: (input: QueueAutomatedOutreachInput, variant: CopyVariant) => Promise<OutreachCopy>
+  generateCopy?: (input: QueueAutomatedOutreachInput, variant: CopyVariant, channel?: '邮件' | 'WhatsApp') => Promise<OutreachCopy>
   now?: number
 }
 
@@ -42,17 +42,19 @@ const extractJson = (value: string) => {
 
 const cleanLine = (value: string, limit: number) => value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit)
 
-const safeCopy = (copy: Partial<OutreachCopy>): OutreachCopy => {
+const safeCopy = (copy: Partial<OutreachCopy>, channel: '邮件' | 'WhatsApp' = '邮件'): OutreachCopy => {
   const subject = cleanLine(copy.subject ?? '', 90)
   let body = (copy.body ?? '').replace(/\r/g, '').trim().slice(0, 2_000)
   if (!subject || body.length < 40) throw new Error('AI 未生成可用的首触达内容。')
-  if (!/(not relevant|not a fit|do not contact|不相关|无需联系)/i.test(body)) {
-    body += "\n\nIf this is not relevant, just let me know and I won't follow up."
+  if (!/(not relevant|not a fit|do not contact|不相关|无需联系|\bstop\b)/i.test(body)) {
+    body += channel === 'WhatsApp'
+      ? '\n\nIf this is not relevant, reply STOP and I will not contact you again.'
+      : "\n\nIf this is not relevant, just let me know and I won't follow up."
   }
   return { subject, body }
 }
 
-const generateCopy = async (input: QueueAutomatedOutreachInput, variant: CopyVariant): Promise<OutreachCopy> => {
+const generateCopy = async (input: QueueAutomatedOutreachInput, variant: CopyVariant, channel: '邮件' | 'WhatsApp' = '邮件'): Promise<OutreachCopy> => {
   const profile = await db.$first(db.select().from(businessProfiles).where(eq(businessProfiles.workspaceId, input.plan.workspaceId)))
   const result = await completeWithAi({
     workspaceId: input.plan.workspaceId,
@@ -62,7 +64,7 @@ const generateCopy = async (input: QueueAutomatedOutreachInput, variant: CopyVar
     messages: [
       {
         role: 'system',
-        content: 'You write concise, factual B2B first-contact emails. Never invent facts, awards, customers, pricing, or personal familiarity. Return strict JSON with subject and body only. The body must be plain text, at most 130 words, and contain one low-pressure call to action.',
+        content: `You write concise, factual B2B first-contact ${channel === 'WhatsApp' ? 'WhatsApp messages' : 'emails'}. Never invent facts, awards, customers, pricing, or personal familiarity. Return strict JSON with subject and body only. The body must be plain text, at most ${channel === 'WhatsApp' ? '80' : '130'} words, and contain one low-pressure call to action.`,
       },
       {
         role: 'user',
@@ -79,6 +81,7 @@ const generateCopy = async (input: QueueAutomatedOutreachInput, variant: CopyVar
           evidenceBasedReason: input.candidate.reason,
           language: input.plan.researchLanguage === '中文' ? 'Chinese' : 'English',
           copyVariant: variant,
+          deliveryChannel: channel,
           instruction: variant === 'evidence-led'
             ? 'Lead with the supplied verified signal or public evidence, explain a plausible relevance, ask whether the topic belongs to this contact, and make it easy to decline.'
             : 'Lead with one likely operational problem or desired outcome suggested by the supplied evidence. Clearly frame it as a possibility, never as a known fact, ask one short qualifying question, and make it easy to decline.',
@@ -86,7 +89,7 @@ const generateCopy = async (input: QueueAutomatedOutreachInput, variant: CopyVar
       },
     ],
   })
-  return safeCopy(extractJson(result.content))
+  return safeCopy(extractJson(result.content), channel)
 }
 
 const parseMetadata = (value: string) => {
@@ -212,25 +215,42 @@ export const queueAutomatedOutreach = async (input: QueueAutomatedOutreachInput,
   if (!input.plan.autoOutreachEnabled || !input.plan.ownerUserId || !input.plan.enabled || input.plan.status !== 'active') {
     return { status: 'disabled' as const, reason: '全自动计划当前未处于运行状态。' }
   }
-  if (!input.contact.email || input.contact.verificationStatus !== 'verified' || input.contact.confidence < 80) {
-    return { status: 'skipped' as const, reason: '联系人邮箱未达到自动触达验证门槛。' }
-  }
   const now = options.now ?? Date.now()
   const safety = await enforceAutomationCircuitBreaker(input.plan.workspaceId)
   if (!safety.safe) return { status: 'skipped' as const, reason: `自动触达已熔断：${safety.reasons.join('；')}` }
-  if (await isDestinationSuppressed(input.plan.workspaceId, input.contact.email)) {
-    return { status: 'skipped' as const, reason: '联系人位于退订或抑制名单。' }
-  }
-  const connection = await getAvailableConnection(input.plan.workspaceId, '邮件')
-  if (!connection) return { status: 'skipped' as const, reason: '没有健康可用的邮件发送服务。' }
-
-  const inboxContact = await db.$first(db.select().from(inboxContacts).where(and(
+  const candidateEmail = input.contact.email?.trim() || null
+  const emailEligible = Boolean(candidateEmail && input.contact.verificationStatus === 'verified' && input.contact.confidence >= 80)
+  const emailContact = emailEligible && candidateEmail
+    ? await db.$first(db.select().from(inboxContacts).where(and(
+        eq(inboxContacts.workspaceId, input.plan.workspaceId),
+        eq(inboxContacts.customerId, input.customer.id),
+        eq(inboxContacts.email, candidateEmail),
+        eq(inboxContacts.verificationStatus, 'verified'),
+      )).orderBy(desc(inboxContacts.updatedAt)))
+    : null
+  const emailSuppressed = Boolean(candidateEmail && await isDestinationSuppressed(input.plan.workspaceId, candidateEmail))
+  const emailConnection = emailContact && !emailSuppressed
+    ? await getAvailableConnection(input.plan.workspaceId, '邮件')
+    : null
+  const whatsappContact = await db.$first(db.select().from(inboxContacts).where(and(
     eq(inboxContacts.workspaceId, input.plan.workspaceId),
     eq(inboxContacts.customerId, input.customer.id),
-    eq(inboxContacts.email, input.contact.email),
+    eq(inboxContacts.verificationStatus, 'verified'),
+    sql`${inboxContacts.phone} IS NOT NULL`,
+    sql`${inboxContacts.whatsappOptedInAt} IS NOT NULL`,
   )).orderBy(desc(inboxContacts.updatedAt)))
-  if (!inboxContact || inboxContact.verificationStatus !== 'verified') {
-    return { status: 'skipped' as const, reason: '客户库联系人尚未完成邮箱验证。' }
+  const whatsappConnection = whatsappContact
+    ? await getAvailableConnection(input.plan.workspaceId, 'WhatsApp')
+    : null
+  const channel: '邮件' | 'WhatsApp' = emailContact && emailConnection ? '邮件' : whatsappContact && whatsappConnection ? 'WhatsApp' : '邮件'
+  const inboxContact = channel === '邮件' ? emailContact : whatsappContact
+  if (!inboxContact) {
+    return { status: 'skipped' as const, reason: emailSuppressed
+      ? '邮箱位于退订或抑制名单，且没有已授权的 WhatsApp 联系方式。'
+      : '没有达到自动触达门槛的已验证邮箱或已授权 WhatsApp 联系方式。' }
+  }
+  if (channel === '邮件' && !emailConnection) {
+    return { status: 'skipped' as const, reason: '没有健康可用的邮件发送服务，也没有可用的 WhatsApp 备用渠道。' }
   }
 
   const recentOutbound = await db.$first(db.select({ id: messageEntries.id }).from(messageEntries)
@@ -245,10 +265,10 @@ export const queueAutomatedOutreach = async (input: QueueAutomatedOutreachInput,
   if (recentOutbound) return { status: 'skipped' as const, reason: '该联系人 30 天内已有触达记录。' }
 
   const ramp = await getAutomationRamp({ workspaceId: input.plan.workspaceId, planId: input.plan.id, configuredLimit: input.plan.dailyCandidateLimit, now })
-  if (ramp.remaining <= 0) return { status: 'skipped' as const, reason: `${ramp.stage}阶段已达到每天 ${ramp.limit} 封的安全上限。` }
+  if (ramp.remaining <= 0) return { status: 'skipped' as const, reason: `${ramp.stage}阶段已达到每天 ${ramp.limit} 条的安全上限。` }
 
   const experiment = await chooseCopyVariant(input, now)
-  const copy = safeCopy(await (options.generateCopy ?? generateCopy)(input, experiment.variant))
+  const copy = safeCopy(await (options.generateCopy ?? generateCopy)(input, experiment.variant, channel), channel)
   const sender = await db.$first(db.select({ displayName: users.displayName }).from(users).where(eq(users.id, input.plan.ownerUserId)))
   const threadId = createId('mth')
   const messageId = createId('msg')
@@ -257,21 +277,21 @@ export const queueAutomatedOutreach = async (input: QueueAutomatedOutreachInput,
   await db.transaction(async tx => {
     await tx.insert(messageThreads).values({
       id: threadId, workspaceId: input.plan.workspaceId, contactId: inboxContact.id, customerId: input.customer.id,
-      campaignId: null, subject: copy.subject, channel: '邮件', intent: '待判断', status: 'open',
+      campaignId: null, subject: copy.subject, channel, intent: '待判断', status: 'open',
       assigneeUserId: input.plan.ownerUserId, lastMessagePreview: copy.body.slice(0, 200), lastMessageAt: now,
       lastInboundAt: null, unreadCount: 0, createdAt: now, updatedAt: now,
     })
     await tx.insert(messageEntries).values({
       id: messageId, workspaceId: input.plan.workspaceId, threadId, direction: 'outbound', messageType: 'text',
-      body: copy.body, status: 'confirmed', channel: '邮件', senderLabel: sender?.displayName ?? '自动获客助手',
+      body: copy.body, status: 'confirmed', channel, senderLabel: sender?.displayName ?? '自动获客助手',
       confirmedByUserId: input.plan.ownerUserId, confirmedAt: now,
       metadataJson: JSON.stringify({ deliveryMode: 'outbox', automationApprovedByPlan: true, acquisitionPlanId: input.plan.id, radarTaskId: input.task.id, candidateId: input.candidate.id, outreachStep: 0, copyVariant: experiment.variant, experimentMode: experiment.experimentMode, sendTimezone }),
       createdAt: now, updatedAt: now,
     })
   })
-  const job = await enqueueConfirmedMessage({ workspaceId: input.plan.workspaceId, messageId, threadId, channel: '邮件', scheduledAt })
+  const job = await enqueueConfirmedMessage({ workspaceId: input.plan.workspaceId, messageId, threadId, channel, scheduledAt })
   const followUpJobs: Array<{ id: string; scheduledAt: number }> = []
-  if (job.status === 'queued') {
+  if (job.status === 'queued' && channel === '邮件') {
     const followUps = followUpCopies(input, copy.subject)
     const followUpTimes = [
       nextBusinessSendSlot(scheduledAt + 3 * 86_400_000, sendTimezone, 0),
@@ -291,7 +311,14 @@ export const queueAutomatedOutreach = async (input: QueueAutomatedOutreachInput,
       })
       if (followUpJob.status === 'queued') followUpJobs.push({ id: followUpJob.id, scheduledAt: followUpTimes[index] })
     }
-    await db.update(customers).set({ interaction: '自动首触达已排队', nextAction: '等待客户回复并识别意向', dueAt: scheduledAt + 3 * 86_400_000, updatedAt: now }).where(eq(customers.id, input.customer.id))
   }
-  return { status: job.status === 'queued' ? 'queued' as const : 'skipped' as const, reason: job.lastError ?? undefined, jobId: job.id, scheduledAt, followUpJobs, copyVariant: experiment.variant, experimentMode: experiment.experimentMode, sendTimezone, ramp }
+  if (job.status === 'queued') {
+    await db.update(customers).set({
+      interaction: `自动${channel}首触达已排队`,
+      nextAction: '等待客户回复并识别意向',
+      dueAt: scheduledAt + (channel === '邮件' ? 3 : 1) * 86_400_000,
+      updatedAt: now,
+    }).where(eq(customers.id, input.customer.id))
+  }
+  return { status: job.status === 'queued' ? 'queued' as const : 'skipped' as const, reason: job.lastError ?? undefined, jobId: job.id, scheduledAt, followUpJobs, channel, copyVariant: experiment.variant, experimentMode: experiment.experimentMode, sendTimezone, ramp }
 }

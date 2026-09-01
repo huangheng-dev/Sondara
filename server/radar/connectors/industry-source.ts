@@ -3,6 +3,7 @@ import { isExcludedHost } from './host-blocklist.js'
 import { fetchPublicPage, normalizeCompanyName } from './website-seed.js'
 import { isLikelyOverseasProspect, isOverseasMarket } from './prospect-quality.js'
 import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { getSearchLocale, isChineseSourceUrl, isOverseasTarget, overseasSearchExclusions, toInternationalSearchText } from '../market-targeting.js'
 
 type IndustryMode = '行业名录' | '展会协会' | '招投标项目'
 type IndustryEntity = { name: string; url: string; region: string; evidenceTitle: string; extraction: 'structured' | 'page' | 'search' }
@@ -15,7 +16,7 @@ const modeMeta: Record<IndustryMode, { source: string; signal: string; query: st
 
 const cleanText = (value: string) => value.replace(/<script(?![^>]*application\/ld\+json)[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/&amp;/gi, '&').replace(/&#39;/gi, "'").replace(/&quot;/gi, '"').replace(/\s+/g, ' ').trim()
 const normalizeName = (value: string) => normalizeCompanyName(cleanText(value)).replace(/^[\s·•|–—-]+|[\s·•|–—-]+$/g, '').replace(/\s+(?:member|exhibitor|supplier|vendor|profile|company)\s*$/i, '').slice(0, 160)
-const NAV_DENYLIST = /(?:公司新闻|公司通讯|公司简介|公司概况|新闻中心|产品中心|关于我们|联系我们|招贤纳士|人才招聘|服务支持|下载中心|解决方案|成功案例|资质荣誉|企业文化|发展历程|组织架构|营销网络|售后服务|常见问题|网站地图|法律声明|隐私政策|会员登录|用户注册|english|首页)/i
+const NAV_DENYLIST = /(?:公司新闻|公司通讯|公司简介|公司概况|新闻中心|产品中心|关于我们|联系我们|招贤纳士|人才招聘|服务支持|下载中心|解决方案|成功案例|资质荣誉|企业文化|发展历程|组织架构|营销网络|售后服务|常见问题|网站地图|法律声明|隐私政策|会员登录|用户注册|english|首页|^company$|^company profile$|^about company$|^our company$)/i
 const PERSON_ROLE_NOISE = /(?:负责人|总经理|经理|总监|主管|分析师|研究员|职员|工程师|教授|主席|董事|顾问)/
 const ORGANIZATION_SUFFIX = /(?:有限公司|股份有限公司|有限责任公司|集团有限公司|集团|工厂|研究院|设计院|研究所|公司|\b(?:Ltd\.?|Limited|GmbH|AG|Inc\.?|Corp\.?|Corporation|LLC|Co\.?|Company|S\.A\.?|S\.r\.l\.?|B\.V\.?|Oy|OÜ)\b)\s*$/i
 const organizationLike = (value: string) => {
@@ -120,15 +121,16 @@ export class IndustrySourceConnector implements DiscoveryConnector {
     const pages = new Map<string, { mode: IndustryMode; result?: SearchResult }>()
     const errors: string[] = []
     const searchEnabled = (await hasSearchConfiguration(task.workspaceId))
+    const overseas = isOverseasTarget(task.targetRegion)
     if (searchEnabled) {
       for (const [index, mode] of modes.entries()) {
         onProgress(`正在发现${mode}公开来源`, 10 + Math.round(index / modes.length * 22))
         try {
           const meta = modeMeta[mode]
-          const query = [task.icp, task.targetRegion, meta.query].filter(Boolean).join(' ')
-          const result = await searchWorkspace(task.workspaceId, query, Math.min(10, Math.max(4, Math.ceil(task.candidateLimit / modes.length))))
+          const query = [overseas ? toInternationalSearchText(task.icp) : task.icp, task.targetRegion, meta.query, overseas ? overseasSearchExclusions : ''].filter(Boolean).join(' ')
+          const result = await searchWorkspace(task.workspaceId, query, Math.min(10, Math.max(4, Math.ceil(task.candidateLimit / modes.length))), overseas ? getSearchLocale(task.targetRegion) : {})
           result.items
-            .filter(item => { try { return !isExcludedHost(new URL(item.url).hostname) } catch { return false } })
+            .filter(item => { try { return !isExcludedHost(new URL(item.url).hostname) && (!overseas || !isChineseSourceUrl(item.url)) } catch { return false } })
             .forEach(item => pages.set(item.url, { mode, result: item }))
         } catch (cause) { errors.push(cause instanceof Error ? cause.message : `${mode}搜索失败`) }
       }
@@ -163,8 +165,8 @@ export class IndustrySourceConnector implements DiscoveryConnector {
       const score = Math.min(96, meta.baseScore + (entity.extraction === 'structured' ? 7 : 0) + (entity.url ? 4 : 0))
       return {
         company: entity.name,
-        region: entity.region || task.targetRegion || '待补全',
-        industry: task.icp,
+        region: entity.region || '待补全',
+        industry: '待验证',
         size: '待补全',
         score,
         signal: meta.signal,

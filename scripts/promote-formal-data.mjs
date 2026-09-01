@@ -34,7 +34,7 @@ if (!primaryWorkspace) throw new Error('未找到 DONJOY 主工作区。')
 
 const workspaceId = String(primaryWorkspace.id)
 const userId = String(primaryUser.id)
-const formalEmail = String(primaryUser.email)
+const formalEmail = requestedEmail || String(primaryUser.email)
 
 const clearWorkspaceTables = [
   'approval_requests',
@@ -135,8 +135,13 @@ try {
   }
 
   await tx.execute({
-    sql: 'update users set display_name = ?, locale = ?, timezone = ?, currency = ?, updated_at = ? where id = ?',
-    args: ['DONJOY 外贸管理员', 'zh-CN', 'Asia/Shanghai', 'USD', now, userId],
+    sql: 'update users set email = ?, display_name = ?, locale = ?, timezone = ?, currency = ?, updated_at = ? where id = ?',
+    args: [formalEmail, '东正外贸管理员', 'zh-CN', 'Asia/Shanghai', 'USD', now, userId],
+  })
+  await tx.execute({
+    sql: `update outbound_channel_connections set from_name = 'DONJOY', updated_at = ?
+          where workspace_id = ? and (lower(from_name) like '%oulam%' or from_name like '%欧拉姆%')`,
+    args: [now, workspaceId],
   })
   await tx.execute({
     sql: 'update workspaces set name = ?, updated_at = ? where id = ?',

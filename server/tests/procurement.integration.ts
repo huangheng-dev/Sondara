@@ -21,6 +21,8 @@ const run = async () => {
     assert.equal(providers.statusCode, 200, providers.body)
     assert.ok(providers.json().items.some((item: { provider: string; configured: boolean }) => item.provider === 'ted' && item.configured))
     assert.ok(providers.json().items.some((item: { provider: string; mode: string; configured: boolean }) => item.provider === 'world-bank' && item.mode === 'official_api' && item.configured))
+    assert.equal(providers.json().items.length, 4)
+    assert.ok(providers.json().items.every((item: { sourceUrl?: string }) => item.sourceUrl?.startsWith('https://')))
 
     const created = await app.inject({ method: 'POST', url: '/api/procurement/subscriptions', headers, payload: { name: `EU Software ${suffix}`, provider: 'ted', keywords: ['software'], regions: ['DEU'], noticeTypes: [] } })
     assert.equal(created.statusCode, 201, created.body)

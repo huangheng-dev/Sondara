@@ -18,7 +18,7 @@ import {
   Target,
   X,
 } from "lucide-react";
-import { outreachChannels } from "@/data/channels";
+import { outreachChannelOptions } from "@/data/channels";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -35,7 +35,7 @@ import { CustomSelect } from "@/components/ui/CustomSelect";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { List } from '@/components/ui/List'
 import { downloadCsv } from "@/utils/download";
-import { campaignApi, contentApi, customerApi, taskApi, type CampaignApiRecord } from "@/lib/api";
+import { campaignApi, collectAllPages, contentApi, customerApi, taskApi, type CampaignApiRecord } from "@/lib/api";
 import { Avatar, Checkbox, Progress, Space, Typography } from 'antd'
 import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
 import { formatCompactTime } from '@/components/ui/TableCells'
@@ -63,10 +63,10 @@ export function CampaignsPage() {
   const showToast = useUiStore((s) => s.showToast);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const campaignQuery = useQuery({queryKey:["campaigns"],queryFn:()=>campaignApi.list({pageSize:100,sort:"progress_desc"}),retry:1});
+  const campaignQuery = useQuery({queryKey:["campaigns"],queryFn:()=>collectAllPages((page,pageSize)=>campaignApi.list({page,pageSize,sort:"progress_desc"})),retry:1});
   const scheduleQuery = useQuery({queryKey:["campaign-schedule"],queryFn:campaignApi.schedule,retry:1});
-  const contentQuery = useQuery({queryKey:["content-assets"],queryFn:()=>contentApi.list({pageSize:100,sort:"updated_desc"}),retry:1});
-  const customerQuery = useQuery({queryKey:["customers","campaign-audience"],queryFn:()=>customerApi.list({pageSize:100,sort:"score_desc"}),retry:1});
+  const contentQuery = useQuery({queryKey:["content-assets"],queryFn:()=>collectAllPages((page,pageSize)=>contentApi.list({page,pageSize,sort:"updated_desc"})),retry:1});
+  const customerQuery = useQuery({queryKey:["customers","campaign-audience"],queryFn:()=>collectAllPages((page,pageSize)=>customerApi.list({page,pageSize,sort:"score_desc"})),retry:1});
   const readinessQuery = useQuery({
     queryKey:["campaign-step-readiness",selected?.id,executeTarget?.id],
     queryFn:()=>campaignApi.stepReadiness(selected!.id,executeTarget!.id),
@@ -294,9 +294,9 @@ export function CampaignsPage() {
           emptyText={<EmptyState title={query||filter!=="全部"?"没有符合条件的营销活动":"暂无营销活动"} description={query||filter!=="全部"?"可以调整搜索词或状态筛选后重新查看。":"创建活动后，可以把客户、内容和执行节奏放进同一条工作流。"} icon={Mail}/>}
           columns={[
             {key:"select",title:<Checkbox disabled={!canWrite} aria-label="选择本页全部活动" checked={campaignPaging.pageItems.length>0&&campaignPaging.pageItems.every(c=>checked.has(c.id))} onChange={e=>setChecked(current=>{const next=new Set(current);campaignPaging.pageItems.forEach(c=>e.target.checked?next.add(c.id):next.delete(c.id));return next;})}/>,width:52},
-            {key:"campaign",title:<Button onClick={()=>setSort(sort==="活动名称 A–Z"?"活动名称 Z–A":"活动名称 A–Z")}>活动档案{sortIcon(sort==="活动名称 A–Z"||sort==="活动名称 Z–A",sort==="活动名称 Z–A")}</Button>},
-            {key:"status",title:"状态与渠道"},{key:"progress",title:<Button onClick={()=>setSort("执行进度最高")}>执行进度{sortIcon(sort==="执行进度最高",true)}</Button>},
-            {key:"results",kind:"metric",title:<Button onClick={()=>setSort(sort==="触达最多"?"商机最多":"触达最多")}>执行成效{sortIcon(sort==="触达最多"||sort==="商机最多",true)}</Button>},{key:"next",title:"下一执行节点"},{key:"actions",title:"操作",width:208},
+            {key:"campaign",title:<Button onClick={()=>setSort(sort==="活动名称 A–Z"?"活动名称 Z–A":"活动名称 A–Z")}>活动档案{sortIcon(sort==="活动名称 A–Z"||sort==="活动名称 Z–A",sort==="活动名称 Z–A")}</Button>,width:320},
+            {key:"status",title:"状态与渠道",width:170},{key:"progress",title:<Button onClick={()=>setSort("执行进度最高")}>执行进度{sortIcon(sort==="执行进度最高",true)}</Button>,width:170},
+            {key:"results",kind:"metric",title:<Button onClick={()=>setSort(sort==="触达最多"?"商机最多":"触达最多")}>执行成效{sortIcon(sort==="触达最多"||sort==="商机最多",true)}</Button>,width:230},{key:"next",title:"下一执行节点",width:290},{key:"actions",title:"操作",width:104},
           ]}
           rows={campaignPaging.pageItems.map(c=>{const meta=metaFor(c);const isPaused=c.status==="已暂停";return {key:c.id,className:checked.has(c.id)?"selected":"",cells:[
             <Checkbox disabled={!canWrite} aria-label={`选择 ${c.name}`} checked={checked.has(c.id)} onChange={e=>setChecked(current=>{const next=new Set(current);e.target.checked?next.add(c.id):next.delete(c.id);return next;})}/>,
@@ -359,7 +359,7 @@ export function CampaignsPage() {
             label: "触达渠道",
             type: "select",
             required: true,
-            options: [...outreachChannels],
+            options: [...outreachChannelOptions],
           },
           {
             name: "content",
@@ -454,7 +454,7 @@ export function CampaignsPage() {
           { name: "name", label: "活动名称", required: true },
           { name: "market", label: "目标市场", required: true },
           { name: "audience", label: "受众说明", required: true },
-          { name: "channel", label: "触达渠道", type: "select", required: true, options: [...outreachChannels] },
+          { name: "channel", label: "触达渠道", type: "select", required: true, options: [...outreachChannelOptions] },
           { name: "nextAction", label: "下一步动作", required: true },
           { name: "stopRule", label: "停止规则", type: "textarea", required: true },
         ]}

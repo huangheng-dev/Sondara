@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/PageModules";
 import { RecordTime } from "@/components/ui/TableCells";
 import { StatusNotice } from "@/components/ui/StatusNotice";
+import { renderRequiredOrOptionalMarkAfter } from "@/components/ui/FormRequiredMark";
 import { LeadSourcesPage } from "@/pages/settings/LeadSourcesPage";
 import { ConnectorCatalogPage } from "@/pages/settings/ConnectorCatalogPage";
 import { ProcurementPage } from "@/pages/procurement/ProcurementPage";
@@ -308,6 +309,7 @@ function OutboundSettings() {
   return (
     <Flex id="outbound-settings" vertical>
       <Panel
+        className="settings-section-card"
         title="消息发送、收件与队列"
         subtitle="支持 SMTP、SendGrid、Mailgun、WhatsApp Cloud API 与合规 Webhook；每个邮件服务可独立配置 IMAP 收件"
         action={
@@ -395,18 +397,11 @@ function OutboundSettings() {
               >
                 <List.Item.Meta
                   style={{ minWidth: 0 }}
-                  avatar={<Avatar icon={<Mail size={18} />} />}
-                  title={connection.name}
-                  description={
-                    <Space orientation="vertical" size={0}>
-                      <Typography.Text type="secondary">
-                        {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail}
-                      </Typography.Text>
-                      <Typography.Text type="secondary">
-                        优先级 {connection.priority}{connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}
-                      </Typography.Text>
-                    </Space>
-                  }
+                  avatar={<Avatar icon={<Mail size={19} />} />}
+                  title={<Typography.Text strong>{connection.name}</Typography.Text>}
+                  description={<Typography.Text type="secondary" ellipsis={{ tooltip: `${connection.provider.toUpperCase()} · ${connection.host}${connection.provider === "smtp" ? `:${connection.port}` : ""} · ${connection.fromEmail} · 优先级 ${connection.priority}${connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}` }}>
+                    {connection.provider.toUpperCase()} · {connection.host}{connection.provider === "smtp" ? `:${connection.port}` : ""} · {connection.fromEmail} · 优先级 {connection.priority}{connection.lastLatencyMs ? ` · ${connection.lastLatencyMs} ms` : ""}
+                  </Typography.Text>}
                 />
               </List.Item>
             )}
@@ -573,7 +568,7 @@ function OutboundSettings() {
             <Typography.Text type="secondary">共 {jobs.data?.total ?? 0} 个任务</Typography.Text>
           </>} />
           {jobs.data?.items.length ? <DataTable
-            columns={[{key:"recipient",title:"收件人"},{key:"message",title:"主题与内容"},{key:"status",title:"状态"},{key:"attempts",title:"尝试"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]}
+            columns={[{key:"recipient",title:"收件人",width:260},{key:"message",title:"主题与内容",width:380},{key:"status",title:"状态",width:170},{key:"attempts",title:"尝试",width:100},{key:"updated",title:"更新时间",width:180},{key:"actions",title:"操作",width:72}]}
             rows={jobs.data.items.map(job=>({key:job.id,cells:[
               <Space orientation="vertical" size={0}><Typography.Text strong>{job.contact.name}</Typography.Text><Typography.Text type="secondary">{job.contact.company} · {job.contact.email??"缺少邮箱"}</Typography.Text></Space>,
               <Space orientation="vertical" size={0}><Typography.Text strong>{job.thread.subject}</Typography.Text><Typography.Text type="secondary" ellipsis={{tooltip:job.message.body}}>{job.message.body}</Typography.Text></Space>,
@@ -624,12 +619,12 @@ function OutboundSettings() {
             )}
           </>} />
           {governanceView === "抑制名单" ? (
-            suppressions.data?.items.length ? <DataTable columns={[{key:"email",title:"邮箱地址"},{key:"reason",title:"原因"},{key:"source",title:"来源"},{key:"status",title:"状态"},{key:"updated",title:"更新时间"},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
+            suppressions.data?.items.length ? <DataTable columns={[{key:"email",title:"邮箱地址",width:280},{key:"reason",title:"原因",width:320},{key:"source",title:"来源",width:200},{key:"status",title:"状态",width:130},{key:"updated",title:"更新时间",width:180},{key:"actions",title:"操作",width:72}]} rows={suppressions.data.items.map((item:ContactSuppressionApiRecord)=>({key:item.id,cells:[
               <Space orientation="vertical" size={0}><Typography.Text strong>{item.destination}</Typography.Text><Typography.Text type="secondary">邮件渠道</Typography.Text></Space>,<Typography.Text>{item.reason}</Typography.Text>,<Typography.Text>{item.source==="channel_event"?"渠道事件":item.source}</Typography.Text>,<Badge tone={item.active?"red":"neutral"}>{item.active?"已抑制":"已恢复"}</Badge>,<Typography.Text>{new Date(item.updatedAt).toLocaleString("zh-CN")}</Typography.Text>,
               <Space>{item.active&&<Button title="确认恢复发送" onClick={async()=>{try{await outboxApi.restoreSuppression(item.id);await suppressions.refetch();showToast("该地址已移出抑制名单")}catch(cause){showToast(cause instanceof Error?cause.message:"恢复发送失败")}}}><RotateCcw/></Button>}</Space>,
             ]}))}/> : <EmptyState title="暂无抑制记录" icon={Mail}/>
           ) : (
-            channelEvents.data?.items.length ? <DataTable columns={[{key:"type",title:"事件类型"},{key:"address",title:"地址"},{key:"message",title:"关联消息"},{key:"status",title:"处理状态"},{key:"time",title:"发生时间"},{key:"note",title:"说明"}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
+            channelEvents.data?.items.length ? <DataTable columns={[{key:"type",title:"事件类型",width:150},{key:"address",title:"地址",width:260},{key:"message",title:"关联消息",width:280},{key:"status",title:"处理状态",width:150},{key:"time",title:"发生时间",width:180},{key:"note",title:"说明",width:300}]} rows={channelEvents.data.items.map((item:ChannelWebhookEventApiRecord)=>({key:item.id,cells:[
               <Badge tone={item.eventType==="bounced"||item.eventType==="complained"?"red":item.eventType==="unsubscribed"?"orange":"blue"}>{{delivered:"已送达",bounced:"退信",complained:"投诉",unsubscribed:"退订",inbound_reply:"客户回复"}[item.eventType]}</Badge>,
               <Space orientation="vertical" size={0}><Typography.Text strong>{item.sender??item.recipient??"—"}</Typography.Text><Typography.Text type="secondary">{item.recipient&&item.sender?`发送至 ${item.recipient}`:""}</Typography.Text></Space>,<Typography.Text ellipsis={{tooltip:item.externalMessageId??""}}>{item.externalMessageId??"未关联"}</Typography.Text>,
               <Badge tone={item.processingStatus==="processed"?"green":item.processingStatus==="unlinked"?"orange":item.processingStatus==="failed"?"red":"blue"}>{{processed:"已处理",unlinked:"未关联",failed:"失败",pending:"处理中"}[item.processingStatus]}</Badge>,<Typography.Text>{new Date(item.occurredAt).toLocaleString("zh-CN")}</Typography.Text>,<Typography.Text>{item.reason??item.processingError??"—"}</Typography.Text>,
@@ -1207,7 +1202,7 @@ export function SettingsPage() {
       />
       {tab === "个人资料" ? (
           <Row className="settings-profile-grid" gutter={[16, 16]}>
-            <Col xs={24} lg={12}>
+            <Col span={24}>
               <Card className="settings-profile-card" title={<Space><UserRound size={18} />身份资料</Space>} extra={<Typography.Text type="secondary">用于账户显示和消息通知</Typography.Text>}>
                 <Space orientation="vertical" size="large" style={{ width: "100%" }}>
                   <Space align="center"><Avatar size="large">{profileDraft.displayName?.trim().slice(0, 1) || "用"}</Avatar><Space orientation="vertical" size={0}><Typography.Text strong>{profileDraft.displayName || "未设置名称"}</Typography.Text><Typography.Text type="secondary">{profileDraft.email || "未设置邮箱"}</Typography.Text></Space></Space>
@@ -1371,10 +1366,10 @@ export function SettingsPage() {
               ) : (
               <DataTable ariaLabel="AI 模型连接表格" className="ai-model-table" minWidth={1120} columns={[
                 {key:"select",title:<span><Checkbox aria-label="选择本页全部 AI 服务" checked={aiServicePaging.pageItems.length>0&&aiServicePaging.pageItems.every(service=>selectedAiServices.has(service.id))} onChange={event=>setSelectedAiServices(current=>{const next=new Set(current);aiServicePaging.pageItems.forEach(service=>event.target.checked?next.add(service.id):next.delete(service.id));return next;})}/></span>,width:52},
-                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>模型连接{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:300},
-                {key:"interface",title:"接口配置",width:280},
-                {key:"routing",title:<Button onClick={()=>setServiceSort("优先级最高")}>调用顺序{aiSortIcon(serviceSort==="优先级最高")}</Button>,width:160},
-                {key:"status",title:<Button onClick={()=>setServiceSort("延迟最低")}>运行状态{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:190},
+                {key:"service",title:<Button onClick={()=>setServiceSort(serviceSort==="服务名称 A–Z"?"服务名称 Z–A":"服务名称 A–Z")}>模型连接{aiSortIcon(serviceSort==="服务名称 A–Z"||serviceSort==="服务名称 Z–A",serviceSort==="服务名称 Z–A")}</Button>,width:320},
+                {key:"interface",title:"接口配置",width:320},
+                {key:"routing",title:<Button onClick={()=>setServiceSort("优先级最高")}>调用顺序{aiSortIcon(serviceSort==="优先级最高")}</Button>,width:170},
+                {key:"status",title:<Button onClick={()=>setServiceSort("延迟最低")}>运行状态{aiSortIcon(serviceSort==="延迟最低")}</Button>,width:210},
                 {key:"enabled",title:"启用",width:82},
                 {key:"actions",title:"操作",width:168},
               ]} rows={aiServicePaging.pageItems.map(service=>({key:service.id,cells:[
@@ -1411,7 +1406,7 @@ export function SettingsPage() {
             items={[{
               key: "core",
               label: "核心服务",
-              children: <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+              children: <Flex className="settings-section-stack" vertical gap={20}>
             {!integrationQuery.isLoading && !outboundConnectionsQuery.isLoading && (
               <StatusNotice
                 tone={integrationIssues.length ? "warning" : "success"}
@@ -1545,7 +1540,7 @@ export function SettingsPage() {
             >
               <ProcurementPage embedded view="settings" />
             </Panel>
-              </Space>,
+              </Flex>,
             }, {
               key: "leads",
               label: "线索入口",
@@ -1558,47 +1553,39 @@ export function SettingsPage() {
           />
         ) : tab === "数据与备份" ? (
           <Row className="settings-data-grid" gutter={[16, 16]}>
-            <Col xs={24} lg={12}>
+            <Col span={24}>
             <Card className="settings-data-card" title={<Space><MonitorSmartphone size={18} />数据存储</Space>} extra={<Badge tone="green">已持久化</Badge>}>
-              <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
-                <Descriptions.Item label="部署方式">本地 SQLite 文件持久化，按工作区隔离</Descriptions.Item>
-                <Descriptions.Item label="保存范围">客户、任务、内容、活动与商机</Descriptions.Item>
-                <Descriptions.Item label="保存方式">业务动作后实时写入，无需手动保存</Descriptions.Item>
-                <Descriptions.Item label="状态">修改即时生效</Descriptions.Item>
-              </Descriptions>
+              <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+                <Descriptions bordered column={{ xs: 1, sm: 2, xl: 4 }} size="small">
+                  <Descriptions.Item label="部署方式">本地 SQLite 文件持久化，按工作区隔离</Descriptions.Item>
+                  <Descriptions.Item label="保存范围">客户、任务、内容、活动与商机</Descriptions.Item>
+                  <Descriptions.Item label="保存方式">业务动作后实时写入，无需手动保存</Descriptions.Item>
+                  <Descriptions.Item label="状态">修改即时生效</Descriptions.Item>
+                </Descriptions>
+                {operationsQuery.data && (
+                  <div className="settings-data-overview">
+                    <Flex className="settings-data-overview__heading" align="center" justify="space-between" gap={12} wrap>
+                      <Typography.Text strong>业务数据概览</Typography.Text>
+                      <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
+                    </Flex>
+                    <Row className="settings-data-overview__stats" gutter={[12, 12]}>
+                      <Col flex="1 1 120px"><Card size="small" className="settings-data-stat-card"><Statistic title="客户" value={operationsQuery.data.counts.customers}/></Card></Col>
+                      <Col flex="1 1 120px"><Card size="small" className="settings-data-stat-card"><Statistic title="任务" value={operationsQuery.data.counts.tasks}/></Card></Col>
+                      <Col flex="1 1 120px"><Card size="small" className="settings-data-stat-card"><Statistic title="商机" value={operationsQuery.data.counts.deals}/></Card></Col>
+                      <Col flex="1 1 120px"><Card size="small" className="settings-data-stat-card"><Statistic title="雷达任务" value={operationsQuery.data.counts.radarTasks}/></Card></Col>
+                      <Col flex="1 1 120px"><Card size="small" className="settings-data-stat-card"><Statistic title="外发队列" value={operationsQuery.data.counts.queuedOutbound}/></Card></Col>
+                    </Row>
+                  </div>
+                )}
+              </Space>
             </Card>
             </Col>
-            <Col xs={24} lg={12}>
-            <Card className="settings-data-card" title={<Space><Database size={18} />数据导出与备份</Space>} extra={<Typography.Text type="secondary">下载当前工作区的真实数据</Typography.Text>}>
+            <Col span={24}>
+            <Card className="settings-data-card" title={<Space><Database size={18} />数据导出与备份</Space>} extra={<Space wrap>
+              <Button size="sm" onClick={async () => { try { await systemApi.exportData(); showToast("数据导出已开始下载"); } catch { showToast("数据导出失败，请稍后重试"); } }}><Download size={15}/>导出 JSON</Button>
+              <Button size="sm" onClick={async () => { try { await systemApi.backupDatabase(); showToast("数据库备份已开始下载"); } catch { showToast("数据库备份失败，请稍后重试"); } }}><Database size={15}/>下载数据库备份</Button>
+            </Space>}>
               <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-                <Space className="settings-data-actions" wrap>
-                <Button
-                  onClick={async () => {
-                    try {
-                      await systemApi.exportData();
-                      showToast("数据导出已开始下载");
-                    } catch {
-                      showToast("数据导出失败，请稍后重试");
-                    }
-                  }}
-                >
-                  <Download size={17} />
-                  导出业务数据 (JSON)
-                </Button>
-                <Button
-                  onClick={async () => {
-                    try {
-                      await systemApi.backupDatabase();
-                      showToast("数据库备份已开始下载");
-                    } catch {
-                      showToast("数据库备份失败，请稍后重试");
-                    }
-                  }}
-                >
-                  <Database size={17} />
-                  完整数据库备份
-                </Button>
-                </Space>
                 <StatusNotice
                   tone={backupsQuery.data?.automatic ? "success" : "warning"}
                   icon={<Database size={17}/>}
@@ -1606,11 +1593,27 @@ export function SettingsPage() {
                   description="每份自动备份生成后均执行 SQLite 完整性校验；升级前仍建议额外下载一份。"
                 />
                 {(backupsQuery.data?.items ?? []).length > 0 && (
-                  <List
-                    header={<Flex align="center" justify="space-between" gap={12} wrap><Typography.Text strong>最近持久化备份</Typography.Text><Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button></Flex>}
-                    dataSource={backupsQuery.data!.items.slice(0, 3)}
-                    renderItem={(item) => <List.Item><Flex align="center" gap={12}><Avatar icon={<Database size={16}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>{new Date(item.createdAt).toLocaleString("zh-CN")}</Typography.Text><Typography.Text type="secondary">{`${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`}</Typography.Text></Space></Flex></List.Item>}
-                  />
+                  <div className="settings-backup-section">
+                    <Flex align="center" justify="space-between" gap={12} wrap>
+                      <Typography.Text strong>最近持久化备份</Typography.Text>
+                      <Button size="sm" onClick={async()=>{const item=backupsQuery.data?.items[0];if(!item)return;try{await systemApi.validateBackup(item.fileName);await backupsQuery.refetch();showToast("最新备份校验通过，可用于恢复")}catch{showToast("备份校验失败，请勿用于恢复")}}}>验证最新备份</Button>
+                    </Flex>
+                    <Row gutter={[12, 12]}>
+                      {backupsQuery.data!.items.slice(0, 3).map((item) => (
+                        <Col key={item.fileName} xs={24} md={8}>
+                          <Card size="small" className="settings-backup-item">
+                            <Flex align="center" gap={12}>
+                              <Avatar icon={<Database size={16}/>} />
+                              <Space orientation="vertical" size={0}>
+                                <Typography.Text strong>{new Date(item.createdAt).toLocaleString("zh-CN")}</Typography.Text>
+                                <Typography.Text type="secondary">{`${(item.size / 1024 / 1024).toFixed(1)} MB · ${item.verifiedAt ? "已校验" : "待校验"}`}</Typography.Text>
+                              </Space>
+                            </Flex>
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  </div>
                 )}
               </Space>
             </Card>
@@ -1618,25 +1621,10 @@ export function SettingsPage() {
             <Col span={24}>
             <Card
               className="settings-data-card"
-              title={<Space><Route size={18} />运行与连接健康</Space>}
-              extra={<Typography.Text type="secondary">业务数据量、后台任务和连接器状态</Typography.Text>}
+              title={<Space><Route size={18} />连接与任务健康</Space>}
+              extra={<Typography.Text type="secondary">最近 7 天运行状态与失败明细</Typography.Text>}
             >
               <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-                {operationsQuery.data && (
-                  <div className="settings-data-overview">
-                    <Flex className="settings-data-overview__heading" align="center" justify="space-between" gap={12} wrap>
-                      <Typography.Text strong>运行概览</Typography.Text>
-                      <Badge tone={operationsQuery.data.workers.backup === "enabled" ? "green" : "orange"}>{operationsQuery.data.workers.backup === "enabled" ? "自动备份运行中" : "自动备份关闭"}</Badge>
-                    </Flex>
-                    <Row gutter={[16, 16]}>
-                      <Col xs={12} md={4}><Statistic title="客户" value={operationsQuery.data.counts.customers}/></Col>
-                      <Col xs={12} md={4}><Statistic title="任务" value={operationsQuery.data.counts.tasks}/></Col>
-                      <Col xs={12} md={4}><Statistic title="商机" value={operationsQuery.data.counts.deals}/></Col>
-                      <Col xs={12} md={4}><Statistic title="雷达任务" value={operationsQuery.data.counts.radarTasks}/></Col>
-                      <Col xs={12} md={4}><Statistic title="外发队列" value={operationsQuery.data.counts.queuedOutbound}/></Col>
-                    </Row>
-                  </div>
-                )}
               {connectorHealthQuery.data && (() => {
                 const s = connectorHealthQuery.data.summary;
                 const totalIssues = s.totalIssues;
@@ -1673,24 +1661,28 @@ export function SettingsPage() {
                   if (c.status === "ok" || c.status === "connected" || c.status === "active" || c.status === "tested") return "green" as const;
                   return "blue" as const;
                 };
+                const connStatusLabel = (c: { enabled: boolean; status: string }) => {
+                  if (!c.enabled) return "已禁用";
+                  return ({ no_token: "未授权", untested: "未测试", available: "正常", ok: "正常", connected: "正常", active: "正常", tested: "正常", degraded: "性能退化", error: "异常", failed: "失败" } as Record<string, string>)[c.status] ?? "待确认";
+                };
                 return (
                   <List header={<Typography.Text strong>连接器与失败明细</Typography.Text>} dataSource={[
                     ...allConnections.map(c => {
                       const tone = connStatusTone(c);
                       return (
-                        <List.Item key={`${c.type}-${c.name}`} extra={<Badge tone={tone}>{c.enabled ? (c.status === "no_token" ? "未授权" : c.status === "untested" ? "未测试" : c.status === "ok" || c.status === "connected" || c.status === "active" ? "正常" : c.status) : "已禁用"}</Badge>}>
-                          <List.Item.Meta title={`${c.type} · ${c.name}`} description={<Space orientation="vertical" size={0}><Typography.Text type="secondary">{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</Typography.Text>{c.lastError && <Typography.Text type="danger">{c.lastError}</Typography.Text>}</Space>} />
+                        <List.Item key={`${c.type}-${c.name}`} extra={<Badge tone={tone}>{connStatusLabel(c)}</Badge>}>
+                          <List.Item.Meta avatar={<Avatar icon={<Route size={15}/>} />} title={<Typography.Text strong>{`${c.type} · ${c.name}`}</Typography.Text>} description={<Space orientation="vertical" size={0}><Typography.Text type="secondary">{c.provider} · {c.detail}{c.lastLatencyMs ? ` · ${c.lastLatencyMs}ms` : ""}{c.lastTestedAt ? ` · ${new Date(c.lastTestedAt).toLocaleString("zh-CN")}` : ""}</Typography.Text>{c.lastError && <Typography.Text type="danger">{c.lastError}</Typography.Text>}</Space>} />
                         </List.Item>
                       );
                     }),
                     ...data.failedRadarTasks.map(task => (
-                      <List.Item key={task.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`雷达任务失败 · ${task.name}`} description={`${task.lastError ?? "未知错误"} · ${new Date(task.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
+                      <List.Item key={task.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={<Typography.Text strong>{`雷达任务失败 · ${task.name}`}</Typography.Text>} description={`${task.lastError ?? "未知错误"} · ${new Date(task.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
                     )),
                     ...data.outboxFailures.slice(0, 5).map(job => (
-                      <List.Item key={job.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`外发失败 · ${job.channel}`} description={`${job.lastError ?? "未知错误"} · 重试 ${job.attempts}/${job.maxAttempts} · ${new Date(job.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
+                      <List.Item key={job.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={<Typography.Text strong>{`外发失败 · ${job.channel}`}</Typography.Text>} description={`${job.lastError ?? "未知错误"} · 重试 ${job.attempts}/${job.maxAttempts} · ${new Date(job.updatedAt).toLocaleString("zh-CN")}`} /></List.Item>
                     )),
                     ...data.radarEvents.slice(0, 5).map(event => (
-                      <List.Item key={event.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={`雷达连接器 · ${event.eventType}`} description={`${event.message} · ${new Date(event.createdAt).toLocaleString("zh-CN")}`} /></List.Item>
+                      <List.Item key={event.id}><List.Item.Meta avatar={<Avatar icon={<AlertTriangle size={14}/>} />} title={<Typography.Text strong>{`雷达连接器 · ${event.eventType}`}</Typography.Text>} description={`${event.message} · ${new Date(event.createdAt).toLocaleString("zh-CN")}`} /></List.Item>
                     )),
                   ]} renderItem={(item) => item}/>
                 );
@@ -1822,7 +1814,7 @@ export function SettingsPage() {
         onClose={() => { if (!serviceSaving) { setServiceDialog(false); aiConnectionForm.resetFields(); } }}
         footer={<><Button disabled={serviceSaving} onClick={() => { setServiceDialog(false); aiConnectionForm.resetFields(); }}>取消</Button><Button variant="primary" loading={serviceSaving} onClick={saveAiConnection}>保存并测试</Button></>}
       >
-        <Form form={aiConnectionForm} layout="vertical" requiredMark="optional">
+        <Form form={aiConnectionForm} layout="vertical" requiredMark={renderRequiredOrOptionalMarkAfter}>
           <Row gutter={16}>
             <Col xs={24} sm={12}><Form.Item name="template" label="快捷模板"><CustomSelect width="100%" ariaLabel="AI 模型快捷模板" options={["自定义接口", ...Object.keys(aiConnectionTemplates)]} onChange={value => { aiConnectionForm.setFieldValue("template", value); applyAiTemplate(value); }}/></Form.Item></Col>
             <Col xs={24} sm={12}><Form.Item name="protocol" label="API 协议" rules={[{ required: true, message: "请选择 API 协议" }]}><CustomSelect width="100%" ariaLabel="API 协议" options={aiProtocolOptions}/></Form.Item></Col>
@@ -1846,7 +1838,7 @@ export function SettingsPage() {
         onClose={() => { if (!editServiceSaving) { setEditingAiService(null); editServiceForm.resetFields(); } }}
         footer={<><Button disabled={editServiceSaving} onClick={() => { setEditingAiService(null); editServiceForm.resetFields(); }}>取消</Button><Button variant="primary" loading={editServiceSaving} onClick={saveEditedAiService}>保存并测试</Button></>}
       >
-        <Form form={editServiceForm} layout="vertical" requiredMark="optional">
+        <Form form={editServiceForm} layout="vertical" requiredMark={renderRequiredOrOptionalMarkAfter}>
           <Form.Item name="protocol" label="API 协议" rules={[{ required: true, message: "请选择 API 协议" }]}><CustomSelect width="100%" ariaLabel="编辑 API 协议" options={aiProtocolOptions}/></Form.Item>
           <Form.Item name="name" label="配置名称" rules={[{ required: true, message: "请输入配置名称" }, { max: 120 }]}><Input/></Form.Item>
           <Form.Item name="endpoint" label="API Base URL" extra="填写基础地址即可；系统会根据所选协议补充请求路径。" rules={[{ required: true, message: "请输入 API Base URL" }, { type: "url", message: "请输入完整的 http:// 或 https:// 地址" }]}><Input autoComplete="url"/></Form.Item>

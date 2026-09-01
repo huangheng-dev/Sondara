@@ -13,7 +13,7 @@ if (process.env.NODE_ENV === 'production') throw new Error('开发测试账户�
 
 const email = 'demo@donjoy.local'
 const password = 'Sondara@2026'
-const displayName = 'DONJOY 外贸管理员'
+const displayName = '东正外贸管理员'
 const workspaceName = '东正科技有限公司（DONJOY）'
 const now = Date.now()
 const day = 86_400_000
@@ -459,7 +459,7 @@ const businessProfile = {
   regions: '全球海外市场；每次获客任务按国家或区域单独选择',
   customers: '海外生物制药、食品饮料、乳品与酿酒、半导体、新能源、精细化工和水处理领域的终端工厂、设备制造商、EPC、系统集成商、经销商及代理商',
   exclusions: '消费类企业、与高洁净流体工艺无关的业务，以及无法核验官网、业务身份或公开来源的联系人',
-  selectedMarket: '海外生物制药与食品饮料高洁净工艺客户',
+  selectedMarket: '海外生物制药与制药装备客户',
   analysisStatus: 'complete',
   analysisSummary: JSON.stringify({
     summary: 'DONJOY 面向海外市场提供高洁净泵、卫生级与无菌阀门、阀门控制和工艺管路解决方案，适合围绕洁净生产、过程自动化和工厂扩建场景开展客户开发。',
@@ -477,6 +477,8 @@ const businessProfile = {
       { name: '海外精细化工过程客户', reason: '复杂介质、温压条件和批次控制需要可靠的泵阀选型与过程控制方案。' },
       { name: '海外水处理与工艺设备客户', reason: '水处理设备制造商、工程商和终端工厂具有持续的泵阀、控制与系统配套需求。' },
       { name: '海外高洁净设备渠道与系统集成商', reason: '完整的泵、阀门和控制产品组合适合区域分销、设备配套与项目集成。' },
+      { name: '海外发酵与生物工程客户', reason: '发酵、生物工程和生物材料生产涉及洁净输送、批次控制、CIP/SIP 与过程自动化需求。' },
+      { name: '海外化妆品与日化生产客户', reason: '化妆品和日化生产重视卫生混配、物料输送、清洗效率及柔性生产线升级。' },
     ],
     criteria: ['具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力', '出现新建工厂、扩产、招标、设备升级或渠道合作信号', '需要卫生级泵、无菌阀门、阀门控制或高洁净管路的技术选型支持'],
   }),

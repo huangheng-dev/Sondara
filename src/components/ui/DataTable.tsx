@@ -1,7 +1,8 @@
 import { useEffect, useRef, type Key, type ReactNode } from 'react'
-import { Empty, Flex, Skeleton, Space, Table, type TableColumnsType } from 'antd'
+import { Flex, Skeleton, Space, Table, type TableColumnsType } from 'antd'
+import { EmptyState } from './EmptyState'
 
-export type DataTableColumnKind = 'select' | 'primary' | 'status' | 'metric' | 'time' | 'actions'
+export type DataTableColumnKind = 'select' | 'primary' | 'summary' | 'status' | 'metric' | 'time' | 'actions'
 
 type DataTableColumn = {
   key: string
@@ -17,11 +18,14 @@ type DataTableColumn = {
 const inferredKind = (column: DataTableColumn): DataTableColumnKind | undefined => {
   if (column.kind) return column.kind
   if (column.key === 'select') return 'select'
-  if (/^(actions?|operation|details?)$/i.test(column.key)) return 'actions'
+  const textTitle = typeof column.title === 'string' ? column.title : ''
+  if (/^(actions|operation|details?)$/i.test(column.key)) return 'actions'
+  if (column.key === 'action' && /^(操作|查看|详情|配置入口)$/.test(textTitle)) return 'actions'
   if (/(updated|created|joined|activity|received|synced|tested|time|date)$/i.test(column.key)) return 'time'
   if (/(status|state|stage)$/i.test(column.key)) return 'status'
   if (/(score|quality|progress|rate|metric|value|usage|scale|reach|revenue|deals)$/i.test(column.key)) return 'metric'
-  if (/(company|campaign|title|user|service|channel|event|deal|name)$/i.test(column.key)) return 'primary'
+  if (/(message|description|summary|note|reason|request|provider|automation|result|next|bottleneck|signal|decision|source|action)$/i.test(column.key)) return 'summary'
+  if (/(company|campaign|title|user|service|channel|event|deal|name|buyer|actor|recipient|email|address)$/i.test(column.key)) return 'primary'
   return undefined
 }
 
@@ -29,12 +33,13 @@ const widthFor = (column: DataTableColumn) => {
   if (column.width !== undefined) return column.width
   const kind = inferredKind(column)
   if (kind === 'select') return 52
-  if (kind === 'actions') return 144
-  if (kind === 'primary') return 280
-  if (kind === 'time') return 168
-  if (kind === 'status') return 132
-  if (kind === 'metric') return 176
-  return 190
+  if (kind === 'actions') return 88
+  if (kind === 'primary') return 300
+  if (kind === 'summary') return 280
+  if (kind === 'time') return 180
+  if (kind === 'status') return 140
+  if (kind === 'metric') return 160
+  return 200
 }
 
 export type DataTableRow = {
@@ -57,6 +62,7 @@ type DataTableProps = {
 const skeletonCell = (kind: DataTableColumnKind | undefined, index: number) => {
   if (kind === 'select') return <Skeleton.Button active size="small" className="data-table__skeleton-check"/>
   if (kind === 'primary') return <Space size={10} style={{ width: '100%' }}><Skeleton.Avatar active size={34}/><Flex vertical gap={6} style={{ flex: 1 }}><Skeleton.Input active size="small" style={{ width: index % 2 ? 128 : 156 }}/><Skeleton.Input active size="small" style={{ width: index % 2 ? 176 : 210 }}/></Flex></Space>
+  if (kind === 'summary') return <Flex vertical gap={6} style={{ width: '100%' }}><Skeleton.Input active size="small" style={{ width: '72%' }}/><Skeleton.Input active size="small" style={{ width: '92%' }}/></Flex>
   if (kind === 'status') return <Skeleton.Button active size="small" style={{ width: 72 }}/>
   if (kind === 'actions') return <Space size={6}><Skeleton.Button active size="small"/><Skeleton.Button active size="small"/></Space>
   return <Skeleton.Input active size="small" style={{ width: index % 3 === 0 ? '82%' : index % 3 === 1 ? '64%' : '74%' }}/>
@@ -106,6 +112,7 @@ export function DataTable({ ariaLabel = '数据表格', className, columns, rows
         cells: columns.map(column => skeletonCell(inferredKind(column), rowIndex)),
       }))
     : rows
+  const emptyItemName = ariaLabel.replace(/[，,].*$/, '').replace(/表格$/, '').trim() || '数据'
 
   return <Flex ref={rootRef} vertical aria-busy={Boolean(loading)} className={['data-table', !hasSelectionColumn ? 'data-table--with-leading-space' : '', initialLoading ? 'data-table--loading' : '', className].filter(Boolean).join(' ')}>
     <Table<DataTableRow>
@@ -117,7 +124,7 @@ export function DataTable({ ariaLabel = '数据表格', className, columns, rows
       scroll={{ x: resolvedMinWidth }}
       size="middle"
       tableLayout="fixed"
-      locale={{ emptyText: emptyText ?? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据"/> }}
+      locale={{ emptyText: emptyText ?? <EmptyState title={`暂无${emptyItemName}`} description={`${emptyItemName}产生后会显示在这里。`}/> }}
     />
   </Flex>
 }

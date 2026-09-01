@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
 import { App, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
+import { renderRequiredMarkAfter } from '@/components/ui/FormRequiredMark'
 
 export function AntDesignProvider({ children }: { children: ReactNode }) {
   return <ConfigProvider
     locale={zhCN}
+    form={{ requiredMark: renderRequiredMarkAfter }}
     theme={{
       token: {
         colorPrimary: '#4f46e5',

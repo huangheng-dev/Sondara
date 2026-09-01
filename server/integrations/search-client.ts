@@ -6,6 +6,7 @@ import { decryptSecret } from '../lib/secret-vault.js'
 import { assertSafeOutboundUrl } from '../lib/url-safety.js'
 
 export type SearchResult = { title: string; url: string; description: string; source: string }
+export type SearchOptions = { market?: string; countryCode?: string; language?: string }
 type SearchConnection = typeof integrationConnections.$inferSelect
 
 class SearchUnavailableError extends Error {
@@ -37,7 +38,7 @@ const readJson = async (response: Response) => {
   return body
 }
 
-export const searchWithConnection = async (connection: SearchConnection, query: string, limit: number, fetchImpl: typeof fetch = fetch) => {
+export const searchWithConnection = async (connection: SearchConnection, query: string, limit: number, fetchImpl: typeof fetch = fetch, options: SearchOptions = {}) => {
   const endpoint = await assertSafeOutboundUrl(connection.endpoint, { allowPrivate: config.allowPrivateConnectors, label: '搜索服务地址' })
   const started = Date.now()
   let results: SearchResult[] = []
@@ -46,6 +47,8 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
     endpoint.searchParams.set('count', String(Math.min(20, Math.max(1, limit))))
     endpoint.searchParams.set('safesearch', 'moderate')
     endpoint.searchParams.set('extra_snippets', 'true')
+    if (options.countryCode) endpoint.searchParams.set('country', options.countryCode.toLowerCase())
+    if (options.language) endpoint.searchParams.set('search_lang', options.language)
     const secret = connectionSecret(connection)
     if (!secret) throw new Error('Brave Search 连接缺少访问密钥')
     const body = await readJson(await fetchImpl(endpoint, { signal: AbortSignal.timeout(20_000), headers: { accept: 'application/json', 'x-subscription-token': secret } }))
@@ -72,6 +75,8 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
   } else if (connection.provider === 'google') {
     endpoint.searchParams.set('q', query)
     endpoint.searchParams.set('num', String(Math.min(10, Math.max(1, limit))))
+    if (options.countryCode) endpoint.searchParams.set('gl', options.countryCode.toLowerCase())
+    if (options.language) endpoint.searchParams.set('hl', options.language)
     const secret = connectionSecret(connection)
     if (!secret) throw new Error('Google Custom Search 连接缺少访问密钥')
     endpoint.searchParams.set('key', secret)
@@ -81,7 +86,7 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
   } else if (connection.provider === 'bing') {
     endpoint.searchParams.set('q', query)
     endpoint.searchParams.set('count', String(Math.min(20, Math.max(1, limit))))
-    endpoint.searchParams.set('mkt', 'zh-CN')
+    endpoint.searchParams.set('mkt', options.market || 'zh-CN')
     endpoint.searchParams.set('safeSearch', 'Moderate')
     const secret = connectionSecret(connection)
     if (!secret) throw new Error('Bing Web Search 连接缺少访问密钥')
@@ -92,6 +97,8 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
     endpoint.searchParams.set('q', query)
     endpoint.searchParams.set('engine', 'google')
     endpoint.searchParams.set('num', String(Math.min(20, Math.max(1, limit))))
+    if (options.countryCode) endpoint.searchParams.set('gl', options.countryCode.toLowerCase())
+    if (options.language) endpoint.searchParams.set('hl', options.language)
     const secret = connectionSecret(connection)
     if (!secret) throw new Error('SerpAPI 连接缺少访问密钥')
     endpoint.searchParams.set('api_key', secret)
@@ -120,7 +127,7 @@ export const searchWithConnection = async (connection: SearchConnection, query: 
 
 export const hasSearchConfiguration = async (workspaceId: string) => Boolean((await db.$first(db.select({ id: integrationConnections.id }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))))))
 
-export const searchWorkspace = async (workspaceId: string, query: string, limit: number) => {
+export const searchWorkspace = async (workspaceId: string, query: string, limit: number, options: SearchOptions = {}) => {
   const connections = (await db.select().from(integrationConnections).where(and(eq(integrationConnections.workspaceId, workspaceId), eq(integrationConnections.category, 'search'), eq(integrationConnections.enabled, true))).orderBy(asc(integrationConnections.priority), asc(integrationConnections.createdAt)))
   if (!connections.length) throw new SearchUnavailableError('NO_CONFIGURATION', '当前工作区没有已启用的搜索数据源。')
   const failures: string[] = []
@@ -128,7 +135,7 @@ export const searchWorkspace = async (workspaceId: string, query: string, limit:
     try {
       let configuredLimit = 10
       try { const parsed = JSON.parse(connection.configJson) as { resultLimit?: number }; if (parsed.resultLimit) configuredLimit = parsed.resultLimit } catch { /* use default */ }
-      const result = await searchWithConnection(connection, query, Math.min(limit, configuredLimit))
+      const result = await searchWithConnection(connection, query, Math.min(limit, configuredLimit), fetch, options)
       const now = Date.now()
       await db.update(integrationConnections).set({ status: 'available', lastLatencyMs: result.latencyMs, lastError: null, lastTestedAt: now, updatedAt: now }).where(eq(integrationConnections.id, connection.id))
       return { ...result, connectionId: connection.id, connectionName: connection.name, provider: connection.provider }

@@ -21,7 +21,7 @@ export function DetailDrawer({ open, onClose, title, subtitle, children, footer,
     size={width}
     onClose={onClose}
     destroyOnHidden
-    title={<Space orientation="vertical" size={4} style={{ minWidth: 0 }}><Typography.Text strong>{title}</Typography.Text>{subtitle && <Typography.Text type="secondary">{subtitle}</Typography.Text>}</Space>}
+    title={<Space orientation="vertical" size={2} style={{ minWidth: 0 }}><Typography.Text strong>{title}</Typography.Text>{subtitle && <Typography.Text type="secondary">{subtitle}</Typography.Text>}</Space>}
     footer={footer ? <Flex justify="flex-end" wrap gap={8}>{footer}</Flex> : undefined}
   >{loading ? <DetailSkeleton/> : children}</Drawer>
 }

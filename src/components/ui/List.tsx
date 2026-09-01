@@ -1,5 +1,6 @@
 import { Fragment, type CSSProperties, type HTMLAttributes, type ReactNode } from 'react'
-import { Empty, Flex, Skeleton, Spin, Typography, theme } from 'antd'
+import { Flex, Skeleton, Spin, Typography, theme } from 'antd'
+import { EmptyState } from './EmptyState'
 
 type ListProps<T> = {
   className?: string
@@ -46,7 +47,7 @@ function ListBase<T>({ className, dataSource = [], footer, header, loading, loca
         const key = String(record?.id ?? record?.key ?? record?.name ?? index)
         return <Fragment key={key}>{renderItem?.(item, index)}</Fragment>
       })
-    : locale?.emptyText ?? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
+    : locale?.emptyText ?? <EmptyState title="暂无数据" description="相关记录产生后会显示在这里。" />
 
   return (
     <Spin spinning={Boolean(loading) && hasItems} description="正在更新…">

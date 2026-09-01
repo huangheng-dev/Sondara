@@ -35,10 +35,10 @@ export const procurementRoutes: FastifyPluginAsync = async app => {
     const connections = await db.select({ provider: integrationConnections.provider, status: integrationConnections.status, hasSecret: sql<boolean>`${integrationConnections.secretCiphertext} is not null` }).from(integrationConnections).where(and(eq(integrationConnections.workspaceId, request.auth.workspaceId), eq(integrationConnections.category, 'procurement'), eq(integrationConnections.enabled, true)))
     const status = new Map(connections.map(item => [item.provider, item]))
     return { items: [
-      { provider: 'ted', name: '欧盟 TED', mode: 'official_api', configured: true, note: '官方公开 Search API，无需密钥' },
-      { provider: 'sam-gov', name: '美国 SAM.gov', mode: 'official_api', configured: Boolean(status.get('sam-gov')?.hasSecret), status: status.get('sam-gov')?.status ?? 'not_configured', note: '需要 SAM.gov Public API Key' },
-      { provider: 'ungm', name: '联合国 UNGM', mode: 'official_api', configured: Boolean(status.get('ungm')?.hasSecret), status: status.get('ungm')?.status ?? 'not_configured', note: '需要 UNGM OAuth 访问令牌，接口可见范围受账号权限约束' },
-      { provider: 'world-bank', name: 'World Bank Procurement', mode: 'official_api', configured: true, sourceUrl: 'https://projects.worldbank.org/en/projects-operations/procurement', note: '官方公开 Procurement Notices JSON API，无需密钥' },
+      { provider: 'sam-gov', name: '美国 SAM.gov', mode: 'official_api', configured: Boolean(status.get('sam-gov')?.hasSecret), status: status.get('sam-gov')?.status ?? 'not_configured', sourceUrl: 'https://sam.gov/opportunities', note: '美国联邦预告、招标、授标与单一来源公告；同步 API 需要 Public API Key' },
+      { provider: 'ungm', name: '联合国 UNGM', mode: 'official_api', configured: Boolean(status.get('ungm')?.hasSecret), status: status.get('ungm')?.status ?? 'not_configured', sourceUrl: 'https://www.ungm.org/Public/Notice', note: '联合国机构 EOI、RFP、RFQ、ITB 等采购机会；同步接口需要 OAuth 访问令牌' },
+      { provider: 'ted', name: '欧盟 TED', mode: 'official_api', configured: true, sourceUrl: 'https://ted.europa.eu/en/', note: '欧盟、欧洲经济区及相关国际公共采购公告；官方 Search API，无需密钥' },
+      { provider: 'world-bank', name: 'World Bank Procurement', mode: 'official_api', configured: true, sourceUrl: 'https://projects.worldbank.org/en/projects-operations/procurement', note: '世界银行发展项目采购公告与当前机会；官方公开 JSON API，无需密钥' },
     ] }
   })
 

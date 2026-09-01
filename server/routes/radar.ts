@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, desc, eq, gte, inArray, isNull, like, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, like, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../db/client.js'
 import { acquisitionPlans, auditLogs, candidateContacts, candidateEvidence, companySignals, customers, inboxContacts, radarCandidates, radarJobEvents, radarQueueItems, radarTasks } from '../db/schema.js'
@@ -16,6 +16,7 @@ import { getAutomationProductionControl, getAutomationSafetyDecision } from '../
 import { cancelPendingAutomatedMessages } from '../outbox/automation-stop.js'
 import { getAcquisitionFeedbackLearning } from '../radar/feedback-learning.js'
 import { getSalesProgressionSummary } from '../sales/progression-guardian.js'
+import { resolveRunTargetRegion } from '../radar/market-targeting.js'
 
 const taskStatus = z.enum(['queued', 'running', 'paused', 'completed', 'failed', 'cancelled'])
 const candidateStatus = z.enum(['candidate', 'review', 'saved', 'rejected', 'archived'])
@@ -371,6 +372,7 @@ export const radarRoutes: FastifyPluginAsync = async app => {
       status: 'queued', progress: 0, currentStage: '等待执行', candidatesFound: 0, highMatchCount: 0,
       lastError: null, startedAt: null, completedAt: null, createdAt: now, updatedAt: now,
       seedUrlsJson:JSON.stringify(seedUrls), dataSourcesJson: JSON.stringify(dataSources), intentSignalsJson: JSON.stringify(intentSignals), ...taskFields,
+      targetRegion: resolveRunTargetRegion(taskFields.targetRegion, 1),
     }
     const queue = {
       id: createId('job'), workspaceId: request.auth.workspaceId, radarTaskId: record.id, jobType: 'discover',
@@ -431,7 +433,10 @@ export const radarRoutes: FastifyPluginAsync = async app => {
     if (!parsed.success) return reply.code(400).send({ error: 'INVALID_QUERY', message: parsed.error.issues[0]?.message })
     const query = parsed.data
     const conditions = [eq(radarCandidates.workspaceId, request.auth.workspaceId)]
-    if (!query.status) conditions.push(isNull(radarCandidates.archivedAt))
+    // The default candidate pool contains actionable records only. Explicitly
+    // rejected feedback remains available through the rejected filter so users
+    // can review or restore it instead of losing it inside the active list.
+    if (!query.status) conditions.push(isNull(radarCandidates.archivedAt), ne(radarCandidates.status, 'rejected'))
     if (query.q) conditions.push(or(like(radarCandidates.company, `%${query.q}%`), like(radarCandidates.industry, `%${query.q}%`), like(radarCandidates.signal, `%${query.q}%`))!)
     if (query.status) conditions.push(eq(radarCandidates.status, query.status))
     if (query.taskId) conditions.push(eq(radarCandidates.radarTaskId, query.taskId))

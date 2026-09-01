@@ -55,7 +55,7 @@ const serializeProfile = (row: ProfileRow) => ({
   exclusions: row.exclusions,
   selectedMarket: row.selectedMarket,
   analysisStatus: row.analysisStatus,
-  analysisSummary: row.analysisSummary,
+  analysisSummary: normalizeAnalysisSummary(row),
   analysisMode: row.analysisMode,
   analysisError: row.analysisError,
   analyzedAt: row.analyzedAt,
@@ -109,14 +109,135 @@ const ensureProfile = async (workspaceId: string, userId: string): Promise<Profi
   return row
 }
 
+type MarketRecommendation = {
+  name: string
+  reason: string
+  profile?: string[]
+  criteria?: string[]
+  signals?: string[]
+}
+
 type AnalysisResult = {
   summary: string
   signals: string[]
-  recommendedMarkets: { name: string; reason: string }[]
+  recommendedMarkets: MarketRecommendation[]
   criteria: string[]
 }
 
-const MAX_RECOMMENDED_MARKETS = 8
+const MAX_RECOMMENDED_MARKETS = 10
+
+const genericMarketFallbacks: MarketRecommendation[] = [
+  { name: '目标行业终端工厂与项目业主', reason: '终端工厂和项目业主具有直接采购、扩建改造、检修替换和技术选型需求。' },
+  { name: '设备制造商与 OEM 配套客户', reason: '设备制造商可把产品集成到成套设备和生产线中，形成持续配套需求。' },
+  { name: 'EPC、工程公司与系统集成商', reason: '工程设计与系统集成企业能够在项目设计、选型和采购阶段导入解决方案。' },
+  { name: '区域经销商与授权代理商', reason: '具备本地客户覆盖、库存、技术支持和售后能力的渠道伙伴适合长期开发。' },
+  { name: '公共采购与招投标项目客户', reason: '政府、公共事业和大型组织的公开采购机会可通过官方公告核验需求和截止时间。' },
+  { name: '新建、扩产与技术改造企业', reason: '公开的新工厂、扩产、产线升级和自动化改造信号通常对应明确采购窗口。' },
+  { name: '检修替换与备件采购客户', reason: '存量设备维护、故障替换和备件补充形成持续且可复购的需求。' },
+  { name: '进口商、批发商与专业分销网络', reason: '已有进口资质、行业客户和仓储配送能力的企业可承担区域市场覆盖。' },
+  { name: '技术服务商与运维承包商', reason: '提供安装、调试、维护和改造服务的企业能够影响终端选型并产生配套采购。' },
+  { name: '跨国企业区域采购与供应链团队', reason: '跨国企业的区域采购和供应链团队适合围绕供应商准入、标准化和多站点需求开发。' },
+]
+
+const marketSegment = (name: string) => name
+  .replace(/^(海外|全球)/, '')
+  .replace(/(客户|市场)$/, '')
+  .trim() || '目标细分市场'
+
+const uniqueStrings = (values: Array<string | undefined>, limit: number) => {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const normalized = String(value ?? '').replace(/\s+/g, ' ').trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+    if (result.length >= limit) break
+  }
+  return result
+}
+
+const marketProfileDefaults = (name: string, segment: string) => {
+  if (/生物制药|制药装备|医药/.test(name)) return ['生物制药工厂、制药装备商或洁净工程公司', '涉及无菌生产、洁净流体或 GMP 验证', '具备项目采购、工程设计或设备集成能力', '官网可核验产线、产品或工程案例']
+  if (/食品|饮料/.test(name)) return ['食品饮料生产企业、设备商或工艺工程公司', '涉及卫生输送、CIP 清洗或过程控制', '具备产线新建、扩产或设备升级计划', '官网可核验工厂、产品和生产场景']
+  if (/乳品|酿酒/.test(name)) return ['乳品、啤酒或酿造工厂及其工程服务商', '重视物料隔离、卫生输送和清洗效率', '具备生产线自动化或柔性改造能力', '官网可核验工艺、产能或项目案例']
+  if (/半导体|高纯/.test(name)) return ['晶圆厂、高纯设备商或洁净工程集成商', '涉及高纯介质输送和精密过程控制', '具备厂务工程、设备配套或项目采购能力', '官网可核验半导体业务与技术能力']
+  if (/新能源/.test(name)) return ['新能源材料工厂、设备制造商或工程集成商', '涉及洁净输送、耐腐蚀和计量调节', '具备新建产线、扩产或自动化升级计划', '官网可核验产能、项目或产品应用']
+  if (/精细化工|化工/.test(name)) return ['精细化工生产企业、工艺设备商或 EPC 公司', '涉及复杂介质、温压条件和批次控制', '具备技改、扩产或安全升级需求', '官网可核验工艺、装置或项目能力']
+  if (/发酵|生物工程/.test(name)) return ['发酵、生物工程或生物材料生产企业', '涉及洁净输送、CIP/SIP 和批次控制', '具备工厂扩建、产线升级或设备采购计划', '官网可核验生产工艺与应用方向']
+  if (/水处理/.test(name)) return ['水处理设备商、工程公司或工业终端工厂', '涉及泵阀、控制和成套系统配套', '具备项目投标、工程交付或备件采购能力', '官网可核验项目案例和服务区域']
+  if (/化妆品|日化/.test(name)) return ['化妆品、日化生产企业或混配设备商', '涉及卫生混配、物料输送和柔性生产', '具备新品扩线、产能升级或设备替换计划', '官网可核验品牌、工厂或生产能力']
+  if (/渠道|经销|代理|分销|进口商|批发商/.test(name)) return ['目标行业的进口商、经销商或区域代理商', '具备本地销售、技术支持和售后能力', '拥有匹配的行业客户、库存或项目网络', '官网可核验代理品牌、团队和覆盖区域']
+  if (/EPC|工程|系统集成/.test(name)) return ['EPC、工程设计公司或系统集成商', '能够影响项目设计、产品选型和采购', '具备目标行业项目经验与交付团队', '官网可核验工程案例和服务范围']
+  return [segment, '业务场景与当前细分市场直接匹配', '具备项目采购、设备集成、生产运营或区域渠道能力', '官网、业务身份和公开经营信息可核验']
+}
+
+const marketSignals = (name: string, defaults: string[]) => {
+  if (/生物制药|制药装备|医药/.test(name)) return ['GMP 或验证改造', '新建或扩建无菌产线', '洁净流体系统采购', '制药工程或设备招标']
+  if (/食品|饮料/.test(name)) return ['新建或扩建食品产线', 'CIP 与卫生升级', '生产设备替换采购', '食品工程项目招标']
+  if (/乳品|酿酒/.test(name)) return ['乳品或酿造产线扩建', '卫生输送与清洗升级', '生产自动化改造', '工艺设备采购']
+  if (/半导体|高纯/.test(name)) return ['晶圆厂或配套项目扩建', '高纯流体系统采购', '厂务工程招标', '设备商新产品配套']
+  if (/新能源/.test(name)) return ['材料产线扩建', '耐腐蚀设备采购', '计量与自动化升级', '新工厂或新项目投产']
+  if (/精细化工|化工/.test(name)) return ['工艺装置新建或改造', '复杂介质输送需求', '过程控制与安全升级', '设备检修与替换采购']
+  if (/发酵|生物工程/.test(name)) return ['发酵产线新建或扩产', 'CIP/SIP 系统升级', '批次控制与自动化改造', '生物设备采购']
+  if (/水处理/.test(name)) return ['水处理项目招标', '成套设备集成采购', '泵阀备件与替换', '工业水系统升级']
+  if (/化妆品|日化/.test(name)) return ['混配或灌装产线扩建', '卫生生产升级', '柔性设备采购', '新工厂或新品扩线']
+  if (/渠道|经销|代理|分销|进口商|批发商/.test(name)) return ['新增品牌代理', '区域分销扩张', 'OEM、库存或项目合作', '现有产品线补充']
+  if (/EPC|工程|系统集成/.test(name)) return ['新项目中标或签约', '工程采购与供应商准入', '设计选型与设备集成', '区域项目团队扩张']
+  return uniqueStrings(defaults, 4)
+}
+
+const enrichMarket = (market: MarketRecommendation, defaultCriteria: string[], defaultSignals: string[], exclusions = ''): MarketRecommendation => {
+  const segment = marketSegment(market.name)
+  const providedProfile = (market.profile ?? []).filter(Boolean)
+  const providedSignals = (market.signals ?? []).filter(Boolean)
+  const profile = uniqueStrings([
+    ...(providedProfile.length >= 4 ? providedProfile : []),
+    ...marketProfileDefaults(market.name, segment),
+    ...providedProfile,
+  ], 5)
+  const signals = uniqueStrings([
+    ...(providedSignals.length >= 4 ? providedSignals : []),
+    ...marketSignals(market.name, defaultSignals),
+    ...providedSignals,
+  ], 5)
+  const criteria = uniqueStrings([
+    `主营业务、产品组合或项目场景与「${segment}」直接匹配`,
+    profile[0] ? `企业类型符合：${profile[0]}` : undefined,
+    profile[1] ? `核心应用或能力符合：${profile[1]}` : undefined,
+    profile[2] ? `采购与交付能力符合：${profile[2]}` : undefined,
+    signals[0] ? `近期出现“${signals[0]}”等可核验需求信号` : undefined,
+    signals[1] ? `近期出现“${signals[1]}”等采购窗口信号` : undefined,
+    '官网、法人主体、经营地区和业务身份可由可信公开来源交叉核验',
+    exclusions ? `排除：${exclusions.slice(0, 100)}` : '排除业务不匹配、停止经营或无法核验公开来源的企业',
+    ...(market.criteria ?? []),
+    ...defaultCriteria,
+  ], 8)
+  return {
+    name: market.name,
+    reason: market.reason,
+    profile,
+    criteria,
+    signals,
+  }
+}
+
+const normalizeMarkets = (
+  markets: MarketRecommendation[],
+  criteria: string[],
+  signals: string[],
+  fallbacks: MarketRecommendation[] = [],
+  exclusions = '',
+) => {
+  const unique = new Map<string, MarketRecommendation>()
+  for (const market of [...markets, ...fallbacks]) {
+    const name = String(market?.name ?? '').trim()
+    if (!name || unique.has(name)) continue
+    unique.set(name, enrichMarket({ ...market, name, reason: String(market?.reason ?? '') }, criteria, signals, exclusions))
+    if (unique.size >= MAX_RECOMMENDED_MARKETS) break
+  }
+  return [...unique.values()]
+}
 
 const localAnalyze = (input: z.infer<typeof profileInput>): AnalysisResult => {
   const products = (input.products || '').trim()
@@ -143,6 +264,8 @@ const localAnalyze = (input: z.infer<typeof profileInput>): AnalysisResult => {
       { name: '海外精细化工过程客户', reason: '复杂介质、温压条件和批次控制需要可靠的泵阀选型与过程控制方案。' },
       { name: '海外水处理与工艺设备客户', reason: '水处理设备制造商、工程商和终端工厂具有持续的泵阀、控制与系统配套需求。' },
       { name: '海外高洁净设备渠道与系统集成商', reason: '完整的泵、阀门与控制产品组合适合区域分销、OEM 配套和项目集成。' },
+      { name: '海外发酵与生物工程客户', reason: '发酵、生物工程和生物材料生产涉及洁净输送、批次控制、CIP/SIP 与过程自动化需求。' },
+      { name: '海外化妆品与日化生产客户', reason: '化妆品和日化生产重视卫生混配、物料输送、清洗效率及柔性生产线升级。' },
     )
   } else if (/阀门|valve|泵|管路|流体|管道|flow control/i.test(sourceText)) {
     recommendedMarkets.push(
@@ -163,7 +286,40 @@ const localAnalyze = (input: z.infer<typeof profileInput>): AnalysisResult => {
     '出现项目建设、招标采购、检修替换、扩产或渠道合作等近期公开信号',
     input.exclusions ? `排除：${input.exclusions.slice(0, 80)}` : '排除业务范围不匹配或无法核验公开来源的企业',
   ]
-  return { summary, signals, recommendedMarkets: recommendedMarkets.slice(0, MAX_RECOMMENDED_MARKETS), criteria }
+  const shouldFill = Boolean(sourceText.trim()) && recommendedMarkets[0]?.name !== '待验证细分市场'
+  return {
+    summary,
+    signals,
+    recommendedMarkets: normalizeMarkets(recommendedMarkets, criteria, signals, shouldFill ? genericMarketFallbacks : [], input.exclusions),
+    criteria,
+  }
+}
+
+const normalizeAnalysisSummary = (row: ProfileRow) => {
+  if (!row.analysisSummary) return row.analysisSummary
+  try {
+    const parsed = JSON.parse(row.analysisSummary) as Partial<AnalysisResult>
+    const fallback = localAnalyze({
+      company: row.company,
+      website: row.website,
+      products: row.products,
+      regions: row.regions,
+      customers: row.customers,
+      exclusions: row.exclusions,
+      selectedMarket: row.selectedMarket,
+    })
+    const signals = Array.isArray(parsed.signals) && parsed.signals.length ? parsed.signals.map(String) : fallback.signals
+    const criteria = Array.isArray(parsed.criteria) && parsed.criteria.length ? parsed.criteria.map(String) : fallback.criteria
+    const markets = Array.isArray(parsed.recommendedMarkets) ? parsed.recommendedMarkets : []
+    return JSON.stringify({
+      summary: typeof parsed.summary === 'string' && parsed.summary ? parsed.summary : fallback.summary,
+      signals,
+      criteria,
+      recommendedMarkets: normalizeMarkets(markets, criteria, signals, fallback.recommendedMarkets, row.exclusions),
+    } satisfies AnalysisResult)
+  } catch {
+    return row.analysisSummary
+  }
 }
 
 export const icpRoutes: FastifyPluginAsync = async app => {
@@ -212,20 +368,34 @@ export const icpRoutes: FastifyPluginAsync = async app => {
           workspaceId: request.auth.workspaceId,
           timeoutMs: 30_000,
           messages: [
-            { role: 'system', content: `你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason}[])、criteria(string[])。推荐市场最多 ${MAX_RECOMMENDED_MARKETS} 项。` },
+            { role: 'system', content: `你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason,profile(string[]),criteria(string[]),signals(string[])}[])、criteria(string[])。输出 ${MAX_RECOMMENDED_MARKETS} 个互不重复且可执行的细分市场。每个市场必须单独生成：4-5 条企业特征、7-8 条可核验筛选条件、4-5 条意向信号；内容必须直接对应该市场的企业类型、应用场景、采购能力和公开信号，禁止在不同市场复制相同数组。reason 要明确说明当前业务为什么适合该市场。` },
             { role: 'user', content: `公司：${input.company}\n官网：${input.website}\n产品：${input.products}\n地区：${input.regions}\n客户示例：${input.customers}\n排除：${input.exclusions}` },
-          ], maxTokens: 900, temperature: .2,
+          ], maxTokens: 4800, temperature: .2,
         })
         const parsed = JSON.parse(response.content) as Partial<AnalysisResult>
         result = {
           summary: typeof parsed.summary === 'string' ? parsed.summary : '',
           signals: Array.isArray(parsed.signals) ? parsed.signals.slice(0, 6).map(x => String(x)) : [],
           recommendedMarkets: Array.isArray(parsed.recommendedMarkets)
-            ? parsed.recommendedMarkets.slice(0, MAX_RECOMMENDED_MARKETS).map(x => ({ name: String(x?.name ?? ''), reason: String(x?.reason ?? '') })).filter(x => x.name)
+            ? parsed.recommendedMarkets.slice(0, MAX_RECOMMENDED_MARKETS).map(x => ({
+                name: String(x?.name ?? ''),
+                reason: String(x?.reason ?? ''),
+                profile: Array.isArray(x?.profile) ? x.profile.slice(0, 5).map(String) : [],
+                criteria: Array.isArray(x?.criteria) ? x.criteria.slice(0, 8).map(String) : [],
+                signals: Array.isArray(x?.signals) ? x.signals.slice(0, 5).map(String) : [],
+              })).filter(x => x.name)
             : [],
-          criteria: Array.isArray(parsed.criteria) ? parsed.criteria.slice(0, 6).map(x => String(x)) : [],
+          criteria: Array.isArray(parsed.criteria) ? parsed.criteria.slice(0, 8).map(x => String(x)) : [],
         }
         if (!result.summary || !result.recommendedMarkets.length) throw new Error('AI_RESULT_INCOMPLETE')
+        const fallback = localAnalyze(input)
+        result.recommendedMarkets = normalizeMarkets(
+          result.recommendedMarkets,
+          result.criteria.length ? result.criteria : fallback.criteria,
+          result.signals.length ? result.signals : fallback.signals,
+          fallback.recommendedMarkets,
+          input.exclusions,
+        )
         mode = 'ai'
       } catch (cause) {
         error = cause instanceof AiUnavailableError ? cause.code : (cause instanceof Error ? cause.message : 'AI_CALL_FAILED')

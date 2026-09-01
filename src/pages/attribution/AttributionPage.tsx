@@ -23,6 +23,7 @@ import { downloadCsv } from '@/utils/download'
 import { Avatar, Card, Checkbox, Col, Flex, Progress, Row, Segmented, Space, Statistic, Typography } from 'antd'
 import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
 import { StatusNotice } from '@/components/ui/StatusNotice'
+import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 
 type Period = '本月' | '本季度' | '本年度'
 type Bottleneck = '全部瓶颈' | AttributionBottleneck
@@ -54,6 +55,7 @@ export function AttributionPage(){
   const [selectedChannel,setSelectedChannel]=useState<AttributionChannel|null>(null)
   const showToast=useUiStore(state=>state.showToast)
   const queryClient=useQueryClient()
+  const { canWrite } = useWorkspaceAccess()
   const apiPeriod=periodMap[period]
 
   const overviewQuery=useQuery({queryKey:['attribution-overview',apiPeriod],queryFn:()=>attributionApi.overview({period:apiPeriod}),staleTime:30_000})
@@ -103,7 +105,16 @@ export function AttributionPage(){
       <Flex vertical aria-label={`${period}客户转化链路`}>
         {isLoading ? (
           <EmptyState spinning title="正在加载转化数据…" icon={RefreshCw}/>
-        ) : <Row className="attribution-funnel-grid" gutter={[12,12]}>{stages.map((stage,index)=>{const Icon=stage.icon;const rawRate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const rate=Math.min(100,rawRate);const loss=stage.next===null?null:Math.max(0,stage.value-stage.next);return <Col xs={24} sm={12} xl={4} key={stage.key}><Card className={`attribution-stage-card attribution-stage-card--${stage.key}`} size="small"><Flex className="attribution-stage-card__heading" align="center" justify="space-between" gap={8}><Space size={9}><span className="attribution-stage-card__icon"><Icon size={17}/></span><Typography.Text strong>{stage.label}</Typography.Text></Space><Typography.Text className="attribution-stage-card__index">{String(index+1).padStart(2,'0')}</Typography.Text></Flex><Statistic value={stage.value} suffix="家"/><Progress aria-label={`${stage.label}转化率`} percent={rate} size="small" showInfo={false}/><Flex className="attribution-stage-card__footer" align="center" justify="space-between" gap={8}><Typography.Text type="secondary">{stage.next===null?'整体转化率':'进入下一阶段'} <strong>{rate}%</strong></Typography.Text>{loss!==null&&<Typography.Text type="secondary">流失 {loss.toLocaleString()}</Typography.Text>}</Flex></Card></Col>})}</Row>}
+        ) : <Row className="attribution-funnel-grid" gutter={[16,16]}>{stages.map((stage,index)=>{const Icon=stage.icon;const nextStage=stages[index+1];const rawRate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const rate=Math.min(100,rawRate);const loss=stage.next===null?null:Math.max(0,stage.value-stage.next);return <Col xs={24} sm={12} xl={8} key={stage.key}><Card className={`attribution-stage-card attribution-stage-card--${stage.key}`} size="small">
+          <Flex className="attribution-stage-card__heading" align="center" justify="space-between" gap={8}>
+            <Space size={10}><span className="attribution-stage-card__icon"><Icon size={18}/></span><Typography.Text strong>{stage.label}</Typography.Text></Space>
+            <Typography.Text className="attribution-stage-card__index">阶段 {String(index+1).padStart(2,'0')}</Typography.Text>
+          </Flex>
+          <Statistic value={stage.value} suffix="家"/>
+          <Typography.Text type="secondary" className="attribution-stage-card__destination">{nextStage?`下一阶段：${nextStage.label}`:'最终结果：完成成交'}</Typography.Text>
+          <Progress aria-label={`${stage.label}转化率`} percent={rate} size="small" showInfo={false}/>
+          <Flex className="attribution-stage-card__footer" align="center" justify="space-between" gap={8}><Typography.Text type="secondary">{stage.next===null?'整体转化率':'阶段转化率'} <strong>{rate}%</strong></Typography.Text>{loss!==null&&<Typography.Text type="secondary">流失 {loss.toLocaleString()} 家</Typography.Text>}</Flex>
+        </Card></Col>})}</Row>}
       </Flex>
     </Panel>
     )}
@@ -115,16 +126,16 @@ export function AttributionPage(){
           <CustomSelect ariaLabel="筛选成交结果" value={resultFilter} onChange={value=>setResultFilter(value as ResultFilter)} options={(['全部结果','已有成交','暂无成交'] as ResultFilter[]).map(label=>({value:label,label,icon:label==='暂无成交'?<CircleAlert/>:label==='已有成交'?<Trophy/>:<CheckCircle2/>}))}/>
           <CustomSelect ariaLabel="渠道排序" value={sort} onChange={value=>setSort(value as ChannelSort)} options={(['转化率最高','转化率最低','发现客户最多','回复最多','成交客户最多','渠道名称 A–Z'] as ChannelSort[]).map(label=>({value:label,label,icon:<ArrowUpDown/>}))}/>
           <Button disabled={!query&&bottleneck==='全部瓶颈'&&resultFilter==='全部结果'&&sort==='转化率最高'} onClick={clearFilters}>清除筛选</Button>
-        </>} selection={selected.size>0?<SelectionBar count={selected.size} unit="个渠道" actions={<><Button onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></>}/>:undefined}/>
+        </>} selection={selected.size>0?<SelectionBar count={selected.size} unit="个渠道" actions={<><Button disabled={!canWrite} onClick={()=>setDialog('optimize')}><Sparkles/>生成任务</Button><Button onClick={()=>{const chosen=allRows.filter(row=>selected.has(row.name));exportRows(chosen,'sondara-selected-channels.csv');showToast(`已导出 ${chosen.length} 个所选渠道`)}}><Download/>导出所选</Button><Button aria-label="取消选择" title="取消选择" onClick={()=>setSelected(new Set())}><X/></Button></>}/>:undefined}/>
       {overviewQuery.isError?<PageState status="error" title="渠道数据加载失败" onRetry={()=>overviewQuery.refetch()}/>:<><DataTable loading={overviewQuery.isFetching}
         columns={[
           {key:'select',title:<Checkbox aria-label="选择本页全部渠道" checked={pagedRows.length>0&&pagedRows.every(row=>selected.has(row.name))} onChange={event=>setSelected(current=>{const next=new Set(current);pagedRows.forEach(row=>event.target.checked?next.add(row.name):next.delete(row.name));return next})}/>,width:52},
-          {key:'channel',title:<Button onClick={()=>setSort('渠道名称 A–Z')}>渠道{sortIcon(sort==='渠道名称 A–Z',false)}</Button>},
-          {key:'scale',title:<Button onClick={()=>setSort('发现客户最多')}>获客规模{sortIcon(sort==='发现客户最多',true)}</Button>},
-          {key:'reach',title:<Button onClick={()=>setSort('回复最多')}>触达与回复{sortIcon(sort==='回复最多',true)}</Button>},
-          {key:'deals',title:<Button onClick={()=>setSort('成交客户最多')}>商机与成交{sortIcon(sort==='成交客户最多',true)}</Button>},
-          {key:'rate',title:<Button onClick={()=>setSort(sort==='转化率最高'?'转化率最低':'转化率最高')}>总转化率{sortIcon(sort==='转化率最高'||sort==='转化率最低',sort==='转化率最高')}</Button>},
-          {key:'bottleneck',title:'主要瓶颈与建议'},
+          {key:'channel',title:<Button onClick={()=>setSort('渠道名称 A–Z')}>渠道{sortIcon(sort==='渠道名称 A–Z',false)}</Button>,width:270},
+          {key:'scale',title:<Button onClick={()=>setSort('发现客户最多')}>获客规模{sortIcon(sort==='发现客户最多',true)}</Button>,width:180},
+          {key:'reach',title:<Button onClick={()=>setSort('回复最多')}>触达与回复{sortIcon(sort==='回复最多',true)}</Button>,width:170},
+          {key:'deals',title:<Button onClick={()=>setSort('成交客户最多')}>商机与成交{sortIcon(sort==='成交客户最多',true)}</Button>,width:170},
+          {key:'rate',title:<Button onClick={()=>setSort(sort==='转化率最高'?'转化率最低':'转化率最高')}>总转化率{sortIcon(sort==='转化率最高'||sort==='转化率最低',sort==='转化率最高')}</Button>,width:140},
+          {key:'bottleneck',title:'主要瓶颈与建议',width:320},
           {key:'actions',title:'操作',width:72},
         ]}
         rows={pagedRows.map(row=>{const qualification=row.discovered>0?Number((row.qualified/row.discovered*100).toFixed(1)):0;return {
@@ -147,11 +158,11 @@ export function AttributionPage(){
     <Modal open={dialog==='quality'} loading={qualityQuery.isLoading} title="转化数据质量" description="影响转化率判断的关联与来源完整度。" onClose={()=>setDialog(null)}>
       <List dataSource={qualityItems??[]} renderItem={item=><List.Item extra={<Badge tone={item.pct>=80?'green':'orange'}>{item.pct}%</Badge>}><List.Item.Meta title={item.label} description={<Space orientation="vertical" size={2}><Typography.Text type="secondary">{item.detail}</Typography.Text><Progress aria-label={`${item.label}完整度`} percent={item.pct} showInfo={false}/></Space>}/></List.Item>}/>
     </Modal>
-    <Modal open={dialog==='optimize'} title="转化优化建议" description={`${period} · 优先解决高影响流失阶段`} onClose={()=>setDialog(null)} footer={<><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" disabled={optimizeMutation.isPending||selectedChannels.length===0} onClick={()=>optimizeMutation.mutate(selectedChannels.map(c=>c.name))}>{optimizeMutation.isPending?'正在生成…':'生成优化任务'}</Button></>}>
+    <Modal open={dialog==='optimize'} title="转化优化建议" description={`${period} · 优先解决高影响流失阶段`} onClose={()=>setDialog(null)} footer={<><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" disabled={!canWrite||optimizeMutation.isPending||selectedChannels.length===0} onClick={()=>optimizeMutation.mutate(selectedChannels.map(c=>c.name))}>{optimizeMutation.isPending?'正在生成…':'生成优化任务'}</Button></>}>
       {selectedChannels.length?<List dataSource={selectedChannels.slice(0,5)} renderItem={ch=><List.Item extra={<Badge tone={ch.won===0?'orange':'blue'}>{ch.won===0?'高影响':`转化率 ${ch.conversionRate}%`}</Badge>}><List.Item.Meta avatar={ch.bottleneck==='获客质量'?<Target/>:ch.bottleneck==='有效触达'?<Send/>:ch.bottleneck==='客户回复'?<MessageCircleReply/>:ch.bottleneck==='商机创建'?<Building2/>:<Trophy/>} title={`${ch.name} · ${ch.bottleneck}`} description={ch.action}/></List.Item>}/>:<EmptyState title="请先选择至少一个渠道。" icon={CircleAlert}/>}
     </Modal>
-    <Modal open={dialog==='channel'} title={`${selectedChannel?.name??''} · 转化详情`} description={`${period}完整转化链路`} onClose={()=>setDialog(null)}>
-      <Space orientation="vertical" size="middle" style={{width:'100%'}}><Row gutter={[12,12]}>{stageMeta.map(({key,label,icon:Icon})=><Col xs={12} md={8} key={key}><Card size="small"><Statistic title={<Space><Icon size={14}/>{label}</Space>} value={selectedChannel?.[key as keyof AttributionChannel] as number ?? 0}/></Card></Col>)}</Row><StatusNotice tone="warning" icon={<CircleAlert size={17}/>} title={`主要瓶颈：${selectedChannel?.bottleneck??'—'}`} description={selectedChannel?.action}/><Flex justify="flex-end" gap={8}><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" onClick={()=>{if(selectedChannel){optimizeMutation.mutate([selectedChannel.name]);setDialog(null)}}}><Building2/>创建优化任务</Button></Flex></Space>
+    <Modal open={dialog==='channel'} title={`${selectedChannel?.name??''} · 转化详情`} description={`${period}完整转化链路`} onClose={()=>setDialog(null)} footer={<><Button onClick={()=>setDialog(null)}>关闭</Button><Button variant="primary" disabled={!canWrite} onClick={()=>{if(selectedChannel){optimizeMutation.mutate([selectedChannel.name]);setDialog(null)}}}>创建优化任务</Button></>}>
+      <Space orientation="vertical" size="middle" style={{width:'100%'}}><Row gutter={[12,12]}>{stageMeta.map(({key,label,icon:Icon})=><Col xs={12} md={8} key={key}><Card size="small"><Statistic title={<Space><Icon size={14}/>{label}</Space>} value={selectedChannel?.[key as keyof AttributionChannel] as number ?? 0}/></Card></Col>)}</Row><StatusNotice tone="warning" icon={<CircleAlert size={17}/>} title={`主要瓶颈：${selectedChannel?.bottleneck??'—'}`} description={selectedChannel?.action}/></Space>
     </Modal>
   </PageContainer>
 }

@@ -55,8 +55,10 @@ const run = async () => {
     assert.equal(analyzed.statusCode, 202, analyzed.body)
     assert.equal(analyzed.json().mode, 'local-rules')
     assert.ok(Array.isArray(analyzed.json().analysis.recommendedMarkets))
-    assert.ok(analyzed.json().analysis.recommendedMarkets.length >= 1)
-    assert.ok(analyzed.json().analysis.recommendedMarkets.length <= 8)
+    assert.equal(analyzed.json().analysis.recommendedMarkets.length, 10)
+    assert.ok(analyzed.json().analysis.recommendedMarkets.every((market: { profile?: string[]; criteria?: string[]; signals?: string[] }) =>
+      (market.profile?.length ?? 0) >= 4 && (market.criteria?.length ?? 0) >= 7 && (market.signals?.length ?? 0) >= 4))
+    assert.equal(new Set(analyzed.json().analysis.recommendedMarkets.map((market: { criteria?: string[] }) => JSON.stringify(market.criteria))).size, 10)
     assert.equal(analyzed.json().analysisStatus, 'complete')
     assert.match(analyzed.json().analysisSummary, /recommendedMarkets/)
 

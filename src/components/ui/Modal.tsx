@@ -13,17 +13,20 @@ type ModalProps = {
   actions?: ReactNode
   width?: number
   loading?: boolean
+  layout?: 'standard' | 'workspace'
+  className?: string
 }
 
-export function Modal({ open, title, description, descriptionTone = 'secondary', children, onClose, footer, actions, width = 560, loading = false }: ModalProps) {
+export function Modal({ open, title, description, descriptionTone = 'secondary', children, onClose, footer, actions, width = 560, loading = false, layout, className = '' }: ModalProps) {
+  const resolvedLayout = layout ?? (width >= 1000 ? 'workspace' : 'standard')
   return <AntModal
-    className="ui-modal"
+    className={['ui-modal', `ui-modal--${resolvedLayout}`, className].filter(Boolean).join(' ')}
     open={open}
     width={width}
     centered
     destroyOnHidden
     onCancel={onClose}
-    footer={footer ? <Flex justify="flex-end" wrap gap={8}>{footer}</Flex> : null}
-    title={<Flex align="flex-start" justify="space-between" gap={16}><Space orientation="vertical" size={4} style={{ minWidth: 0, flex: 1 }}><Typography.Text strong>{title}</Typography.Text>{description && <Typography.Text type={descriptionTone}>{description}</Typography.Text>}</Space>{actions && <Space wrap>{actions}</Space>}</Flex>}
+    footer={footer ? <Flex className="ui-modal__footer" align="center" justify="flex-end" wrap gap={8}>{footer}</Flex> : null}
+    title={<Flex align="flex-start" justify="space-between" gap={16}><Space orientation="vertical" size={2} style={{ minWidth: 0, flex: 1 }}><Typography.Text strong>{title}</Typography.Text>{description && <Typography.Text type={descriptionTone}>{description}</Typography.Text>}</Space>{actions && <Space wrap>{actions}</Space>}</Flex>}
   ><div className="ui-modal__body">{loading ? <DetailSkeleton/> : children}</div></AntModal>
 }

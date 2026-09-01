@@ -67,10 +67,11 @@
     "test:hubspot-crm-sync": "tsx server/tests/hubspot-crm-sync.integration.ts",
     "test:official-platform-connectors": "tsx server/tests/official-platform-connectors.integration.ts",
     "test:backup-worker": "tsx server/tests/backup-worker.integration.ts",
-    "test:unit": "tsx --test src/lib/customer-stages.test.ts",
+    "test:unit": "tsx --test src/lib/customer-stages.test.ts src/lib/api/core.test.ts server/tests/market-targeting.test.ts server/tests/candidate-qualification.test.ts",
     "test:worker-locks": "tsx server/tests/worker-locks.integration.ts",
     "test:sales-guardian": "tsx server/tests/sales-guardian.integration.ts",
-    "test:automation-closure": "tsx server/tests/automation-closure.integration.ts"
+    "test:automation-closure": "tsx server/tests/automation-closure.integration.ts",
+    "test:whatsapp-outreach": "tsx server/tests/whatsapp-outreach.integration.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

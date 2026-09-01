@@ -3,6 +3,7 @@ import { WebsiteSeedConnector } from './website-seed.js'
 import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
 import { isExcludedHost } from './host-blocklist.js'
 import { isLikelyOverseasProspect } from './prospect-quality.js'
+import { getSearchLocale, isChineseSourceUrl, isOverseasTarget, overseasSearchExclusions, toInternationalSearchText } from '../market-targeting.js'
 
 const NON_COMPANY_TITLE = /^(?:首页|主页|登录|注册|搜索结果|新闻|资讯|视频|图片|地图|问答|下载|文档|帮助|关于|联系|产品列表|分类|标签|404|页面不存在|login|sign in|register|search results|news|videos|images|maps|download|docs|help|contact|about|products|categories|tags)$/i
 
@@ -24,10 +25,11 @@ const resultScore = (item: { title: string; url: string; description: string }, 
   return score
 }
 
-const looksLikeCompanySite = (item: { title: string; url: string; description: string }, icp: string) => {
+const looksLikeCompanySite = (item: { title: string; url: string; description: string }, icp: string, overseas = false) => {
   try {
     const url = new URL(item.url)
     if (isExcludedHost(url.hostname)) return false
+    if (overseas && isChineseSourceUrl(item.url)) return false
     if (NON_COMPANY_HOST.test(url.hostname)) return false
     if (/\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|tar|gz)$/i.test(url.pathname)) return false
     if (/\/(?:login|signup|register|cart|search|tag|category|blog\/tag)\/?$/i.test(url.pathname)) return false
@@ -65,8 +67,10 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
     onProgress('正在搜索目标企业官网', 8)
-    const exclusions = '-directory -magazine -marketplace -jobs -recruitment'
-    const keywordExpression = targetTerms(task).slice(0, 8).map(term => `"${term}"`).join(' OR ')
+    const overseas = isOverseasTarget(task.targetRegion)
+    const exclusions = overseas ? overseasSearchExclusions : '-directory -magazine -marketplace -jobs -recruitment'
+    const searchIcp = overseas ? toInternationalSearchText(task.icp) : task.icp
+    const keywordExpression = targetTerms({ ...task, icp: searchIcp }).slice(0, 8).map(term => `"${term}"`).join(' OR ')
     const selectedSignals = (task.intentSignals ?? []).join(' ')
     const signalSearch = /招聘|扩张|新建|产能/.test(selectedSignals)
       ? '(hiring OR careers OR recruitment OR "new production line" OR expansion OR "new facility")'
@@ -77,7 +81,7 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
           : /关键岗位|社交|管理层/.test(selectedSignals)
             ? '(LinkedIn OR "company profile" OR "sales director" OR "business development")'
             : ''
-    const signalQueries = signalSearch ? [[task.icp, task.targetRegion, signalSearch, 'official website', exclusions].filter(Boolean).join(' ')] : []
+    const signalQueries = signalSearch ? [[searchIcp, task.targetRegion, signalSearch, 'official website', exclusions].filter(Boolean).join(' ')] : []
     const strategyExpression = /经销|代理|合作伙伴|渠道/.test(task.strategy ?? '')
       ? '(distributor OR reseller OR representative OR "channel partner" OR integrator)'
       : /采购|招标|项目/.test(task.strategy ?? '')
@@ -85,20 +89,20 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
         : '(company OR manufacturer OR supplier OR provider OR operator)'
     const queries = [...signalQueries,
       [
-        task.icp,
+        searchIcp,
         task.targetRegion,
         keywordExpression ? `(${keywordExpression})` : '',
         strategyExpression,
         'official website', exclusions,
       ].filter(Boolean).join(' '),
       [
-        task.icp,
+        searchIcp,
         task.targetRegion,
         '(supplier OR vendor OR provider OR buyer OR procurement OR partner)',
         'official website', exclusions,
       ].filter(Boolean).join(' '),
       [
-        task.icp,
+        searchIcp,
         task.targetRegion,
         '(distributor OR representative OR "sales partner" OR "channel partner" OR contractor OR "turnkey" OR integrator)',
         'official website', exclusions,
@@ -109,7 +113,7 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
     for (const query of queries) {
       queryIndex += 1
       try {
-        const search = await searchWorkspace(task.workspaceId, query, Math.min(20, Math.max(task.candidateLimit * 5, 10)))
+        const search = await searchWorkspace(task.workspaceId, query, Math.min(20, Math.max(task.candidateLimit * 5, 10)), overseas ? getSearchLocale(task.targetRegion) : {})
         for (const item of search.items) itemMap.set(item.url, item)
         onProgress(`第 ${queryIndex}/${queries.length} 组搜索完成，累计 ${itemMap.size} 条结果`, 10 + queryIndex * 4)
       } catch (cause) {
@@ -118,7 +122,7 @@ export class SearchDiscoveryConnector implements DiscoveryConnector {
     }
     const search: { items: SearchResult[] } = { items: [...itemMap.values()] }
     const companyItems = search.items
-      .filter(item => looksLikeCompanySite(item, task.icp))
+      .filter(item => looksLikeCompanySite(item, task.icp, overseas))
       .sort((a, b) => resultScore(b, task) - resultScore(a, task))
     onProgress(`搜索到 ${search.items.length} 条结果，筛选出 ${companyItems.length} 个相关企业官网`, 24)
     const urls = officialRoots(companyItems).slice(0, Math.min(20, Math.max(task.candidateLimit * 3, 12)))

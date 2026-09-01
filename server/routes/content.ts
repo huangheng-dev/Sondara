@@ -181,8 +181,9 @@ export const contentRoutes: FastifyPluginAsync = async app => {
                       ...changes, currentVersion: versionNumber, qualityScore: quality.overallScore,
                       customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore,
                       actionClarity: quality.actionClarity,
-                      ...(changes.status === '已发布' ? { publishedAt: now, archivedAt: null } : {}),
-                      ...(changes.status === '已归档' ? { archivedAt: now } : {}), updatedAt: now,
+                      ...(changes.status === '已发布' ? { publishedAt: now } : {}),
+                      ...(changes.status !== undefined ? { archivedAt: changes.status === '已归档' ? now : null } : {}),
+                      updatedAt: now,
                     }).where(and(eq(contentAssets.id, id), eq(contentAssets.workspaceId, request.auth.workspaceId)))
             if (versionId) await tx.insert(contentVersions).values({ id: versionId, workspaceId: request.auth.workspaceId, contentAssetId: id, versionNumber, title, body, changeNote: changeNote ?? '保存内容', createdByUserId: request.auth.userId, createdAt: now })
             await tx.insert(contentQualityChecks).values({ id: createId('cqc'), workspaceId: request.auth.workspaceId, contentAssetId: id, contentVersionId: versionId, overallScore: quality.overallScore, customerRelevance: quality.customerRelevance, evidenceScore: quality.evidenceScore, actionClarity: quality.actionClarity, status: 'completed', findingsJson: JSON.stringify(quality.findings), createdAt: now })

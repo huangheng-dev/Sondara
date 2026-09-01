@@ -3,9 +3,25 @@ import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
 const apiPort = Number(process.env.SONDARA_API_PORT || 4176)
+const buildId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'sondara-build-version',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ buildId, builtAt: new Date().toISOString() }),
+        })
+      },
+    },
+  ],
+  define: {
+    __APP_BUILD_ID__: JSON.stringify(buildId),
+  },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   server: {
     port: 4175,

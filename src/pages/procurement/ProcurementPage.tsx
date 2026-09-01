@@ -18,6 +18,7 @@ import { integrationApi, procurementApi, type ProcurementOpportunitySort, type P
 import { useUiStore } from '@/stores/ui-store'
 import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 import { StatusNotice } from '@/components/ui/StatusNotice'
+import { renderRequiredOrOptionalMarkAfter } from '@/components/ui/FormRequiredMark'
 
 const providerNames: Record<ProcurementProvider, string> = { ted: '欧盟 TED', 'sam-gov': '美国 SAM.gov', ungm: '联合国 UNGM', 'world-bank': 'World Bank Procurement' }
 const parseList = (value?: string) => (value ?? '').split(/[,，;；\n]/).map(item => item.trim()).filter(Boolean)
@@ -165,7 +166,7 @@ export function ProcurementPage({ embedded = false, view = 'acquisition' }: { em
               <Badge tone={statusLabel === '可用' ? 'green' : statusLabel === '异常' ? 'red' : 'neutral'}>{statusLabel}</Badge>
               <Typography.Text type="secondary">{requiresCredential ? item.configured ? '凭据已保存' : '需要访问凭据' : '无需密钥'}</Typography.Text>
               {requiresCredential&&<Button size="sm" disabled={!canManageSettings} onClick={() => { connectionForm.setFieldsValue({ provider: item.provider }); setConnectionOpen(true) }}>{item.configured?'更新凭据':'配置'}</Button>}
-              {item.sourceUrl&&<Button size="sm" type="link" href={item.sourceUrl} target="_blank" icon={<ExternalLink size={14}/>}>官方页面</Button>}
+              {item.sourceUrl&&<Button size="sm" type="link" href={item.sourceUrl} target="_blank" rel="noreferrer" icon={<ExternalLink size={14}/>}>官方页面</Button>}
             </Space>}
         >
           <List.Item.Meta
@@ -178,16 +179,22 @@ export function ProcurementPage({ embedded = false, view = 'acquisition' }: { em
 
   return <PageContainer>
     {!embedded&&<PageHeader title="招标采购" description="统一订阅和评估官方采购公告；确认机会后自动进入客户与任务闭环。" actions={<Button variant="primary" disabled={!canWrite} onClick={() => openSubscription()} icon={<Plus size={16}/>}>创建订阅</Button>}/>}
-    <StatusNotice
+    {view !== 'settings' && <StatusNotice
       tone="info"
       icon={<Landmark size={17}/>}
       title="官方采购数据源"
       description="TED 与 World Bank 可直接使用；SAM.gov 和 UNGM 需要在数据源状态中补充访问凭据。"
-    />
+    />}
     {view === 'settings' ? sourceContent : <Tabs activeKey={tab} onChange={setTab} items={[{ key: 'opportunities', label: `采购机会（${opportunities.data?.total ?? 0}）`, children: opportunityContent }, { key: 'subscriptions', label: `订阅（${subscriptions.data?.items.length ?? 0}）`, children: subscriptionContent }, { key: 'sources', label: '数据源状态', children: sourceContent }]}/>}
+    {view === 'settings' && <StatusNotice
+      tone="info"
+      icon={<Landmark size={17}/>}
+      title="官方采购数据源"
+      description="TED 与 World Bank 可直接使用；SAM.gov 和 UNGM 需要在数据源状态中补充访问凭据。"
+    />}
 
     <Modal open={subscriptionOpen} title={editing ? '编辑采购订阅' : '创建采购订阅'} description="设置官方来源、采购关键词与目标地区，系统将按订阅持续同步机会。" onClose={() => setSubscriptionOpen(false)} footer={<><Button onClick={() => setSubscriptionOpen(false)}>取消</Button><Button variant="primary" onClick={saveSubscription}>保存</Button></>}>
-      <Form form={subscriptionForm} layout="vertical" requiredMark="optional">
+      <Form form={subscriptionForm} layout="vertical" requiredMark={renderRequiredOrOptionalMarkAfter}>
         <Form.Item name="name" label="订阅名称" rules={[{ required: true, message: '请输入订阅名称' }]}><Input autoFocus placeholder="例如：欧洲企业软件采购"/></Form.Item>
         <Form.Item name="provider" label="官方来源" rules={[{ required: true }]}><CustomSelect ariaLabel="官方来源" options={Object.entries(providerNames).map(([value, label]) => ({ value, label }))}/></Form.Item>
         <Form.Item name="keywords" label="产品或服务关键词" rules={[{ required: true, message: '至少填写一个关键词' }]} extra="多个关键词用逗号或换行分隔"><Input.TextArea rows={3} placeholder="software，consulting，industrial automation"/></Form.Item>
@@ -198,7 +205,7 @@ export function ProcurementPage({ embedded = false, view = 'acquisition' }: { em
     </Modal>
 
     <Modal open={connectionOpen} title="配置采购数据源" description="保存官方接口访问凭据，用于同步对应采购公告。" onClose={() => setConnectionOpen(false)} footer={<><Button onClick={() => setConnectionOpen(false)}>取消</Button><Button variant="primary" onClick={saveConnection}>加密保存</Button></>}>
-      <Form form={connectionForm} layout="vertical" requiredMark="optional">
+      <Form form={connectionForm} layout="vertical" requiredMark={renderRequiredOrOptionalMarkAfter}>
         <Form.Item name="provider" label="数据源" rules={[{ required: true }]}><CustomSelect ariaLabel="采购数据源" options={[{ value: 'sam-gov', label: 'SAM.gov Public API' }, { value: 'ungm', label: 'UNGM Notices API' }]}/></Form.Item>
         <Form.Item name="secret" label="API Key / OAuth 令牌" rules={[{ required: true, message: '请输入访问凭据' }]}><Input.Password autoComplete="new-password" placeholder="仅加密存储，不会在页面回显"/></Form.Item>
       </Form>

@@ -35,6 +35,27 @@ import { externalConnectorWebhookRoutes } from "./routes/external-connector-webh
 import { automationRoutes } from "./routes/automation.js";
 import { captureObservabilityException } from "./lib/observability.js";
 
+const formatRetryDelay = (ttl: number) => {
+  const seconds = Math.max(1, Math.ceil(ttl / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  return `${Math.ceil(seconds / 60)} 分钟`;
+};
+
+const localizedClientErrorMessage = (statusCode: number, message?: string) => {
+  if (message && /[\u3400-\u9fff]/u.test(message)) return message;
+  const fallbackMessages: Record<number, string> = {
+    400: "请求内容无效，请检查后重试。",
+    401: "登录状态已失效，请重新登录。",
+    403: "当前账户无权执行此操作。",
+    404: "请求的内容不存在。",
+    409: "数据状态已发生变化，请刷新后重试。",
+    413: "提交的内容过大，请缩小后重试。",
+    415: "不支持当前请求格式。",
+    429: "请求过于频繁，请稍后重试。",
+  };
+  return fallbackMessages[statusCode] ?? "请求处理失败，请稍后重试。";
+};
+
 export const buildApp = async () => {
   if (config.autoMigrate) {
     await withMigrationLock(() => migrate(db, {
@@ -79,7 +100,16 @@ export const buildApp = async () => {
     : false,
   crossOriginEmbedderPolicy: false,
 })
-  await app.register(rateLimit, { max: config.rateLimitMax, timeWindow: "1 minute" });
+  await app.register(rateLimit, {
+    max: config.rateLimitMax,
+    timeWindow: "1 minute",
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: 429,
+      error: "RATE_LIMITED",
+      message: `请求过于频繁，请在 ${formatRetryDelay(context.ttl)}后重试。`,
+      retryAfterMs: context.ttl,
+    }),
+  });
   await app.register(healthRoutes, { prefix: "/api" });
   await app.register(authRoutes, { prefix: "/api/auth" });
   await app.register(aiServiceRoutes, { prefix: "/api/ai" });
@@ -132,7 +162,9 @@ export const buildApp = async () => {
         : 500;
     reply.code(statusCode).send({
       error: statusCode < 500 ? "REQUEST_ERROR" : "SERVER_ERROR",
-      message: statusCode < 500 ? candidate.message : "服务器处理失败。",
+      message: statusCode < 500
+        ? localizedClientErrorMessage(statusCode, candidate.message)
+        : "服务器处理失败。",
     });
   });
   return app;

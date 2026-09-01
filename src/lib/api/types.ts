@@ -748,7 +748,13 @@ export type BusinessProfileApiInput = {
 export type IcpAnalysisResult = {
   summary: string;
   signals: string[];
-  recommendedMarkets: { name: string; reason: string }[];
+  recommendedMarkets: {
+    name: string;
+    reason: string;
+    profile?: string[];
+    criteria?: string[];
+    signals?: string[];
+  }[];
   criteria: string[];
 };
 

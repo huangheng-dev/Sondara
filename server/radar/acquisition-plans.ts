@@ -4,6 +4,8 @@ import { db } from '../db/client.js'
 import { acquisitionPlans, candidateContacts, candidateEvidence, customers, inboxContacts, radarCandidates, radarQueueItems, radarTasks, tasks } from '../db/schema.js'
 import { createId } from '../lib/ids.js'
 import { queueAutomatedOutreach } from './auto-outreach.js'
+import { assessCandidateGeography, resolveRunTargetRegion } from './market-targeting.js'
+import { assessCandidateQualification } from './qualification.js'
 
 export type AcquisitionScheduleType = 'manual' | 'daily' | 'weekdays' | 'weekly'
 export type AcquisitionTriggerType = 'manual' | 'scheduled' | 'catch_up'
@@ -88,13 +90,14 @@ export const createPlanRun = async (
 
   const now = Date.now()
   const runNumber = plan.totalRuns + 1
+  const runTargetRegion = resolveRunTargetRegion(plan.targetRegion, runNumber)
   const task = {
     id: createId('rdr'), workspaceId: plan.workspaceId, ownerUserId: plan.ownerUserId,
     acquisitionPlanId: plan.id, runNumber, triggerType,
     name: `${plan.name} · 第 ${runNumber} 轮`, icp: plan.icp, mode: plan.mode, strategy: plan.strategy,
     dataSourcesJson: plan.dataSourcesJson, intentSignalsJson: plan.intentSignalsJson, depth: plan.depth,
     candidateLimit: Math.min(plan.candidateLimit, plan.dailyCandidateLimit), knowledgeScope: plan.knowledgeScope,
-    targetRegion: plan.targetRegion, researchLanguage: plan.researchLanguage, inputSource: plan.inputSource,
+    targetRegion: runTargetRegion, researchLanguage: plan.researchLanguage, inputSource: plan.inputSource,
     seedUrlsJson: plan.seedUrlsJson, status: 'queued', progress: 0, currentStage: '等待执行',
     candidatesFound: 0, highMatchCount: 0, lastError: null, startedAt: null, completedAt: null,
     createdAt: now, updatedAt: now,
@@ -162,12 +165,32 @@ const runSafeAutopilot = async (task: typeof radarTasks.$inferSelect, plan: type
   let outreachQueued = 0
   let outreachSkipped = 0
   for (const candidate of candidates) {
-    const [contacts, evidence] = await Promise.all([
+    const [contacts, evidenceRows] = await Promise.all([
       db.select().from(candidateContacts).where(and(eq(candidateContacts.workspaceId, task.workspaceId), eq(candidateContacts.candidateId, candidate.id))).orderBy(desc(candidateContacts.confidence)),
-      db.select({ id: candidateEvidence.id }).from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, task.workspaceId), eq(candidateEvidence.candidateId, candidate.id))),
+      db.select().from(candidateEvidence).where(and(eq(candidateEvidence.workspaceId, task.workspaceId), eq(candidateEvidence.candidateId, candidate.id))),
     ])
+    const candidateView = {
+      ...candidate,
+      currency: candidate.currency as 'CNY' | 'EUR' | 'USD',
+      dimensions: safeJson(candidate.dimensionsJson, []),
+      evidence: evidenceRows.filter(item => Boolean(item.sourceUrl)).map(item => ({
+        title: item.title, source: item.source, time: item.observedLabel,
+        strength: (['强', '中', '弱'].includes(item.strength) ? item.strength : '弱') as '强' | '中' | '弱',
+        sourceUrl: item.sourceUrl!,
+      })),
+      committee: safeJson(candidate.committeeJson, []),
+      relationships: safeJson(candidate.relationshipsJson, []),
+    }
+    const geography = assessCandidateGeography(task, candidateView)
+    if (!geography.allowed) { outreachSkipped += 1; continue }
+    const qualification = assessCandidateQualification({ icp: task.icp, strategy: task.strategy, targetRegion: task.targetRegion }, geography.candidate)
+    if (!qualification.allowed) {
+      await db.update(radarCandidates).set({ status: 'review', updatedAt: Date.now() }).where(eq(radarCandidates.id, candidate.id))
+      outreachSkipped += 1
+      continue
+    }
     const bestContact = contacts.find(contact => contact.email && contact.confidence >= 70)
-    if (!bestContact || evidence.length < 2 || candidate.confidence < 75) continue
+    if (!bestContact || evidenceRows.length < 2 || candidate.confidence < 75) continue
     const now = Date.now()
     let customer = await db.$first(db.select().from(customers).where(and(eq(customers.workspaceId, task.workspaceId), eq(customers.company, candidate.company))))
     if (!customer) {

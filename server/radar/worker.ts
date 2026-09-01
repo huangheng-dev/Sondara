@@ -14,11 +14,13 @@ import { MapDiscoveryConnector } from './connectors/map-discovery.js'
 import { IndustrySourceConnector } from './connectors/industry-source.js'
 import { ConnectorError, type DiscoveredCandidate, type DiscoveryConnector, type RadarTaskContext } from './types.js'
 import { isLikelyOverseasProspect } from './connectors/prospect-quality.js'
+import { assessCandidateGeography } from './market-targeting.js'
 import { detectIntentSignals, storeCandidateSignals } from './signal-engine.js'
 import { dispatchDueAcquisitionPlans, updatePlanAfterRun } from './acquisition-plans.js'
 import { getAcquisitionPlanPerformance } from './performance.js'
 import { rankDiscoveryConnectors } from './optimization.js'
 import { applyAcquisitionFeedback, getAcquisitionFeedbackLearning } from './feedback-learning.js'
+import { assessCandidateQualification } from './qualification.js'
 
 const connectors: DiscoveryConnector[] = [new MapDiscoveryConnector(), new SearchDiscoveryConnector(), new IndustrySourceConnector(), new WebsiteSeedConnector()]
 
@@ -162,14 +164,19 @@ export const createRadarWorker = (intervalMs: number) => {
       const aiEnabled = (await hasAiConfiguration(task.workspaceId))
       let aiEnrichedCount = 0
       let aiBudgetEventWritten = false
-      const maxAiEnrichments = Math.min(fullAutomationEnabled ? 20 : 5, task.candidateLimit)
+      // Precision is more important than raw volume: research the complete
+      // practical candidate sample instead of enriching only the first five.
+      const maxAiEnrichments = Math.min(100, Math.max(fullAutomationEnabled ? 20 : 10, task.candidateLimit * 2))
       if (!aiEnabled) await addEvent(task.workspaceId, task.id, queue.id, 'ai.skipped', '未配置可用 AI 服务，本次使用公开证据完成基础研究', 'info')
       for (const [connectorIndex, connector] of available.entries()) {
         const discoveredBeforeConnector = discovered
         const remaining = Math.max(0, task.candidateLimit - discovered)
         if (!remaining) break
         const remainingConnectors = available.length - connectorIndex
-        const connectorLimit = context.mode === '智能多渠道' ? Math.max(1, Math.ceil(remaining / remainingConnectors)) : remaining
+        const targetShare = context.mode === '智能多渠道' ? Math.max(1, Math.ceil(remaining / remainingConnectors)) : remaining
+        // Discovery connectors return a research sample. Oversampling lets the
+        // strict admission gate reject weak companies without starving the task.
+        const connectorLimit = Math.min(300, Math.max(targetShare * 3, targetShare + 8))
         const connectorContext = { ...context, candidateLimit: connectorLimit }
         await addEvent(task.workspaceId, task.id, queue.id, 'connector.started', `正在运行：${connector.label}`, 'info', { connectorId: connector.id })
         const discoveredResults = await connector.discover(connectorContext, async (message, progress) => {
@@ -180,8 +187,9 @@ export const createRadarWorker = (intervalMs: number) => {
             updatedAt: Date.now(),
           }).where(eq(radarTasks.id, task.id))
         })
-        const results = discoveredResults.slice(0, Math.max(0, task.candidateLimit - discovered))
+        const results = discoveredResults
         for (const [resultIndex, candidate] of results.entries()) {
+          if (discovered >= task.candidateLimit) break
           const researchProgress = Math.min(96, 80 + Math.round(((connectorIndex + ((resultIndex + 1) / Math.max(results.length, 1))) / Math.max(available.length, 1)) * 16))
           await db.update(radarTasks).set({
             progress: sql<number>`max(${radarTasks.progress}, ${researchProgress})`,
@@ -206,7 +214,7 @@ export const createRadarWorker = (intervalMs: number) => {
             }
           } else if (aiEnabled && !aiBudgetEventWritten) {
             aiBudgetEventWritten = true
-            await addEvent(task.workspaceId, task.id, queue.id, 'ai.budget_reached', `本次已对前 ${maxAiEnrichments} 家候选执行 AI 深度研究，其余候选保留公开证据并进入人工复核`, 'info', { limit: maxAiEnrichments })
+            await addEvent(task.workspaceId, task.id, queue.id, 'ai.budget_reached', `本次已对前 ${maxAiEnrichments} 家候选执行 AI 深度研究，其余候选仅按公开证据执行严格准入核验`, 'info', { limit: maxAiEnrichments })
           }
           const relevanceInput = {
             company: researched.company,
@@ -230,14 +238,23 @@ export const createRadarWorker = (intervalMs: number) => {
               features: learned.matchedFeatures.map(feature => ({ kind: feature.kind, label: feature.label, samples: feature.samples, adjustment: feature.adjustment })),
             })
           }
-          if (researched.score < 55) {
-            await addEvent(task.workspaceId, task.id, queue.id, 'prospect.filtered_quality', `${researched.company} 匹配分过低，已排除`, 'info')
-            continue
-          }
           if (!isLikelyOverseasProspect(relevanceInput)) {
             await addEvent(task.workspaceId, task.id, queue.id, 'prospect.filtered_relevance', `${researched.company} 与目标客户画像不匹配，已排除`, 'info')
             continue
           }
+          const geography = assessCandidateGeography(connectorContext, researched)
+          if (!geography.allowed) {
+            await addEvent(task.workspaceId, task.id, queue.id, 'prospect.filtered_geography', `${researched.company} 地域验证未通过：${geography.reason}`, 'info')
+            continue
+          }
+          researched = geography.candidate
+          const qualification = assessCandidateQualification(connectorContext, researched, candidate)
+          researched = qualification.candidate
+          if (!qualification.allowed) {
+            await addEvent(task.workspaceId, task.id, queue.id, `prospect.filtered_${qualification.code}`, `${researched.company} 未通过精细准入：${qualification.reason}`, 'info', qualification.metrics)
+            continue
+          }
+          await addEvent(task.workspaceId, task.id, queue.id, 'prospect.qualified', `${researched.company} 已通过产品应用、客户角色、公开证据与置信度核验`, 'info', qualification.metrics)
           const result = (await saveCandidate(task.workspaceId, task.id, researched))
           const storedSignals = await storeCandidateSignals({ workspaceId: task.workspaceId, candidateId: result.id, company: researched.company, signals: signalResult.signals })
           if (storedSignals) await addEvent(task.workspaceId, task.id, queue.id, 'signals.detected', `${candidate.company} 发现 ${storedSignals} 条有证据的意向信号`, 'info', { types: signalResult.signals.map(signal => signal.signalType) })

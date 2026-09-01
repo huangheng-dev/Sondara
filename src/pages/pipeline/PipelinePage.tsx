@@ -18,7 +18,7 @@ import { Panel } from '@/components/ui/Panel'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { downloadCsv } from '@/utils/download'
-import { authApi, automationApi, dealApi, type DealApiRecord } from '@/lib/api'
+import { authApi, automationApi, collectAllPages, dealApi, type DealApiRecord } from '@/lib/api'
 import { Avatar, Card, Checkbox, Col, Descriptions, Flex, Progress, Row, Space, Statistic, Typography } from 'antd'
 import { PageContainer, PageState, SelectionBar, TableToolbar } from '@/components/ui/PageModules'
 import { formatCompactTime } from '@/components/ui/TableCells'
@@ -42,7 +42,7 @@ export function PipelinePage() {
   const authSession=useQuery({queryKey:['auth-session'],queryFn:authApi.session,retry:false})
   const canWrite=Boolean(authSession.data?.workspace.role&&authSession.data.workspace.role!=='viewer')
   useEffect(()=>{if(searchParams.get('create')!=='1'||!canWrite)return;setNewCustomer(searchParams.get('customer')?.trim()??'');setNewOpen(true);setSearchParams({}, {replace:true})},[searchParams,setSearchParams,canWrite])
-  const dealQuery=useQuery({queryKey:['deals',authSession.data?.workspace.id,archiveView],queryFn:()=>dealApi.list({pageSize:100,sort:'updated_desc',archivedOnly:archiveView}),enabled:Boolean(authSession.data?.workspace.id),retry:1})
+  const dealQuery=useQuery({queryKey:['deals',authSession.data?.workspace.id,archiveView],queryFn:()=>collectAllPages((page,pageSize)=>dealApi.list({page,pageSize,sort:'updated_desc',archivedOnly:archiveView})),enabled:Boolean(authSession.data?.workspace.id),retry:1})
   const dealRecords=useMemo(()=>dealQuery.data?.items.map(apiDealToRecord)??[],[dealQuery.data])
   const allDeals=useMemo(()=>dealRecords.map((deal,index)=>({...deal,probability:stageProbability[deal.stage]??20,index})),[dealRecords])
   const items=useMemo(()=>allDeals.filter(deal=>(!query||`${deal.company}${deal.owner}${deal.next}${deal.risk}`.toLowerCase().includes(query.toLowerCase()))&&(owner==='全部负责人'||deal.owner===owner)&&(stageFilter==='全部阶段'||deal.stage===stageFilter)&&(riskFilter==='全部风险'||deal.risk!=='已完成')).sort((a,b)=>sort==='企业名称 A–Z'?a.company.localeCompare(b.company,'zh-CN'):sort==='企业名称 Z–A'?b.company.localeCompare(a.company,'zh-CN'):sort==='阶段停留最长'?b.age-a.age:sort==='阶段停留最短'?a.age-b.age:b.probability-a.probability),[query,owner,stageFilter,riskFilter,sort,allDeals])
@@ -94,11 +94,11 @@ export function PipelinePage() {
           emptyText={<EmptyState title={query||owner!=='全部负责人'||stageFilter!=='全部阶段'||riskFilter!=='全部风险'?"没有符合条件的商机":"暂无商机"} description={query||owner!=='全部负责人'||stageFilter!=='全部阶段'||riskFilter!=='全部风险'?"可以调整当前筛选条件后重新查看。":"从高意向客户或客户回复创建商机，开始记录金额、阶段和下一步。"} icon={BriefcaseBusiness}/>}
           columns={[
             {key:'select',title:<Checkbox disabled={!canWrite} aria-label="选择本页全部商机" checked={dealPaging.pageItems.length>0&&dealPaging.pageItems.every(deal=>checked.has(deal.id))} onChange={event=>setChecked(current=>{const next=new Set(current);dealPaging.pageItems.forEach(deal=>event.target.checked?next.add(deal.id):next.delete(deal.id));return next})}/>,width:52,fixed:'left'},
-            {key:'company',title:<Button onClick={()=>setSort(sort==='企业名称 A–Z'?'企业名称 Z–A':'企业名称 A–Z')}>企业档案{sortIcon(sort==='企业名称 A–Z'||sort==='企业名称 Z–A',sort==='企业名称 Z–A')}</Button>,width:300,fixed:'left'},
+            {key:'company',title:<Button onClick={()=>setSort(sort==='企业名称 A–Z'?'企业名称 Z–A':'企业名称 A–Z')}>企业档案{sortIcon(sort==='企业名称 A–Z'||sort==='企业名称 Z–A',sort==='企业名称 Z–A')}</Button>,width:320,fixed:'left'},
             {key:'stage',title:<Button onClick={()=>setSort('阶段概率最高')}>阶段与概率{sortIcon(sort==='阶段概率最高',true)}</Button>,width:180},
-            {key:'value',title:'金额与成交',width:160},
-            {key:'risk',title:<Button onClick={()=>setSort(sort==='阶段停留最长'?'阶段停留最短':'阶段停留最长')}>负责人及风险{sortIcon(sort==='阶段停留最长'||sort==='阶段停留最短',sort==='阶段停留最长')}</Button>,width:200},
-            {key:'next',title:'下一步动作',width:240},
+            {key:'value',title:'金额与成交',width:170},
+            {key:'risk',title:<Button onClick={()=>setSort(sort==='阶段停留最长'?'阶段停留最短':'阶段停留最长')}>负责人及风险{sortIcon(sort==='阶段停留最长'||sort==='阶段停留最短',sort==='阶段停留最长')}</Button>,width:210},
+            {key:'next',title:'下一步动作',width:300},
             {key:'actions',title:'操作',width:104,fixed:'right'},
           ]}
           rows={dealPaging.pageItems.map(deal=>({key:deal.id,className:checked.has(deal.id)?'selected':'',cells:[

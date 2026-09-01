@@ -22,6 +22,7 @@ const excludedHosts = [
   'wenku.baidu.com', 'docin.com', 'doc88.com', 'book118.com', 'slideshare.net', 'scribd.com',
   // 代码/技术社区
   'github.com', 'gitee.com', 'gitlab.com', 'stackoverflow.com', 'csdn.net', 'jianshu.com',
+  'cnblogs.com', 'gys.cn', 'wikifx.com', 'wikiresearch.com',
   // 电商
   'amazon.com', 'jd.com', 'taobao.com', 'tmall.com', 'pinduoduo.com',
   // 地图/点评

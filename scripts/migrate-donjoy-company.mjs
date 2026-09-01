@@ -10,6 +10,8 @@ const databasePath = resolve(process.env.SONDARA_DATABASE_PATH || 'data/sondara.
 const databaseUrl = process.env.SONDARA_DATABASE_URL || `file:${databasePath.replaceAll('\\', '/')}`
 const db = createClient({ url: databaseUrl })
 const now = Date.now()
+const legacyAccountEmail = process.env.SONDARA_LEGACY_EMAIL?.trim().toLowerCase()
+const targetAccountEmail = process.env.SONDARA_FORMAL_EMAIL?.trim().toLowerCase()
 
 const analysis = {
   summary: 'DONJOY 面向海外市场提供高洁净泵、卫生级与无菌阀门、阀门控制和工艺管路解决方案，适合围绕洁净生产、过程自动化、工厂扩建、设备配套和区域渠道开展客户开发。',
@@ -96,11 +98,17 @@ try {
   })
   if (ownerUserId) {
     await db.execute({
-      sql: `update users set display_name = case when display_name like '%OULAM%' or display_name like '%欧拉姆%' then 'DONJOY 外贸管理员' else display_name end,
+      sql: `update users set display_name = '东正外贸管理员',
+            email = case when ? is not null and ? is not null and lower(email) = ? then ? else email end,
             currency = 'USD', updated_at = ? where id = ?`,
-      args: [now, ownerUserId],
+      args: [legacyAccountEmail ?? null, targetAccountEmail ?? null, legacyAccountEmail ?? null, targetAccountEmail ?? null, now, ownerUserId],
     })
   }
+  await db.execute({
+    sql: `update outbound_channel_connections set from_name = 'DONJOY', updated_at = ?
+          where workspace_id = ? and (lower(from_name) like '%oulam%' or from_name like '%欧拉姆%')`,
+    args: [now, workspaceId],
+  })
   await db.execute({
     sql: `update business_profiles set company = ?, website = ?, products = ?, regions = ?, customers = ?, exclusions = ?,
           selected_market = ?, analysis_status = 'complete', analysis_summary = ?, analyzed_at = ?, analysis_mode = 'official-source',

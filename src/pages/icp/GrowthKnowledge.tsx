@@ -22,10 +22,8 @@ import {
   Link2,
   PackageSearch,
   Plus,
-  Pencil,
   ShieldCheck,
   Target,
-  Trash2,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
@@ -45,6 +43,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { PageContainer, SelectionBar, TableToolbar } from "@/components/ui/PageModules";
 import { useWorkspaceAccess } from '@/hooks/useWorkspaceAccess'
 import {
+  collectAllPages,
   icpApi,
   type KnowledgeItemApiRecord,
   type KnowledgeItemStatus,
@@ -123,14 +122,14 @@ export const GrowthKnowledge = forwardRef<
   const listQuery = useQuery({
     queryKey: ["icp-knowledge", workspaceId, query, type, status, sort],
     queryFn: () =>
-      icpApi.listKnowledge({
+      collectAllPages((page, pageSize) => icpApi.listKnowledge({
         q: query || undefined,
         itemType: type === "全部类型" ? undefined : type,
         status: status === "全部状态" ? undefined : status,
         sort,
-        page: 1,
-        pageSize: 100,
-      }),
+        page,
+        pageSize,
+      })),
     enabled: Boolean(workspaceId),
   });
   const items = listQuery.data?.items ?? [];
@@ -342,11 +341,11 @@ export const GrowthKnowledge = forwardRef<
                 loading={listQuery.isFetching}
                 columns={[
                   { key: "select", title: <span><Checkbox disabled={!canWrite} aria-label="选择本页全部资料" checked={pagedItems.every(item => selectedIds.has(item.id))} onChange={event => setSelectedIds(current => { const next = new Set(current); pagedItems.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); return next; })} /></span>, width: 52 },
-                  { key: "title", title: <Button onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button> },
-                  { key: "type", title: "类型" }, { key: "status", title: "状态" }, { key: "source", title: "来源" },
-                  { key: "usage", title: <Button onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button> },
-                  { key: "updated", title: <Button onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button> },
-                  { key: "actions", title: "操作", width: 104 },
+                  { key: "title", title: <Button onClick={() => setSort(sort === "title_asc" ? "title_desc" : "title_asc")}>定位资料{sortIcon(sort === "title_asc" || sort === "title_desc", sort === "title_desc")}</Button>, width: 320 },
+                  { key: "type", title: "类型", width: 130 }, { key: "status", title: "状态", width: 130 }, { key: "source", title: "来源", width: 260 },
+                  { key: "usage", title: <Button onClick={() => setSort(sort === "references_desc" ? "references_asc" : "references_desc")}>使用情况{sortIcon(sort === "references_desc" || sort === "references_asc", sort === "references_desc")}</Button>, width: 150 },
+                  { key: "updated", title: <Button onClick={() => setSort(sort === "updated_desc" ? "updated_asc" : "updated_desc")}>更新时间{sortIcon(sort === "updated_desc" || sort === "updated_asc", sort === "updated_desc")}</Button>, width: 180 },
+                  { key: "actions", title: "操作", width: 72 },
                 ]}
                 rows={pagedItems.map(item => { const Icon = typeIcons[item.itemType as KnowledgeItemType] ?? Layers3; return { key: item.id, className: selectedIds.has(item.id) ? "selected" : "", cells: [
                   <Checkbox disabled={!canWrite} aria-label={`选择 ${item.title}`} checked={selectedIds.has(item.id)} onChange={event => setSelectedIds(current => { const next = new Set(current); event.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} />,
@@ -401,8 +400,8 @@ export const GrowthKnowledge = forwardRef<
         onClose={() => setSelected(null)}
         footer={
           <>
-            {canDelete && <Button variant="danger" onClick={() => setConfirmDelete(true)}><Trash2 />删除</Button>}
-            {canWrite && <Button onClick={() => { setDialog('edit'); }}><Pencil />编辑</Button>}
+            {canDelete && <Button variant="danger" onClick={() => setConfirmDelete(true)}>删除</Button>}
+            {canWrite && <Button onClick={() => { setDialog('edit'); }}>编辑</Button>}
             {canWrite && <Button onClick={() => selected && toggle(selected)}>
               {selected?.status === "已启用" ? "停用引用" : "启用引用"}
             </Button>}

@@ -1,5 +1,5 @@
 export * from "./types";
-export { ApiError } from "./core";
+export { ApiError, collectAllPages } from "./core";
 export { adminApi } from "./admin";
 export { aiApi } from "./ai";
 export { approvalApi } from "./approval";

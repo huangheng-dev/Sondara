@@ -1,5 +1,6 @@
 import { discoverPlacesWorkspace, hasMapConfiguration, type LocalPlaceResult } from '../../integrations/map-client.js'
 import { ConnectorError, effectiveRadarDataSources, type DiscoveryConnector, type DiscoveredCandidate, type RadarTaskContext } from '../types.js'
+import { isOverseasTarget, toInternationalSearchText } from '../market-targeting.js'
 
 const coordinates = (place: LocalPlaceResult) => place.latitude === null || place.longitude === null
   ? ''
@@ -9,7 +10,7 @@ const scorePlace = (place: LocalPlaceResult) => Math.min(92,
   62 + (place.address ? 7 : 0) + (place.website ? 9 : 0) + (place.phone ? 5 : 0) + (coordinates(place) ? 5 : 0) + (place.businessStatus ? 3 : 0),
 )
 
-const mapCandidate = (task: RadarTaskContext, place: LocalPlaceResult): DiscoveredCandidate => {
+const mapCandidate = (place: LocalPlaceResult): DiscoveredCandidate => {
   const confidence = Math.min(92, 58 + (place.externalId ? 8 : 0) + (place.address ? 8 : 0) + (coordinates(place) ? 7 : 0) + (place.website ? 7 : 0))
   const score = scorePlace(place)
   const relationships = [
@@ -22,8 +23,8 @@ const mapCandidate = (task: RadarTaskContext, place: LocalPlaceResult): Discover
   const summary = [place.address && `地址：${place.address}`, place.categories.length && `类型：${place.categories.slice(0, 3).join('、')}`, place.phone && '包含公开联系电话', place.website && '包含企业官网'].filter(Boolean).join('；')
   return {
     company: place.name,
-    region: place.address || task.targetRegion || '待补全',
-    industry: place.categories[0] || task.icp,
+    region: place.address || '待补全',
+    industry: place.categories[0] || '待验证',
     size: '待补全',
     score,
     signal: '地图企业地点可验证',
@@ -54,11 +55,13 @@ export class MapDiscoveryConnector implements DiscoveryConnector {
 
   async discover(task: RadarTaskContext, onProgress: (message: string, progress: number) => void): Promise<DiscoveredCandidate[]> {
     onProgress('正在地图中查找本地企业', 10)
-    const query = [task.icp, '企业 工厂 公司'].filter(Boolean).join(' ')
+    const query = isOverseasTarget(task.targetRegion)
+      ? [toInternationalSearchText(task.icp), 'company manufacturer distributor factory'].filter(Boolean).join(' ')
+      : [task.icp, '企业 工厂 公司'].filter(Boolean).join(' ')
     try {
       const result = await discoverPlacesWorkspace(task.workspaceId, query, task.targetRegion, task.candidateLimit)
       onProgress(`地图发现 ${result.items.length} 家待研究企业`, 78)
-      return result.items.map(place => mapCandidate(task, place))
+      return result.items.map(mapCandidate)
     } catch (cause) {
       throw new ConnectorError(cause instanceof Error ? cause.message : '地图数据源调用失败', true)
     }

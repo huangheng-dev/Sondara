@@ -15,14 +15,13 @@ import {
   inboxContacts,
   messageEntries,
   messageThreads,
-  outboundChannelConnections,
   tasks,
   users,
 } from "../db/schema.js";
 import { createId } from "../lib/ids.js";
 import { pickProvided } from "../lib/input.js";
 import { requireAuth } from "../plugins/auth.js";
-import { enqueueConfirmedMessage } from "../outbox/service.js";
+import { enqueueConfirmedMessage, getAvailableConnection } from "../outbox/service.js";
 
 const campaignStatuses = [
   "草稿",
@@ -31,6 +30,10 @@ const campaignStatuses = [
   "已完成",
   "已归档",
 ] as const;
+const emailChannels = new Set(["邮件", "邮件序列", "email", "Email"]);
+const whatsappChannels = new Set(["WhatsApp", "whatsapp", "WhatsApp Cloud API"]);
+const isAutomatedChannel = (channel: string) => emailChannels.has(channel) || whatsappChannels.has(channel);
+const automatedChannelName = (channel: string) => emailChannels.has(channel) ? "邮件" : "WhatsApp";
 const campaignInput = z.object({
   name: z.string().trim().min(1).max(180),
   market: z.string().trim().max(160).default("待补全"),
@@ -590,21 +593,32 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
     if (!campaign) return reply.code(404).send({ error: "NOT_FOUND", message: "营销活动不存在。" });
     const step = await db.$first(db.select().from(campaignSteps).where(and(eq(campaignSteps.id, stepId), eq(campaignSteps.campaignId, id), eq(campaignSteps.workspaceId, request.auth.workspaceId))));
     if (!step) return reply.code(404).send({ error: "STEP_NOT_FOUND", message: "活动步骤不存在。" });
-    const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
+    const emailChannel = emailChannels.has(step.channel);
+    const whatsappChannel = whatsappChannels.has(step.channel);
+    const automatedChannel = isAutomatedChannel(step.channel);
     const audience = await db.select().from(campaignAudienceMembers).where(and(eq(campaignAudienceMembers.campaignId, id), eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId), inArray(campaignAudienceMembers.status, ["pending", "sent"])));
     const asset = step.contentAssetId ? await db.$first(db.select().from(contentAssets).where(and(eq(contentAssets.id, step.contentAssetId), eq(contentAssets.workspaceId, request.auth.workspaceId)))) : null;
     const reachable = (await Promise.all(audience.map(async member => {
       if (!member.customerId) return false;
-      return Boolean(await db.$first(db.select({ id: inboxContacts.id }).from(inboxContacts).where(and(eq(inboxContacts.workspaceId, request.auth.workspaceId), eq(inboxContacts.customerId, member.customerId), emailChannel ? sql`${inboxContacts.email} IS NOT NULL` : sql`1 = 1`))));
+      return Boolean(await db.$first(db.select({ id: inboxContacts.id }).from(inboxContacts).where(and(
+        eq(inboxContacts.workspaceId, request.auth.workspaceId),
+        eq(inboxContacts.customerId, member.customerId),
+        emailChannel
+          ? and(sql`${inboxContacts.email} IS NOT NULL`, eq(inboxContacts.verificationStatus, "verified"))
+          : whatsappChannel
+            ? and(sql`${inboxContacts.phone} IS NOT NULL`, sql`${inboxContacts.whatsappOptedInAt} IS NOT NULL`)
+            : sql`1 = 1`,
+      ))));
     }))).filter(Boolean).length;
-    const smtpReady = !emailChannel || Boolean(await db.$first(db.select({ id: outboundChannelConnections.id }).from(outboundChannelConnections).where(and(eq(outboundChannelConnections.workspaceId, request.auth.workspaceId), eq(outboundChannelConnections.provider, 'smtp'), eq(outboundChannelConnections.enabled, true), eq(outboundChannelConnections.status, 'available')))));
+    const connection = automatedChannel ? await getAvailableConnection(request.auth.workspaceId, step.channel) : null;
+    const senderReady = !automatedChannel || Boolean(connection);
     const executable = ["draft", "scheduled"].includes(step.status);
     const checks = [
       { key: 'step', label: '步骤状态', status: executable ? 'pass' : 'block', detail: executable ? '可以进入执行流程' : '该步骤已执行、运行或取消' },
       { key: 'audience', label: '目标受众', status: audience.length ? 'pass' : 'block', detail: audience.length ? `${audience.length} 位客户在当前名单中` : '尚未添加目标客户' },
-      { key: 'contacts', label: emailChannel ? '可发送邮箱' : '可执行客户', status: reachable ? (reachable === audience.length ? 'pass' : 'warning') : 'block', detail: `${reachable}/${audience.length} 位客户具备当前渠道所需联系方式` },
-      { key: 'content', label: '触达内容', status: !emailChannel || Boolean(asset?.body.trim()) ? 'pass' : 'block', detail: !emailChannel ? '该渠道将创建人工触达任务' : asset?.body.trim() ? `已关联：${asset.title}` : '尚未关联可发送内容' },
-      { key: 'sender', label: '发送服务', status: smtpReady ? 'pass' : 'block', detail: smtpReady ? (emailChannel ? 'SMTP 已配置并通过测试' : '当前渠道无需 SMTP') : '请先配置并测试可用的 SMTP 服务' },
+      { key: 'contacts', label: emailChannel ? '已验证邮箱' : whatsappChannel ? '已授权 WhatsApp 联系人' : '可执行客户', status: reachable ? (reachable === audience.length ? 'pass' : 'warning') : 'block', detail: `${reachable}/${audience.length} 位客户具备当前渠道所需联系方式` },
+      { key: 'content', label: '触达内容', status: !automatedChannel || Boolean(asset?.body.trim()) ? 'pass' : 'block', detail: !automatedChannel ? '该渠道将创建包含执行说明的人工任务' : asset?.body.trim() ? `已关联：${asset.title}` : '尚未关联可发送内容' },
+      { key: 'sender', label: '发送服务', status: senderReady ? 'pass' : 'block', detail: senderReady ? (automatedChannel ? `${automatedChannelName(step.channel)}发送服务已配置并通过测试` : '该渠道由成员人工执行，无需发送服务') : `请先配置并测试可用的${automatedChannelName(step.channel)}发送服务` },
       { key: 'schedule', label: '执行时间', status: 'pass', detail: step.scheduledAt ? new Date(step.scheduledAt).toLocaleString('zh-CN', { timeZone: campaign.timezone }) : '确认后立即执行' },
     ] as const;
     return { campaignId: id, stepId, channel: step.channel, audienceCount: audience.length, reachableCount: reachable, canExecute: checks.every(check => check.status !== 'block'), checks };
@@ -669,17 +683,16 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: "APPROVAL_REQUIRED", message: `该步骤将触达 ${approvalAudience.length} 位客户，已提交审批。审批通过后请重新执行。`, approvalId });
       }
     }
-    const emailChannel = ["邮件", "邮件序列", "email", "Email"].includes(step.channel);
-    if (emailChannel) {
-      const smtpReady = await db.$first(db.select({ id: outboundChannelConnections.id }).from(outboundChannelConnections).where(and(
-        eq(outboundChannelConnections.workspaceId, request.auth.workspaceId),
-        eq(outboundChannelConnections.provider, 'smtp'),
-        eq(outboundChannelConnections.enabled, true),
-        eq(outboundChannelConnections.status, 'available'),
-      )));
-      if (!smtpReady) return reply.code(409).send({ error: "SMTP_REQUIRED", message: "请先配置并测试可用的 SMTP 服务，再执行邮件触达。" });
+    const emailChannel = emailChannels.has(step.channel);
+    const whatsappChannel = whatsappChannels.has(step.channel);
+    const automatedChannel = isAutomatedChannel(step.channel);
+    if (automatedChannel && !(await getAvailableConnection(request.auth.workspaceId, step.channel))) {
+      return reply.code(409).send({
+        error: emailChannel ? "SMTP_REQUIRED" : "CHANNEL_CONNECTION_REQUIRED",
+        message: `请先配置并测试可用的${automatedChannelName(step.channel)}发送服务，再执行触达。`,
+      });
     }
-    if (!emailChannel) {
+    if (!automatedChannel) {
       const audience = (await db.select().from(campaignAudienceMembers).where(and(
               eq(campaignAudienceMembers.campaignId, id),
               eq(campaignAudienceMembers.workspaceId, request.auth.workspaceId),
@@ -759,14 +772,21 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
                 and(
                   eq(inboxContacts.workspaceId, request.auth.workspaceId),
                   eq(inboxContacts.customerId, member.customerId),
+                  emailChannel
+                    ? and(sql`${inboxContacts.email} IS NOT NULL`, eq(inboxContacts.verificationStatus, "verified"))
+                    : whatsappChannel
+                      ? and(sql`${inboxContacts.phone} IS NOT NULL`, sql`${inboxContacts.whatsappOptedInAt} IS NOT NULL`)
+                      : sql`1 = 0`,
                 ),
               )));
-      return contact?.email ? [{ member, contact }] : [];
+      return contact ? [{ member, contact }] : [];
     }))).flat();
     if (!recipients.length)
       return reply.code(409).send({
         error: "NO_ELIGIBLE_RECIPIENTS",
-        message: "目标名单中没有已核验邮箱的联系人。",
+        message: emailChannel
+          ? "目标名单中没有已验证邮箱的联系人。"
+          : "目标名单中没有已记录授权且具备电话号码的 WhatsApp 联系人。",
       });
     const now = Date.now();
     const sender =
@@ -783,6 +803,7 @@ export const campaignRoutes: FastifyPluginAsync = async (app) => {
                   eq(messageThreads.workspaceId, request.auth.workspaceId),
                   eq(messageThreads.campaignId, id),
                   eq(messageThreads.contactId, contact.id),
+                  eq(messageThreads.channel, step.channel),
                 ),
               )));
       return {

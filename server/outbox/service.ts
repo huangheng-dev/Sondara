@@ -168,6 +168,8 @@ export const enqueueConfirmedMessage = async (input: {
         ? null
         : emailChannels.has(input.channel)
           ? "尚未配置可用的邮件发送服务。"
+          : whatsappChannels.has(input.channel)
+            ? "尚未配置可用的 WhatsApp Cloud API 发送服务。"
           : `尚未配置 ${input.channel} 的 Webhook 发送服务。`,
     externalId: null,
     createdAt: now,
