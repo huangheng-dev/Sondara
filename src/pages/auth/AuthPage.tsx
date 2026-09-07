@@ -117,7 +117,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
       <Card className="auth-form-card">
         {mode === 'login' || mode === 'register' ? <Segmented className="auth-segmented" aria-label="账户入口" block value={mode} options={[{label:'登录',value:'login'},{label:'创建账户',value:'register'}]} onChange={value=>navigate(value==='login'?'/login':'/register')}/> : <Link className="auth-back" to="/login"><ArrowLeft/>返回登录</Link>}
 
-        <Space className="auth-form-heading" orientation="vertical" size={4}><Typography.Text className="auth-eyebrow">{copy.eyebrow}</Typography.Text><Typography.Title level={2}>{copy.title}</Typography.Title><Typography.Text type="secondary">{copy.description}</Typography.Text></Space>
+        <Space className="auth-form-heading" orientation="vertical" size={4}><Typography.Text className="auth-eyebrow">{copy.eyebrow}</Typography.Text><Typography.Title level={1}>{copy.title}</Typography.Title><Typography.Text type="secondary">{copy.description}</Typography.Text></Space>
 
         {sent ? <Result status="success" title={mode === 'reset' ? '密码已经更新' : '重置指引已创建'} subTitle={mode === 'reset' ? '请使用新密码重新登录。' : '如果该邮箱已注册，系统会通过已配置的邮件服务发送重置链接。'} extra={<Space orientation="vertical">{resetUrl && <Link to={resetUrl}>当前为本地开发环境，直接打开重置链接<ArrowRight/></Link>}<Link to="/login">返回登录<ArrowRight/></Link></Space>}/>
         : <Form className="auth-form ui-form" form={form} onFinish={submit} layout="vertical" initialValues={{displayName:'',email:'',password:'',confirmPassword:'',twoFactorCode:''}}>

@@ -3443,7 +3443,7 @@ a {
   margin-block: 26px 24px;
 }
 
-.auth-form-heading h2.ant-typography {
+.auth-form-heading h1.ant-typography {
   margin: 0;
   color: #1d2942;
   font-size: 26px;
@@ -3725,7 +3725,7 @@ a {
     padding: 26px 22px 22px;
   }
 
-  .auth-form-heading h2.ant-typography {
+  .auth-form-heading h1.ant-typography {
     font-size: 25px;
   }
 
