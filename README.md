@@ -30,7 +30,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 - 增长活动编排和执行追踪
 - 客户收件箱与人工确认外发
 - 网站表单、通用 Webhook、Google Ads、LinkedIn 与 Meta 线索接入；有效事件可自动创建客户、联系人和 24 小时跟进任务
-- 采购机会中心：TED 官方公开 API，以及可配置凭据的 SAM.gov、UNGM 连接器；支持订阅、去重、截止时间和转跟进任务
+- 采购机会中心：TED 与 World Bank 官方公开 API，以及可配置凭据的 SAM.gov、UNGM 连接器；支持订阅、去重、截止时间和转跟进任务
 - 有来源的意向信号：招聘、扩张、融资、管理层、采购公告和技术变化只作为客户排序依据，不脱离企业证据单独造线索
 - SMTP、SendGrid、Mailgun 与合规 Webhook 外发队列，多邮箱 IMAP 收件
 - 送达/退信/退订回调、抑制名单和人工确认发送门禁
@@ -41,6 +41,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 - 数据导出与数据库备份
 - 登录、注册和会话恢复
 - 账户设置、BYOK 加密密钥库、TOTP 双重验证与登录安全
+- AI 模型连接支持 OpenAI Responses、OpenAI Chat Completions 和 Anthropic Messages 协议；搜索与网页 API 独立配置、测试和排序
 
 ## 技术栈
 
@@ -80,7 +81,9 @@ npm run autostart:install
 
 托管模式将网页、API 和健康检查统一到 `http://localhost:4175`。
 
-本地开发登录：`demo@sondara.example` / `SondaraDemo@2026`。公司为 Sondara 示例公司，用户为 Sondara 演示用户，工作区为 Sondara 演示工作区。所有案例均为虚构，不代表真实企业、交易或认证。登录页不展示演示账号或公共案例提示。演示账号仅在运行 `npm run db:seed:dev` 后创建。
+运行 `npm run db:seed:dev` 后会创建开发演示账号：`demo@sondara.example` / `SondaraDemo@2026`。公司为 Sondara 示例公司，用户为 Sondara 演示用户，工作区为 Sondara 演示工作区。所有案例均为虚构，不代表真实企业、交易或认证。登录页不展示演示账号或公共案例提示。
+
+正式或个人部署不会预置公共账号和密码。首次注册的账户会成为工作区所有者；邮箱、显示名称和密码以当前数据库及账户设置为准，不应写入公开仓库。演示账号与正式账号相互独立，修改正式账号不会改变 `db:seed:dev` 的虚构演示账号。
 
 仅启动前端或后端：
 
@@ -114,12 +117,14 @@ npm start
 
 ## 测试
 
-全部 27 组本地集成验收（第三方服务均使用 mock，每组测试使用隔离 SQLite 文件）：
+全部 31 组本地集成验收（第三方服务均使用 mock，每组测试使用隔离 SQLite 文件）：
 
 ```bash
 npm run test:auth-2fa        # TOTP 双重验证、恢复码、登录验证
 npm run test:backup-worker    # SQLite 快照、完整性验证与保留策略
 npm run test:ai-client        # AI 密钥池轮转与故障切换
+npm run test:automation-closure # 自动化建议、通知、结果、追踪与工作区删除闭环
+npm run test:acquisition-automation # 自动获客、验证联系人、安全触达、反馈学习与熔断
 npm run test:approvals        # 审批请求、权限、审批门禁与执行
 npm run test:closed-loop      # 权限、审计、资料、会话与密钥生命周期
 npm run test:search-connector # 搜索发现连接器
@@ -128,6 +133,7 @@ npm run test:map-connector    # Google Places 连接器
 npm run test:contact-enrichment # 公开联系人补全
 npm run test:industry-source  # 行业名录/展会/招投标
 npm run test:lead-sources      # 网站/广告 Webhook、官方签名、LinkedIn 表单拉取、自动入库与人工补全
+npm run test:official-platform-connectors # LinkedIn/Meta OAuth 与 WhatsApp 模板同步
 npm run test:procurement       # TED/SAM.gov/UNGM 边界、订阅、去重与采购任务闭环
 npm run test:signal-engine     # 证据型意向信号、加分、去重与客户继承
 npm run test:external-connectors # P2 连接器配置槽位、加密凭据、隔离与删除
@@ -144,6 +150,7 @@ npm run test:partial-updates  # 局部更新保护
 npm run test:icp              # 业务资料与定位知识
 npm run test:attribution      # 转化归因
 npm run test:worker-locks     # 多实例 Worker 与迁移领导锁
+npm run test:sales-guardian   # 商机推进、超期升级与销售任务守护
 ```
 
 一次运行全部集成测试：`npm run test:all`。发布前完整门禁使用：`npm run qa:all`。
