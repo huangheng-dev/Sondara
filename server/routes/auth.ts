@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { and, asc, eq, gt, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { z } from 'zod'
@@ -271,7 +271,7 @@ export const authRoutes: FastifyPluginAsync = async app => {
     return { user: { id: request.auth.userId, displayName: parsed.data.displayName, email: parsed.data.email, locale: parsed.data.locale, timezone: parsed.data.timezone, currency: parsed.data.currency }, workspace: { id: request.auth.workspaceId, name: request.auth.role === 'owner' ? parsed.data.businessName : request.auth.workspaceName, role: request.auth.role } }
   })
 
-  app.get('/sessions', { preHandler: requireAuth }, async request => ({ items: (await db.select().from(sessions).where(eq(sessions.userId, request.auth.userId)).orderBy(asc(sessions.createdAt))).map(item => ({ id: item.id, current: item.id === request.auth.sessionId, userAgent: item.userAgent, ipAddress: item.ipAddress, lastSeenAt: item.lastSeenAt, createdAt: item.createdAt, expiresAt: item.expiresAt })) }))
+  app.get('/sessions', { preHandler: requireAuth }, async request => ({ items: (await db.select().from(sessions).where(and(eq(sessions.userId, request.auth.userId), gt(sessions.expiresAt, Date.now()))).orderBy(desc(sessions.lastSeenAt), desc(sessions.createdAt))).map(item => ({ id: item.id, current: item.id === request.auth.sessionId, userAgent: item.userAgent, ipAddress: item.ipAddress, lastSeenAt: item.lastSeenAt, createdAt: item.createdAt, expiresAt: item.expiresAt })) }))
 
   app.get('/workspace-members', { preHandler: requireAuth }, async request => ({ items: (await db.select({ id: users.id, displayName: users.displayName, email: users.email, role: workspaceMembers.role }).from(workspaceMembers).innerJoin(users, eq(users.id, workspaceMembers.userId)).where(and(eq(workspaceMembers.workspaceId, request.auth.workspaceId), eq(users.status, 'active')))) }))
 

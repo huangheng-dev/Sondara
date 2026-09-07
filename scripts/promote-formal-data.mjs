@@ -136,7 +136,7 @@ try {
 
   await tx.execute({
     sql: 'update users set email = ?, display_name = ?, locale = ?, timezone = ?, currency = ?, updated_at = ? where id = ?',
-    args: [formalEmail, '东正外贸管理员', 'zh-CN', 'Asia/Shanghai', 'USD', now, userId],
+    args: [formalEmail, '管理员', 'zh-CN', 'Asia/Shanghai', 'USD', now, userId],
   })
   await tx.execute({
     sql: `update outbound_channel_connections set from_name = 'DONJOY', updated_at = ?

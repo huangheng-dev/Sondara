@@ -22,7 +22,7 @@ export const enrichCandidateWithAi = async (task: RadarTaskContext, candidate: D
   const evidence = candidate.evidence.map(item => ({ title: item.title, source: item.source, sourceUrl: item.sourceUrl }))
   const result = await completeWithAi({
     workspaceId: task.workspaceId,
-    timeoutMs: 15_000,
+    timeoutMs: 60_000,
     temperature: 0,
     maxTokens: 900,
     messages: [

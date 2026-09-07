@@ -11,6 +11,21 @@
   --sondara-sidebar: #10172a;
   --sondara-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.035);
   --sondara-shadow-md: 0 12px 32px rgba(30, 41, 59, 0.08);
+  --sondara-form-control-height: 38px;
+  --sondara-form-item-gap: 16px;
+  --sondara-form-support-height: 24px;
+}
+
+@media (max-width: 575px) {
+  :root {
+    --sondara-form-support-height: 44px;
+  }
+}
+
+@media (max-width: 360px) {
+  :root {
+    --sondara-form-support-height: 64px;
+  }
 }
 
 html,
@@ -673,6 +688,21 @@ a {
 
 .settings-profile-card {
   width: 100%;
+}
+
+.settings-session-list {
+  overflow: hidden;
+  border: 1px solid #e4e9f1;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.settings-session-list > [role="list"] > [role="listitem"] {
+  padding-inline: 16px !important;
+}
+
+.settings-session-card .ui-pagination {
+  margin-top: 12px;
 }
 
 .settings-data-card,
@@ -1472,6 +1502,7 @@ a {
   background: var(--attribution-stage-soft);
   font-size: 11px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .attribution-stage-card .ant-statistic {
@@ -1516,6 +1547,16 @@ a {
   display: block;
   margin-bottom: 14px;
   font-size: 12px;
+}
+
+@media (min-width: 1200px) and (max-width: 1599px) {
+  .attribution-stage-card > .ant-card-body {
+    padding-inline: 12px;
+  }
+
+  .attribution-stage-card__footer .ant-typography {
+    font-size: 11px;
+  }
 }
 
 .data-table__skeleton-row {
@@ -1682,6 +1723,30 @@ a {
   line-height: 21px;
 }
 
+.ui-badge--truncate.ant-tag {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ui-badge__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-signal-cell {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  align-items: flex-start;
+}
+
+.table-signal-cell > .ant-typography {
+  display: block;
+  max-width: 100%;
+}
+
 .ant-input-affix-wrapper,
 .ant-input,
 .ant-input-number,
@@ -1727,6 +1792,38 @@ a {
 .ant-form-item-label > label {
   font-weight: 620;
   line-height: 20px;
+}
+
+/* Keep every vertical form on the same field rhythm. Forms with helper copy
+   reserve one support row for every field so one description cannot shift all
+   following controls out of alignment. */
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical .ant-form-item {
+  margin-bottom: var(--sondara-form-item-gap);
+}
+
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical .ant-form-item-control-input {
+  min-height: var(--sondara-form-control-height);
+}
+
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical:has(.ant-form-item-extra) .ant-form-item-control {
+  position: relative;
+  padding-bottom: var(--sondara-form-support-height);
+}
+
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical:has(.ant-form-item-extra) .ant-form-item-additional {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  min-height: var(--sondara-form-support-height) !important;
+}
+
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical:has(.ant-form-item-extra) :is(.ant-form-item-extra, .ant-form-item-explain) {
+  min-height: 20px !important;
+  margin-top: 4px !important;
+}
+
+:where(.ant-app, .ui-modal, .ui-drawer) .ant-form-vertical:has(.ant-form-item-extra) .ant-form-item-has-error .ant-form-item-extra {
+  display: none;
 }
 
 .ui-form-optional {
@@ -1956,12 +2053,13 @@ a {
   width: 100%;
 }
 
-.ui-action-list__item {
+.ui-action-list__item.ant-btn {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 12px;
   width: 100%;
+  height: auto;
   min-height: 64px;
   padding: 11px 14px;
   border: 1px solid #e3e8f0;
@@ -3345,7 +3443,7 @@ a {
   margin-block: 26px 24px;
 }
 
-.auth-form-heading h2.ant-typography {
+.auth-form-heading h1.ant-typography {
   margin: 0;
   color: #1d2942;
   font-size: 26px;
@@ -3364,9 +3462,10 @@ a {
   padding: 4px;
 }
 
-.auth-form .ant-input-affix-wrapper,
-.auth-form .ant-input {
-  min-height: 44px;
+.auth-form .ant-form-item-control-input-content > .ant-input,
+.auth-form .ant-form-item-control-input-content > .ant-input-affix-wrapper {
+  height: var(--sondara-form-control-height);
+  min-height: var(--sondara-form-control-height);
 }
 
 .auth-form .ant-btn-primary {
@@ -3626,7 +3725,7 @@ a {
     padding: 26px 22px 22px;
   }
 
-  .auth-form-heading h2.ant-typography {
+  .auth-form-heading h1.ant-typography {
     font-size: 25px;
   }
 

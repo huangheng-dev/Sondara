@@ -80,7 +80,7 @@ npm run autostart:install
 
 托管模式将网页、API 和健康检查统一到 `http://localhost:4175`。
 
-本地开发登录：`demo@donjoy.local` / `Sondara@2026`。登录页仅在 Vite 开发模式自动预填，生产构建不会预填。
+本地开发登录：`demo@sondara.example` / `SondaraDemo@2026`。公司为 Sondara 示例公司，用户为 Sondara 演示用户，工作区为 Sondara 演示工作区。所有案例均为虚构，不代表真实企业、交易或认证。登录页不展示演示账号或公共案例提示。演示账号仅在运行 `npm run db:seed:dev` 后创建。
 
 仅启动前端或后端：
 

@@ -150,7 +150,7 @@ const run = async () => {
       headers: { cookie: member.cookie },
       payload: {
         name: `大批量审批活动-${suffix}`,
-        channel: 'WhatsApp',
+        channel: '电话',
         audienceLabel: '100 位测试客户',
         audienceCustomerIds: customerRows.map(customer => customer.id),
       },
@@ -162,7 +162,7 @@ const run = async () => {
       method: 'POST',
       url: `/api/campaigns/${campaignId}/steps`,
       headers: { cookie: member.cookie },
-      payload: { name: '人工确认首触达', channel: 'WhatsApp', status: 'scheduled' },
+      payload: { name: '人工确认首触达', channel: '电话', status: 'scheduled' },
     })
     assert.equal(step.statusCode, 201, step.body)
     const stepId = step.json().steps.at(-1).id
@@ -238,6 +238,4 @@ run().then(
   () => process.exit(0),
   error => { console.error(error); process.exit(1) },
 )
-
-
 

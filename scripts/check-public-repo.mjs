@@ -40,7 +40,7 @@ const contentRules = [
 const allowedEmailDomain = (domain) => {
   const normalized = domain.toLowerCase()
   return normalized === 'sondara.local' || normalized.endsWith('.local') ||
-    normalized.endsWith('.test') || normalized === 'example.com' ||
+    normalized.endsWith('.example') || normalized.endsWith('.test') || normalized === 'example.com' ||
     normalized.endsWith('.example.com') || normalized === 'example.org' ||
     normalized.endsWith('.example.org') || normalized === 'example.net' ||
     normalized.endsWith('.example.net') || normalized === 'sentry.example'

@@ -156,6 +156,13 @@ const aiProtocolOptions: Array<{ value: AiProtocol; label: string }> = [
   { value: "anthropic-messages", label: "Anthropic Messages" },
 ];
 const aiProtocolLabel = Object.fromEntries(aiProtocolOptions.map(option => [option.value, option.label])) as Record<AiProtocol, string>;
+const sessionDeviceLabel = (userAgent: string | null) => {
+  const value = userAgent ?? "";
+  const platform = /Windows/i.test(value) ? "Windows" : /Macintosh|Mac OS/i.test(value) ? "macOS" : /Android/i.test(value) ? "Android" : /iPhone|iPad/i.test(value) ? "iOS" : /Linux/i.test(value) ? "Linux" : "未知系统";
+  const browser = /Edg\//i.test(value) ? "Edge" : /Firefox\//i.test(value) ? "Firefox" : /Chrome\//i.test(value) ? "Chrome" : /Safari\//i.test(value) ? "Safari" : "浏览器";
+  return `${browser} · ${platform}`;
+};
+const sessionAddressLabel = (address: string | null) => !address ? "地址未知" : ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address) ? "本机访问" : `IP ${address}`;
 const aiConnectionTemplates: Record<string, { name: string; endpoint: string; model: string; protocol: AiProtocol }> = {
   OpenAI: { name: "OpenAI 主模型", endpoint: "https://api.openai.com/v1", model: "gpt-4.1-mini", protocol: "openai-responses" },
   "Google Gemini": { name: "Gemini 主模型", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-3.7-flash", protocol: "openai-chat-completions" },
@@ -961,6 +968,9 @@ export function SettingsPage() {
     10,
     `${serviceQuery}|${serviceStatus}|${serviceSort}|${aiServices.length}`,
   );
+  const activeSessions = useMemo(() => [...(sessionsQuery.data?.items ?? [])].sort((a, b) => Number(b.current) - Number(a.current) || (b.lastSeenAt ?? b.createdAt) - (a.lastSeenAt ?? a.createdAt)), [sessionsQuery.data?.items]);
+  const otherSessionCount = activeSessions.filter(session => !session.current).length;
+  const sessionPaging = usePagination(activeSessions, 5, String(activeSessions.length));
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [tab]);
@@ -1234,7 +1244,7 @@ export function SettingsPage() {
                 </Space>
               </Card>
             </Col>
-            <Col xs={24} lg={12}>
+            <Col span={24}>
               <Card className="settings-profile-card" title={<Space><Database size={18} />区域与经营偏好</Space>} extra={<Typography.Text type="secondary">经营数据的默认口径</Typography.Text>}>
                 <Form layout="vertical">
                   <Row gutter={[16, 0]}>
@@ -1278,7 +1288,7 @@ export function SettingsPage() {
                       </Form.Item>
                     </Col>
                     <Col span={24}>
-                      <Form.Item label="经营名称" style={{ marginBottom: 0 }}>
+                      <Form.Item label="经营名称">
                         <Input aria-label="经营名称"
                           value={profileDraft.businessName}
                           onChange={(e) =>
@@ -1704,13 +1714,13 @@ export function SettingsPage() {
                 </List.Item>
               )}/>
             </Card>
-            <Card title={<Space><MonitorSmartphone size={18} />登录会话</Space>} extra={<Typography.Text type="secondary">查看当前设备和其他活动会话</Typography.Text>}>
-              <List preserveLastDivider={(sessionsQuery.data?.items ?? []).some(session => !session.current)} dataSource={sessionsQuery.data?.items ?? []} renderItem={(session) => <List.Item key={session.id} actions={[session.current ? <Badge key="current" tone="green">当前</Badge> : <Button key="revoke" size="sm" onClick={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}>退出</Button>]}>
-                  <Space align="center"><Avatar icon={<MonitorSmartphone size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>{`${/Windows/i.test(session.userAgent ?? "") ? "Windows" : /Mac/i.test(session.userAgent ?? "") ? "macOS" : /Mobile|Android|iPhone/i.test(session.userAgent ?? "") ? "移动设备" : "浏览器会话"} · ${session.ipAddress ?? "未知地址"}`}</Typography.Text><Typography.Text type="secondary">{`${session.current ? "当前设备" : "其他设备"} · 最近活动：${session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString("zh-CN") : "未知"}`}</Typography.Text></Space></Space>
+            <Card className="settings-session-card" title={<Space><MonitorSmartphone size={18} />登录会话</Space>} extra={<Space wrap size={12}><Typography.Text type="secondary">{activeSessions.length} 个活动会话</Typography.Text>{otherSessionCount > 0 && <Popconfirm title={`退出其他 ${otherSessionCount} 个会话？`} description="其他设备需要重新登录，当前设备不受影响。" okText="全部退出" cancelText="取消" onConfirm={async()=>{const result=await authApi.revokeOtherSessions();await sessionsQuery.refetch();showToast(`已退出 ${result.removed} 个其他会话`)}}><Button size="sm">退出其他设备</Button></Popconfirm>}</Space>}>
+              {sessionsQuery.isError ? <PageState status="error" title="登录会话加载失败" description="无法读取活动设备，请稍后重试。" onRetry={()=>sessionsQuery.refetch()}/> : <>
+                <List className="settings-session-list" loading={sessionsQuery.isLoading} dataSource={sessionPaging.pageItems} locale={{emptyText:<EmptyState title="暂无活动会话" description="重新登录后，当前设备会显示在这里。" icon={MonitorSmartphone}/>}} renderItem={(session) => <List.Item key={session.id} actions={[session.current ? <Badge key="current" tone="green">当前设备</Badge> : <Popconfirm key="revoke" title="退出这个登录会话？" description="该设备需要重新登录才能继续访问。" okText="退出会话" cancelText="取消" onConfirm={async()=>{await authApi.revokeSession(session.id);await sessionsQuery.refetch();showToast("该登录会话已退出")}}><Button size="sm">退出会话</Button></Popconfirm>]}>
+                  <List.Item.Meta avatar={<Avatar icon={<MonitorSmartphone size={17}/>} />} title={<Space wrap size={8}><Typography.Text strong>{sessionDeviceLabel(session.userAgent)}</Typography.Text><Typography.Text type="secondary">{sessionAddressLabel(session.ipAddress)}</Typography.Text></Space>} description={<Space wrap size={[12,2]}><Typography.Text type="secondary">最近活动 {new Date(session.lastSeenAt ?? session.createdAt).toLocaleString("zh-CN")}</Typography.Text><Typography.Text type="secondary">登录于 {new Date(session.createdAt).toLocaleString("zh-CN")}</Typography.Text><Typography.Text type="secondary">有效期至 {new Date(session.expiresAt).toLocaleString("zh-CN")}</Typography.Text></Space>} />
                 </List.Item>}/>
-              {(sessionsQuery.data?.items ?? []).some(session => !session.current) && <List dataSource={["other-sessions"]} renderItem={() => <List.Item actions={[<Button key="revoke-all" size="sm" onClick={async()=>{const result=await authApi.revokeOtherSessions();await sessionsQuery.refetch();showToast(`已退出 ${result.removed} 个其他会话`)}}>全部退出</Button>]}>
-                  <Space align="center"><Avatar icon={<UserRound size={17}/>} /><Space orientation="vertical" size={0}><Typography.Text strong>其他登录设备</Typography.Text><Typography.Text type="secondary">一次撤销当前设备之外的全部会话</Typography.Text></Space></Space>
-                </List.Item>}/>}
+                {activeSessions.length > 0 && <Pagination page={sessionPaging.page} pageSize={sessionPaging.pageSize} total={activeSessions.length} onPageChange={sessionPaging.setPage} onPageSizeChange={sessionPaging.setPageSize} itemName="个会话" pageSizeOptions={[5,10,20]}/>}
+              </>}
             </Card>
             <Card title={<Space><AlertTriangle size={18}/>危险操作</Space>} extra={<Badge tone="red">不可恢复</Badge>}>
               <List dataSource={["delete-account"]} renderItem={() => (

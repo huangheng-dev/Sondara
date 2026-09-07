@@ -8,9 +8,10 @@ type PaginationProps = {
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   itemName?: string
+  pageSizeOptions?: readonly number[]
 }
 
-export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, itemName = '条记录' }: PaginationProps) {
+export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, itemName = '条记录', pageSizeOptions = PAGE_SIZE_OPTIONS }: PaginationProps) {
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const safePage = Math.min(page, pageCount)
   const start = total ? (safePage - 1) * pageSize + 1 : 0
@@ -21,8 +22,8 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
       current={safePage}
       pageSize={pageSize}
       total={total}
-      pageSizeOptions={PAGE_SIZE_OPTIONS.map(String)}
-      showSizeChanger={total > PAGE_SIZE_OPTIONS[0]}
+      pageSizeOptions={pageSizeOptions.map(String)}
+      showSizeChanger={total > pageSizeOptions[0]}
       showQuickJumper={pageCount > 10}
       responsive
       showTitle={false}

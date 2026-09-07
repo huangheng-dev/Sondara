@@ -205,7 +205,12 @@ export const aiServiceRoutes: FastifyPluginAsync = async app => {
     const service = (await db.$first(db.select().from(aiServices).where(and(eq(aiServices.id, id), eq(aiServices.workspaceId, request.auth.workspaceId)))))
     if (!service) return reply.code(404).send({ error: 'NOT_FOUND', message: 'AI 服务不存在。' })
     try {
-      const result = await completeWithAi({ workspaceId: request.auth.workspaceId, serviceId: id, messages: [{ role: 'user', content: '只回复 OK' }], maxTokens: 8, temperature: 0 })
+      await db.update(aiServiceKeys).set({ cooldownUntil: null, updatedAt: Date.now() }).where(and(
+        eq(aiServiceKeys.workspaceId, request.auth.workspaceId),
+        eq(aiServiceKeys.serviceId, id),
+        eq(aiServiceKeys.enabled, true),
+      ))
+      const result = await completeWithAi({ workspaceId: request.auth.workspaceId, serviceId: id, messages: [{ role: 'user', content: '只回复 OK' }], maxTokens: 64, temperature: 0 })
       await audit(request.auth.workspaceId, request.auth.userId, 'ai.service.tested', 'ai_service', id, { success: true, latency: result.latencyMs })
       return { ok: true, latencyMs: result.latencyMs }
     } catch (cause) {

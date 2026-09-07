@@ -203,7 +203,7 @@ export const createRadarWorker = (intervalMs: number) => {
             try {
               const enrichment = await Promise.race([
                 enrichCandidateWithAi(connectorContext, candidate),
-                new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('AI 研究超过 20 秒，已保留公开证据结果')), 20_000); timeout.unref?.() }),
+                new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('AI 研究超过 65 秒，已保留公开证据结果')), 65_000); timeout.unref?.() }),
               ])
               researched = enrichment.candidate
               await addEvent(task.workspaceId, task.id, queue.id, 'ai.enriched', `${candidate.company} 已完成 AI 证据研究`, 'info', { serviceName: enrichment.serviceName, model: enrichment.model, latencyMs: enrichment.latencyMs })

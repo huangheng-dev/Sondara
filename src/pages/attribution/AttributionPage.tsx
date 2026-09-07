@@ -105,7 +105,7 @@ export function AttributionPage(){
       <Flex vertical aria-label={`${period}客户转化链路`}>
         {isLoading ? (
           <EmptyState spinning title="正在加载转化数据…" icon={RefreshCw}/>
-        ) : <Row className="attribution-funnel-grid" gutter={[16,16]}>{stages.map((stage,index)=>{const Icon=stage.icon;const nextStage=stages[index+1];const rawRate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const rate=Math.min(100,rawRate);const loss=stage.next===null?null:Math.max(0,stage.value-stage.next);return <Col xs={24} sm={12} xl={8} key={stage.key}><Card className={`attribution-stage-card attribution-stage-card--${stage.key}`} size="small">
+        ) : <Row className="attribution-funnel-grid" gutter={[16,16]}>{stages.map((stage,index)=>{const Icon=stage.icon;const nextStage=stages[index+1];const rawRate=stage.next===null?conversionRate(stage.value,stages[0].value):(stage.value>0?Number((stage.next/stage.value*100).toFixed(1)):0);const rate=Math.min(100,rawRate);const loss=stage.next===null?null:Math.max(0,stage.value-stage.next);return <Col xs={24} sm={12} lg={8} xl={4} key={stage.key}><Card className={`attribution-stage-card attribution-stage-card--${stage.key}`} size="small">
           <Flex className="attribution-stage-card__heading" align="center" justify="space-between" gap={8}>
             <Space size={10}><span className="attribution-stage-card__icon"><Icon size={18}/></span><Typography.Text strong>{stage.label}</Typography.Text></Space>
             <Typography.Text className="attribution-stage-card__index">阶段 {String(index+1).padStart(2,'0')}</Typography.Text>
@@ -113,7 +113,7 @@ export function AttributionPage(){
           <Statistic value={stage.value} suffix="家"/>
           <Typography.Text type="secondary" className="attribution-stage-card__destination">{nextStage?`下一阶段：${nextStage.label}`:'最终结果：完成成交'}</Typography.Text>
           <Progress aria-label={`${stage.label}转化率`} percent={rate} size="small" showInfo={false}/>
-          <Flex className="attribution-stage-card__footer" align="center" justify="space-between" gap={8}><Typography.Text type="secondary">{stage.next===null?'整体转化率':'阶段转化率'} <strong>{rate}%</strong></Typography.Text>{loss!==null&&<Typography.Text type="secondary">流失 {loss.toLocaleString()} 家</Typography.Text>}</Flex>
+          <Flex className="attribution-stage-card__footer" align="center" justify="space-between" gap={4}><Typography.Text type="secondary">{stage.next===null?'整体转化率':'阶段转化率'} <strong>{rate}%</strong></Typography.Text>{loss!==null&&<Typography.Text type="secondary">流失 {loss.toLocaleString()} 家</Typography.Text>}</Flex>
         </Card></Col>})}</Row>}
       </Flex>
     </Panel>

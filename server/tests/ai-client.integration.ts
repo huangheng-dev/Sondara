@@ -61,7 +61,7 @@ const run = async () => {
     response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
       industry: '工业设备', signal: '官网产品信息与目标客户定位相关', reason: '仅依据官网公开标题和描述判断，购买时机待验证。',
       score: 82, confidence: 76,
-      dimensions: [{ label: '定位相关度', score: 82 }, { label: '证据可信度', score: 78 }, { label: '购买时机', score: 35 }, { label: '资料完整度', score: 70 }],
+      dimensions: [{ label: '定位相关度', score: 82 }, { label: '产品应用匹配度', score: 80 }, { label: '证据可信度', score: 78 }, { label: '购买时机', score: 35 }, { label: '资料完整度', score: 70 }],
     }) } }] }))
   })
 

@@ -11,10 +11,10 @@ import { hashPassword } from '../lib/password.js'
 
 if (process.env.NODE_ENV === 'production') throw new Error('开发测试账户不能在生产环境中生成。')
 
-const email = 'demo@donjoy.local'
-const password = 'Sondara@2026'
-const displayName = '东正外贸管理员'
-const workspaceName = '东正科技有限公司（DONJOY）'
+const email = 'demo@sondara.example'
+const password = 'SondaraDemo@2026'
+const displayName = 'Sondara 演示用户'
+const workspaceName = 'Sondara 演示工作区'
 const now = Date.now()
 const day = 86_400_000
 const passwordHash = await hashPassword(password)
@@ -406,13 +406,13 @@ type RadarCandidateSample = {
 }
 
 const radarCandidateSamples: RadarCandidateSample[] = [
-  { taskIndex: 0, company: '无锡颐和生物工程有限公司', region: '江苏', industry: '生物制药配液系统', size: '100-200 人', score: 89, confidence: 84, signal: '官网发布 GMP 配液系统项目交付案例，正在招聘验证工程师', source: '官网 + 招聘平台（演示）', value: 1_280_000, status: 'review', reason: '具备制药工程团队和近期交付信号，适合 ASME BPE 管件与隔膜阀切入。', contactName: '公开资料联系人', contactRole: '工程部', email: 'contact@yihe-bio.example.com', phone: '0510-00000001', evidence: ['官网案例提到 GMP 配液系统', '招聘验证工程师', '产品页包含洁净管路'], dimensions: [{ label: '行业匹配', score: 92, note: '生物制药配液系统' }, { label: '采购信号', score: 85, note: '项目案例与验证招聘' }, { label: '可触达性', score: 78, note: '官网公开邮箱' }] },
-  { taskIndex: 0, company: '泰州康源制药系统有限公司', region: '江苏', industry: '无菌制药装备', size: '50-100 人', score: 86, confidence: 80, signal: '新建验证实验室并采购无菌阀门备件', source: '公开招投标（演示）', value: 960_000, status: 'candidate', reason: '业务与无菌阀门强相关，但需确认项目预算和决策人。', contactName: '公开资料联系人', contactRole: '采购部', email: 'info@kangyuan-pharma.example.com', phone: '0523-00000002', evidence: ['招投标提及无菌阀门', '官网列出制药系统服务', '公司规模中等'], dimensions: [{ label: '行业匹配', score: 90, note: '无菌制药装备' }, { label: '采购信号', score: 82, note: '招投标片段' }, { label: '预算能力', score: 72, note: '需进一步确认' }] },
-  { taskIndex: 0, company: '上海翊安生物技术有限公司', region: '上海', industry: '抗体药工艺开发', size: '200-500 人', score: 84, confidence: 76, signal: '中试放大与 CIP/SIP 平台建设', source: '官网新闻（演示）', value: 1_450_000, status: 'candidate', reason: '终端制药客户，采购周期较长但产品匹配度高。', contactName: '公开资料联系人', contactRole: '工艺开发', email: 'bd@yian-bio.example.com', phone: '021-00000003', evidence: ['中试平台扩建新闻', '岗位包含 CIP/SIP', '公司有融资新闻'], dimensions: [{ label: '行业匹配', score: 88, note: '抗体药工艺开发' }, { label: '采购信号', score: 76, note: '平台扩建' }, { label: '企业规模', score: 85, note: '200-500 人' }] },
-  { taskIndex: 0, company: '合肥璞华制药装备有限公司', region: '安徽', industry: '制药 EPC / 流体系统', size: '50-100 人', score: 80, confidence: 72, signal: '承接华东注射水和配液系统项目', source: '行业名录（演示）', value: 780_000, status: 'candidate', reason: '区域 EPC 客户，适合作为渠道型客户持续培育。', contactName: '公开资料联系人', contactRole: '销售部', email: 'sales@puhua-epc.example.com', phone: '0551-00000004', evidence: ['行业名录列出流体系统', '官网服务包含注射水', '近期更新项目案例'], dimensions: [{ label: '行业匹配', score: 84, note: '制药 EPC' }, { label: '渠道价值', score: 82, note: '可重复采购' }, { label: '信号强度', score: 68, note: '缺少直接招标信号' }] },
-  { taskIndex: 1, company: '常州芯澄半导体设备有限公司', region: '江苏', industry: '晶圆清洗设备', size: '100-200 人', score: 91, confidence: 83, signal: '湿法清洗设备扩产，需要阀门控制器和 316L 管件', source: '招标平台（演示）', value: 1_720_000, status: 'review', reason: '高匹配半导体设备商，采购窗口明确。', contactName: '公开资料联系人', contactRole: '供应链', email: 'purchase@xincheng-semi.example.com', phone: '0519-00000005', evidence: ['招标提到湿法清洗设备', '岗位招聘电气工程师', '官网产品含湿制程模块'], dimensions: [{ label: '行业匹配', score: 94, note: '晶圆清洗设备' }, { label: '采购信号', score: 90, note: '扩产与招标' }, { label: '技术匹配', score: 86, note: '控制器与 316L' }] },
-  { taskIndex: 1, company: '嘉兴润钠新能源材料有限公司', region: '浙江', industry: '钠盐电池材料', size: '200-500 人', score: 87, confidence: 79, signal: '新厂房物料输送系统招标，关注耐腐蚀密封', source: '公开招标（演示）', value: 1_180_000, status: 'candidate', reason: '新能源材料客户，需确认洁净等级和介质腐蚀性。', contactName: '公开资料联系人', contactRole: '设备部', email: 'equipment@runna-energy.example.com', phone: '0573-00000006', evidence: ['招标提到物料输送', '新厂房建设公示', '岗位招聘设备工程师'], dimensions: [{ label: '行业匹配', score: 86, note: '新能源材料' }, { label: '采购信号', score: 84, note: '新厂房招标' }, { label: '技术风险', score: 70, note: '腐蚀参数待确认' }] },
-  { taskIndex: 1, company: '佛山乳泰智能装备有限公司', region: '广东', industry: '乳品饮料装备', size: '50-100 人', score: 78, confidence: 70, signal: '新增 CIP 模块和阀阵集成需求', source: '展会回访（演示）', value: 640_000, status: 'candidate', reason: '食品装备方向与高洁净泵阀匹配，但项目金额较小。', contactName: '公开资料联系人', contactRole: '项目部', email: 'project@rutai-equip.example.com', phone: '0757-00000007', evidence: ['展会回访记录', '官网列出 CIP 模块', '招聘流体工程师'], dimensions: [{ label: '行业匹配', score: 82, note: '乳品饮料装备' }, { label: '采购信号', score: 74, note: 'CIP 模块需求' }, { label: '预算能力', score: 66, note: '项目金额中等' }] },
+  { taskIndex: 0, company: 'Sondara 示例潜客 1（虚构）', region: '江苏', industry: '生物制药配液系统', size: '100-200 人', score: 89, confidence: 84, signal: '官网发布 GMP 配液系统项目交付案例，正在招聘验证工程师', source: '官网 + 招聘平台（演示）', value: 1_280_000, status: 'review', reason: '具备制药工程团队和近期交付信号，适合 ASME BPE 管件与隔膜阀切入。', contactName: '公开资料联系人', contactRole: '工程部', email: 'contact@customer.example', phone: '0510-00000001', evidence: ['官网案例提到 GMP 配液系统', '招聘验证工程师', '产品页包含洁净管路'], dimensions: [{ label: '行业匹配', score: 92, note: '生物制药配液系统' }, { label: '采购信号', score: 85, note: '项目案例与验证招聘' }, { label: '可触达性', score: 78, note: '官网公开邮箱' }] },
+  { taskIndex: 0, company: 'Sondara 示例潜客 2（虚构）', region: '江苏', industry: '无菌制药装备', size: '50-100 人', score: 86, confidence: 80, signal: '新建验证实验室并采购无菌阀门备件', source: '公开招投标（演示）', value: 960_000, status: 'candidate', reason: '业务与无菌阀门强相关，但需确认项目预算和决策人。', contactName: '公开资料联系人', contactRole: '采购部', email: 'info@kangyuan-pharma.example.com', phone: '0523-00000002', evidence: ['招投标提及无菌阀门', '官网列出制药系统服务', '公司规模中等'], dimensions: [{ label: '行业匹配', score: 90, note: '无菌制药装备' }, { label: '采购信号', score: 82, note: '招投标片段' }, { label: '预算能力', score: 72, note: '需进一步确认' }] },
+  { taskIndex: 0, company: 'Sondara 示例潜客 3（虚构）', region: '上海', industry: '抗体药工艺开发', size: '200-500 人', score: 84, confidence: 76, signal: '中试放大与 CIP/SIP 平台建设', source: '官网新闻（演示）', value: 1_450_000, status: 'candidate', reason: '终端制药客户，采购周期较长但产品匹配度高。', contactName: '公开资料联系人', contactRole: '工艺开发', email: 'bd@yian-bio.example.com', phone: '021-00000003', evidence: ['中试平台扩建新闻', '岗位包含 CIP/SIP', '公司有融资新闻'], dimensions: [{ label: '行业匹配', score: 88, note: '抗体药工艺开发' }, { label: '采购信号', score: 76, note: '平台扩建' }, { label: '企业规模', score: 85, note: '200-500 人' }] },
+  { taskIndex: 0, company: 'Sondara 示例潜客 4（虚构）', region: '安徽', industry: '制药 EPC / 流体系统', size: '50-100 人', score: 80, confidence: 72, signal: '承接华东注射水和配液系统项目', source: '行业名录（演示）', value: 780_000, status: 'candidate', reason: '区域 EPC 客户，适合作为渠道型客户持续培育。', contactName: '公开资料联系人', contactRole: '销售部', email: 'sales@puhua-epc.example.com', phone: '0551-00000004', evidence: ['行业名录列出流体系统', '官网服务包含注射水', '近期更新项目案例'], dimensions: [{ label: '行业匹配', score: 84, note: '制药 EPC' }, { label: '渠道价值', score: 82, note: '可重复采购' }, { label: '信号强度', score: 68, note: '缺少直接招标信号' }] },
+  { taskIndex: 1, company: 'Sondara 示例潜客 5（虚构）', region: '江苏', industry: '晶圆清洗设备', size: '100-200 人', score: 91, confidence: 83, signal: '湿法清洗设备扩产，需要阀门控制器和 316L 管件', source: '招标平台（演示）', value: 1_720_000, status: 'review', reason: '高匹配半导体设备商，采购窗口明确。', contactName: '公开资料联系人', contactRole: '供应链', email: 'purchase@xincheng-semi.example.com', phone: '0519-00000005', evidence: ['招标提到湿法清洗设备', '岗位招聘电气工程师', '官网产品含湿制程模块'], dimensions: [{ label: '行业匹配', score: 94, note: '晶圆清洗设备' }, { label: '采购信号', score: 90, note: '扩产与招标' }, { label: '技术匹配', score: 86, note: '控制器与 316L' }] },
+  { taskIndex: 1, company: 'Sondara 示例潜客 6（虚构）', region: '浙江', industry: '钠盐电池材料', size: '200-500 人', score: 87, confidence: 79, signal: '新厂房物料输送系统招标，关注耐腐蚀密封', source: '公开招标（演示）', value: 1_180_000, status: 'candidate', reason: '新能源材料客户，需确认洁净等级和介质腐蚀性。', contactName: '公开资料联系人', contactRole: '设备部', email: 'equipment@runna-energy.example.com', phone: '0573-00000006', evidence: ['招标提到物料输送', '新厂房建设公示', '岗位招聘设备工程师'], dimensions: [{ label: '行业匹配', score: 86, note: '新能源材料' }, { label: '采购信号', score: 84, note: '新厂房招标' }, { label: '技术风险', score: 70, note: '腐蚀参数待确认' }] },
+  { taskIndex: 1, company: 'Sondara 示例潜客 7（虚构）', region: '广东', industry: '乳品饮料装备', size: '50-100 人', score: 78, confidence: 70, signal: '新增 CIP 模块和阀阵集成需求', source: '展会回访（演示）', value: 640_000, status: 'candidate', reason: '食品装备方向与高洁净泵阀匹配，但项目金额较小。', contactName: '公开资料联系人', contactRole: '项目部', email: 'project@rutai-equip.example.com', phone: '0757-00000007', evidence: ['展会回访记录', '官网列出 CIP 模块', '招聘流体工程师'], dimensions: [{ label: '行业匹配', score: 82, note: '乳品饮料装备' }, { label: '采购信号', score: 74, note: 'CIP 模块需求' }, { label: '预算能力', score: 66, note: '项目金额中等' }] },
 ]
 
 const radarCandidateRows = radarCandidateSamples.map((sample) => {
@@ -453,8 +453,8 @@ const radarCandidateRows = radarCandidateSamples.map((sample) => {
 const businessProfile = {
   id: createId('bpr'),
   workspaceId,
-  company: '东正科技有限公司（DONJOY）',
-  website: 'https://www.donjoypumps.com/',
+  company: 'Sondara 示例公司',
+  website: 'https://sondara.example/',
   products: '面向海外市场的高洁净流体设备与过程控制解决方案，包括卫生级泵、无菌与卫生级阀门、阀门控制器和执行器、调节阀、罐体清洗、安全控制及 ASME BPE 管件。',
   regions: '全球海外市场；每次获客任务按国家或区域单独选择',
   customers: '海外生物制药、食品饮料、乳品与酿酒、半导体、新能源、精细化工和水处理领域的终端工厂、设备制造商、EPC、系统集成商、经销商及代理商',
@@ -462,10 +462,10 @@ const businessProfile = {
   selectedMarket: '海外生物制药与制药装备客户',
   analysisStatus: 'complete',
   analysisSummary: JSON.stringify({
-    summary: 'DONJOY 面向海外市场提供高洁净泵、卫生级与无菌阀门、阀门控制和工艺管路解决方案，适合围绕洁净生产、过程自动化和工厂扩建场景开展客户开发。',
+    summary: 'Sondara 示例公司是虚构的工业设备出口企业，用于展示获客流程。案例设定为提供高洁净泵、卫生级与无菌阀门、阀门控制和工艺管路解决方案，适合围绕洁净生产、过程自动化和工厂扩建场景开展客户开发。',
     publicFacts: [
       '产品覆盖卫生级泵、卫生级与无菌阀门、阀门控制器、执行器和调节阀',
-      '公开资料覆盖 ASME BPE、EHEDG、FDA、3-A、PED 等国际标准与认证',
+      '演示选型需求涉及 ASME BPE、EHEDG、FDA、3-A、PED；不代表 Sondara 获得任何认证',
       '服务生物制药、食品饮料、半导体、新能源、精细化工和水处理应用',
     ],
     recommendedMarkets: [
@@ -491,14 +491,14 @@ const businessProfile = {
 }
 
 const knowledgeSamples = [
-  { title: 'DONJOY 公司与海外业务资料', itemType: '公司资料', summary: 'DONJOY 面向国际市场提供高洁净泵、卫生级与无菌阀门、阀门控制器、执行器、调节阀和工艺管路解决方案。', source: 'DONJOY 英文外贸官网', sourceUrl: 'https://www.donjoypumps.com/', tags: ['DONJOY', '公司资料', '海外业务'], status: '已启用', referenceCount: 12 },
+  { title: 'Sondara 公司与海外业务资料', itemType: '公司资料', summary: '虚构案例：Sondara 示例公司面向国际市场提供高洁净泵、卫生级与无菌阀门、阀门控制器、执行器、调节阀和工艺管路解决方案。', source: 'Sondara 虚构演示资料', sourceUrl: 'https://sondara.example/', tags: ['Sondara', '公司资料', '海外业务'], status: '已启用', referenceCount: 12 },
   { title: '虚构工业泵技术参数模板', itemType: '产品知识', summary: '示例参数仅用于演示知识检索、内容生成和客户匹配，不代表任何真实产品。', source: '虚构示例站点', sourceUrl: 'https://novaflow.example.com/', tags: ['虚构数据', '产品参数', '演示'], status: '已启用', referenceCount: 9 },
   { title: '工业设备目标行业图谱（虚构）', itemType: '市场知识', summary: '本图谱使用虚构行业需求演示验证文件、材料一致性、耐腐蚀密封、CIP/SIP 和稳定交付等判断维度。', source: '虚构行业整理', sourceUrl: 'https://novaflow.example.com/', tags: ['虚构数据', '行业图谱', '演示'], status: '已启用', referenceCount: 21 },
   { title: 'ASME BPE / EHEDG / FDA / 3-A 认证要点', itemType: '合规知识', summary: '制药和食品客户常要求材质追溯、表面粗糙度、电抛光、密封材料食品级/制药级证明、CIP/SIP 适应性和第三方认证文件。提交资料时应按客户验证目录组织。', source: '行业公开标准说明', sourceUrl: null, tags: ['ASME BPE', 'EHEDG', 'FDA', '3-A', '验证文件'], status: '已启用', referenceCount: 176 },
   { title: '阀门控制器与气动执行器卖点', itemType: '产品知识', summary: '阀组控制方案要明确气源压力、阀位反馈、PLC 信号、NAMUR、电气防护、手动旁路、执行器扭矩和定位器兼容性。半导体与新能源客户尤其关注 IO 清单。', source: '内部销售资料（演示）', sourceUrl: null, tags: ['阀门控制器', '气动执行器', '自控调节阀', 'PLC'], status: '待复核', referenceCount: 58 },
   { title: 'CIP/SIP 清洗技术关注点', itemType: '应用知识', summary: 'CIP 关注流量、压力、清洗球覆盖、死角、回流温度和清洗剂兼容性；SIP 关注纯蒸汽冷凝排放、温度分布、膜片密封和坡度设计。', source: '行业应用整理', sourceUrl: null, tags: ['CIP', 'SIP', '清洗球', '无菌阀门'], status: '已启用', referenceCount: 143 },
   { title: '半导体湿制程客户需求模板', itemType: '客户判断规则', summary: '湿制程客户应确认介质、温度、压力、颗粒物、316L 要求、表面处理、阀组联动、PLC 接口、电气防护、废液回收和验收标准。缺少这些信息时不宜直接报价。', source: '销售方法论（演示）', sourceUrl: null, tags: ['半导体', '湿制程', '需求模板'], status: '已启用', referenceCount: 74 },
-  { title: 'DONJOY 海外客户判断边界', itemType: '客户判断规则', summary: '优先保留具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力的海外企业；排除消费类业务和无法核验公开来源的联系人。', source: 'DONJOY 海外业务定位', sourceUrl: 'https://www.donjoypumps.com/', tags: ['DONJOY', '外贸', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
+  { title: 'Sondara 海外客户判断边界', itemType: '客户判断规则', summary: '优先保留具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力的海外企业；排除消费类业务和无法核验公开来源的联系人。', source: 'Sondara 演示业务定位', sourceUrl: 'https://sondara.example/', tags: ['Sondara', '外贸', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
 ]
 const monthStart = (year: number, month: number) => Date.UTC(year, month, 1)
 const channelCostRows = [
@@ -581,7 +581,7 @@ await db.transaction(async (tx) => {
 const count = async (table: any) =>
   (await db.select().from(table).where(eq(table.workspaceId, workspaceId))).length
 
-console.log(`DONJOY demo ready: ${email} / ${password}`)
+console.log(`Sondara demo ready: ${email} / ${password}`)
 console.log([
   `customers=${(await count(customers))}`, `deals=${(await count(deals))}`, `tasks=${(await count(tasks))}`,
   `contentAssets=${(await count(contentAssets))}`, `campaigns=${(await count(campaigns))}`,

@@ -3,6 +3,9 @@ import { get } from 'node:http'
 import { createRequire } from 'node:module'
 import { spawn, spawnSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
+import { existsSync } from 'node:fs'
+
+if (existsSync('.env')) process.loadEnvFile('.env')
 
 const require = createRequire(import.meta.url)
 const npmCli = process.env.npm_execpath ?? require.resolve('npm/bin/npm-cli.js')

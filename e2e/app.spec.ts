@@ -70,7 +70,6 @@ test.describe('authenticated smoke, accessibility and performance', () => {
     await page.getByRole('button', { name: /创\s*建\s*获\s*客/ }).click()
     const dialog = page.getByRole('dialog', { name: /创建获客/ })
     await dialog.getByRole('textbox', { name: /计划名称/ }).fill('无来源网址回归任务')
-    await dialog.getByRole('textbox', { name: /目标地区/ }).fill('德国')
     await dialog.getByRole('button', { name: /创\s*建/ }).click()
     await expect(dialog.getByRole('alert')).toContainText('所选数据源尚未就绪')
     await expect(dialog.getByRole('alert')).not.toContainText('Cannot read properties')
