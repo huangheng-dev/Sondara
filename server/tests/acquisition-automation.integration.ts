@@ -87,7 +87,7 @@ const run = async () => {
     assert.equal(customerResponse.statusCode, 201, customerResponse.body)
     const customer = await db.$first(db.select().from(customers).where(eq(customers.id, customerResponse.json().id)))
     assert.ok(customer)
-    const now = Date.parse('2026-08-31T01:00:00.000Z')
+    const now = Date.now() - 2 * 86_400_000
     const candidateId = createId('can')
     await db.insert(radarCandidates).values({
       id: candidateId, workspaceId, radarTaskId: task!.id, company: customer!.company, region: 'Germany',
