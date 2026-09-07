@@ -110,8 +110,8 @@ export function ContentPage() {
   const [template,setTemplate]=useState('首次触达邮件')
   const [creationGroup,setCreationGroup]=useState('客户触达')
   const [sourceMethod,setSourceMethod]=useState<(typeof sourceMethods)[number]['label']>('客户信号')
-  const [title,setTitle]=useState('DONJOY 高洁净流体解决方案首次触达')
-  const [editor,setEditor]=useState('您好，\n\n我们注意到贵司正在推进高洁净生产、过程设备或流体控制相关项目。DONJOY 提供卫生级泵、无菌与卫生级阀门、阀门控制和高洁净管路解决方案，可根据介质、流量、压力、温度、清洗要求及适用标准提供针对性的选型资料。\n\n如果这与你们当前的项目、设备配套或区域渠道规划相关，我可以先发送一份简要的英文产品与应用资料供内部评估。')
+  const [title,setTitle]=useState('首次触达')
+  const [editor,setEditor]=useState('')
   const [market,setMarket]=useState('全球油气与石化项目业主及 EPC')
   const [role,setRole]=useState('采购负责人')
   const [stage,setStage]=useState('问题认知')
@@ -147,7 +147,7 @@ export function ContentPage() {
   const campaignQuery=useQuery({queryKey:['campaigns'],queryFn:()=>collectAllPages((page,pageSize)=>campaignApi.list({page,pageSize,sort:'updated_desc'})),retry:1})
   const profileQuery=useQuery({queryKey:['icp-profile'],queryFn:icpApi.getProfile,retry:1,staleTime:30_000})
   const marketOptions=useMemo(()=>{try{const parsed=JSON.parse(profileQuery.data?.analysisSummary??'{}') as {recommendedMarkets?:Array<{name?:unknown}>};return [...new Set([profileQuery.data?.selectedMarket,...(parsed.recommendedMarkets??[]).map(item=>String(item.name??'').trim())].filter((value):value is string=>Boolean(value)))]}catch{return profileQuery.data?.selectedMarket?[profileQuery.data.selectedMarket]:[]}},[profileQuery.data])
-  useEffect(()=>{if(contextCustomer)return;const selected=profileQuery.data?.selectedMarket;if(selected&&market!==selected){setMarket(selected);if(title==='DONJOY 高洁净流体解决方案首次触达')setTitle(`${selected}首次触达`)}},[profileQuery.data?.selectedMarket,contextCustomer,market,title])
+  useEffect(()=>{if(contextCustomer)return;const selected=profileQuery.data?.selectedMarket;if(selected&&market!==selected){setMarket(selected);if(title==='首次触达')setTitle(`${selected}首次触达`)}},[profileQuery.data?.selectedMarket,contextCustomer,market,title])
   const campaigns=campaignQuery.data?.items??[]
   const versionsQuery=useQuery({queryKey:['content-versions',versionAssetId],queryFn:()=>contentApi.versions(versionAssetId!),enabled:Boolean(versionAssetId&&assetDialog==='versions'),retry:1})
   const contentAssets=contentQuery.data?.items??[]

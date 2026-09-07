@@ -366,9 +366,9 @@ export const icpRoutes: FastifyPluginAsync = async app => {
       try {
         const response = await completeWithAi({
           workspaceId: request.auth.workspaceId,
-          timeoutMs: 30_000,
+          timeoutMs: 120_000,
           messages: [
-            { role: 'system', content: `你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason,profile(string[]),criteria(string[]),signals(string[])}[])、criteria(string[])。输出 ${MAX_RECOMMENDED_MARKETS} 个互不重复且可执行的细分市场。每个市场必须单独生成：4-5 条企业特征、7-8 条可核验筛选条件、4-5 条意向信号；内容必须直接对应该市场的企业类型、应用场景、采购能力和公开信号，禁止在不同市场复制相同数组。reason 要明确说明当前业务为什么适合该市场。` },
+            { role: 'system', content: `你是 B2B 客户定位分析师。只能根据用户提供的业务资料归纳，不得虚构数据或客户。只输出 JSON，字段为 summary(string)、signals(string[])、recommendedMarkets({name,reason,profile(string[]),criteria(string[]),signals(string[])}[])、criteria(string[])。输出 ${MAX_RECOMMENDED_MARKETS} 个互不重复且可执行的细分市场。每个市场必须单独生成：4-5 条企业特征、7-8 条可核验筛选条件、4-5 条意向信号；内容必须直接对应该市场的企业类型、应用场景、采购能力和公开信号，禁止在不同市场复制相同数组。reason 要明确说明当前业务为什么适合该市场。必须输出紧凑 JSON，不使用缩进。每个特征、条件和信号最多 12 个汉字，reason 最多 25 个汉字，summary 最多 80 个汉字；顶层 signals 和 criteria 各最多 4 条；整个 JSON 控制在 6000 字符以内，务必完整闭合。` },
             { role: 'user', content: `公司：${input.company}\n官网：${input.website}\n产品：${input.products}\n地区：${input.regions}\n客户示例：${input.customers}\n排除：${input.exclusions}` },
           ], maxTokens: 4800, temperature: .2,
         })

@@ -98,7 +98,7 @@ try {
   })
   if (ownerUserId) {
     await db.execute({
-      sql: `update users set display_name = '东正外贸管理员',
+      sql: `update users set display_name = '管理员',
             email = case when ? is not null and ? is not null and lower(email) = ? then ? else email end,
             currency = 'USD', updated_at = ? where id = ?`,
       args: [legacyAccountEmail ?? null, targetAccountEmail ?? null, legacyAccountEmail ?? null, targetAccountEmail ?? null, now, ownerUserId],

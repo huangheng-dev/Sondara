@@ -229,7 +229,7 @@ export const completeWithAi = async (request: AiCompletionRequest): Promise<AiCo
       if (remainingMs <= 0) break
       attempted = true
       try {
-        const result = await callAiApi(service, decryptSecret({ ciphertext: key.secretCiphertext, iv: key.secretIv, tag: key.secretTag }), request, Math.min(20_000, remainingMs))
+        const result = await callAiApi(service, decryptSecret({ ciphertext: key.secretCiphertext, iv: key.secretIv, tag: key.secretTag }), request, remainingMs)
         const completedAt = Date.now()
         await db.transaction(async tx => {
           await tx.update(aiServiceKeys).set({ failureCount: 0, cooldownUntil: null, lastUsedAt: completedAt, updatedAt: completedAt }).where(eq(aiServiceKeys.id, key.id))

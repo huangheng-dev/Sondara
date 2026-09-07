@@ -64,6 +64,7 @@ export function PipelinePage() {
   ]
   const ownerOptions=['全部负责人',...[...new Set(dealRecords.map(deal=>deal.owner))]].map(label=>({value:label,label,icon:<UserRound/>}))
   const riskOptions=[{value:'全部风险',label:'全部风险',icon:<ShieldCheck/>},{value:'仅看风险',label:'仅看风险',icon:<AlertTriangle/>}]
+  const archiveOptions=[{value:'全部商机',label:'全部商机',icon:<BriefcaseBusiness/>},{value:'已归档',label:'已归档',icon:<Layers3/>}]
   const sortOptions=[
     {value:'阶段概率最高',label:'阶段概率最高',icon:<TrendingUp/>},
     {value:'企业名称 A–Z',label:'企业名称 A–Z',icon:<ArrowDown/>},
@@ -71,16 +72,17 @@ export function PipelinePage() {
     {value:'阶段停留最长',label:'阶段停留最长',icon:<Clock3/>},
     {value:'阶段停留最短',label:'阶段停留最短',icon:<Clock3/>},
   ]
-  const clear=()=>{setQuery('');setOwner('全部负责人');setStageFilter('全部阶段');setRiskFilter('全部风险');setSort('阶段概率最高')}
-  return <PageContainer><PageHeader title="商机跟进" description="聚焦成交概率、风险和下一步动作，把商机从线索稳定推进到成交。" actions={<><Button onClick={()=>setArchiveView(()=>!archiveView)}><Layers3 size={16}/>{archiveView?'返回进行中':'已归档'}</Button><Button onClick={()=>setForecastOpen(true)}><TrendingUp size={16}/>查看预测</Button><Button variant="primary" disabled={!canWrite} onClick={()=>setNewOpen(true)}><Plus size={16}/>新建商机</Button></>}/>
+  const clear=()=>{setQuery('');setOwner('全部负责人');setStageFilter('全部阶段');setRiskFilter('全部风险');setSort('阶段概率最高');setArchiveView(false)}
+  return <PageContainer><PageHeader title="商机跟进" description="聚焦成交概率、风险和下一步动作，把商机从线索稳定推进到成交。" actions={<><Button onClick={()=>setForecastOpen(true)}><TrendingUp size={16}/>查看预测</Button><Button variant="primary" disabled={!canWrite} onClick={()=>setNewOpen(true)}><Plus size={16}/>新建商机</Button></>}/>
     <Panel>
       <TableToolbar filters={<>
           <SearchInput ariaLabel="搜索商机" value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索企业、负责人或下一步"/>
+          <CustomSelect ariaLabel="筛选商机分类" value={archiveView?'已归档':'全部商机'} onChange={value=>{setArchiveView(value==='已归档');setChecked(new Set());setSelected(null)}} options={archiveOptions}/>
           {allDeals.length>4&&<><CustomSelect ariaLabel="筛选商机阶段" value={stageFilter} onChange={setStageFilter} options={stageOptions}/>
           <CustomSelect ariaLabel="筛选负责人" value={owner} onChange={setOwner} options={ownerOptions}/>
           <CustomSelect ariaLabel="筛选商机风险" value={riskFilter} onChange={value=>setRiskFilter(value as RiskFilter)} options={riskOptions}/>
           <CustomSelect ariaLabel="商机排序" value={sort} onChange={value=>setSort(value as DealSort)} options={sortOptions}/></>}
-          {(query||owner!=='全部负责人'||stageFilter!=='全部阶段'||riskFilter!=='全部风险'||sort!=='阶段概率最高')&&<Button onClick={clear}>清除筛选</Button>}
+          {(query||archiveView||owner!=='全部负责人'||stageFilter!=='全部阶段'||riskFilter!=='全部风险'||sort!=='阶段概率最高')&&<Button onClick={clear}>清除筛选</Button>}
         </>} selection={checked.size>0?<SelectionBar count={checked.size} unit="个商机" actions={<>
             <Button disabled={archiveView} onClick={advanceChecked}><ArrowRight/>推进阶段</Button>
             <Button onClick={()=>archiveDeals([...checked],!archiveView)}><Layers3/>{archiveView?'恢复所选':'归档所选'}</Button>
