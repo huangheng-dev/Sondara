@@ -2053,12 +2053,13 @@ a {
   width: 100%;
 }
 
-.ui-action-list__item {
+.ui-action-list__item.ant-btn {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 20px;
   align-items: center;
   gap: 12px;
   width: 100%;
+  height: auto;
   min-height: 64px;
   padding: 11px 14px;
   border: 1px solid #e3e8f0;
