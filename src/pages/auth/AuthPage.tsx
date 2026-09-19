@@ -110,7 +110,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
         <BrandMark className="auth-brand__mark" size={48}/>
         <Space className="auth-brand__copy" orientation="vertical" size={0}>
           <Typography.Text strong>SONDARA</Typography.Text>
-          <Typography.Text type="secondary">AI 客户发现与增长系统</Typography.Text>
+          <Typography.Text type="secondary">AI 获客与销售增长工作区</Typography.Text>
         </Space>
       </Space>
       <Card className="auth-form-card">

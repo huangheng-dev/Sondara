@@ -5,7 +5,7 @@
 [![CI](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-5b5bd6.svg)](./LICENSE)
 
-**Sondara is an open-source, self-hosted AI B2B lead generation and CRM workspace.** It brings customer discovery, account research, outreach, sales pipeline management, and revenue attribution into one workflow.
+**Sondara is an open-source, self-hosted AI customer acquisition and sales growth workspace.** It connects customer discovery, account research, outreach, sales pipeline management, and revenue attribution in one workflow for solo operators and B2B teams.
 
 Run it locally for one person or deploy it for a team. Your customer data and provider credentials stay in infrastructure you control.
 
@@ -108,7 +108,7 @@ See [SECURITY.md](./SECURITY.md) to report a vulnerability.
 
 Issues, documentation improvements, and pull requests are welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before submitting a change.
 
-If Sondara is useful to you, please star the repository and share it with teams building international B2B sales workflows.
+If Sondara is useful to you, please star the repository and share it with solo operators and B2B teams building repeatable sales growth workflows.
 
 ## License
 

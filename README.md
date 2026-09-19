@@ -5,9 +5,9 @@
 [![CI](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-5b5bd6.svg)](./LICENSE)
 
-> **Open-source, self-hosted AI B2B lead generation and CRM workspace** for customer discovery, account research, outreach, sales pipelines, and revenue attribution.
+> **Open-source, self-hosted AI customer acquisition and sales growth workspace** for customer discovery, account research, outreach, sales pipelines, and revenue attribution.
 
-Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，面向需要开发海外客户的外贸与 B2B 销售团队。可在本地单人运行，也可部署到云端供多个独立账号使用。
+Sondara 是一个免费开源、自托管的 **AI 获客与销售增长工作区**，连接客户发现、企业研究、营销触达、销售管道和收入归因。面向个人创业者与 B2B 团队，适用于海外市场开发、外贸获客、企业销售、渠道拓展和顾问服务等场景。
 
 如果 Sondara 对你有帮助，欢迎给仓库点一个 Star；英文介绍和部署入口见 [README.en.md](./README.en.md)。
 
@@ -15,7 +15,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
   <img src="./docs/assets/sondara-dashboard.png" alt="Sondara 经营总览：展示客户发现、研究、触达和商机推进的完整工作流" width="100%" />
 </p>
 
-它围绕跨境获客场景设计：
+它围绕从线索到成交的完整增长流程设计：
 
 - 客户雷达根据用户设置的目标地区，扫描企业官网、Google Places、行业名录和展会名单；系统不再硬编码排除某个国家或地区；
 - 外发以邮件（SMTP/SendGrid/Mailgun）和 WhatsApp 为主，IMAP 多邮箱收件自动验证联系人；
@@ -25,7 +25,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 核心闭环：
 
 ```text
-定义 ICP → 多来源发现海外企业 → AI 研究和评分 → 保存客户 → 内容与跟进 → 商机 → 收入归因
+定义 ICP → 多来源发现目标企业 → AI 研究和评分 → 保存客户 → 内容与跟进 → 商机 → 收入归因
 ```
 
 ## 产品预览
@@ -57,7 +57,7 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 
 ## 当前功能
 
-- 个人增长工作台与经营总览
+- 销售增长工作台与经营总览
 - 市场与 ICP（业务资料、定位知识、AI 画像分析）
 - 统一客户雷达：获客策略、真实数据源和意向信号分开配置，支持官网种子、搜索、Google Places、行业名录、展会和公开采购页面
 - 企业决策详情、评分拆解和证据链
