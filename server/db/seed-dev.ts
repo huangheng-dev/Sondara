@@ -498,7 +498,7 @@ const knowledgeSamples = [
   { title: '阀门控制器与气动执行器卖点', itemType: '产品知识', summary: '阀组控制方案要明确气源压力、阀位反馈、PLC 信号、NAMUR、电气防护、手动旁路、执行器扭矩和定位器兼容性。半导体与新能源客户尤其关注 IO 清单。', source: '内部销售资料（演示）', sourceUrl: null, tags: ['阀门控制器', '气动执行器', '自控调节阀', 'PLC'], status: '待复核', referenceCount: 58 },
   { title: 'CIP/SIP 清洗技术关注点', itemType: '应用知识', summary: 'CIP 关注流量、压力、清洗球覆盖、死角、回流温度和清洗剂兼容性；SIP 关注纯蒸汽冷凝排放、温度分布、膜片密封和坡度设计。', source: '行业应用整理', sourceUrl: null, tags: ['CIP', 'SIP', '清洗球', '无菌阀门'], status: '已启用', referenceCount: 143 },
   { title: '半导体湿制程客户需求模板', itemType: '客户判断规则', summary: '湿制程客户应确认介质、温度、压力、颗粒物、316L 要求、表面处理、阀组联动、PLC 接口、电气防护、废液回收和验收标准。缺少这些信息时不宜直接报价。', source: '销售方法论（演示）', sourceUrl: null, tags: ['半导体', '湿制程', '需求模板'], status: '已启用', referenceCount: 74 },
-  { title: 'Sondara 海外客户判断边界', itemType: '客户判断规则', summary: '优先保留具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力的海外企业；排除消费类业务和无法核验公开来源的联系人。', source: 'Sondara 演示业务定位', sourceUrl: 'https://sondara.example/', tags: ['Sondara', '外贸', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
+  { title: 'Sondara 目标客户判断边界', itemType: '客户判断规则', summary: '优先保留具有高洁净生产、工程设计、设备制造、系统集成或区域渠道能力的目标企业；排除消费类业务和无法核验公开来源的联系人。', source: 'Sondara 演示业务定位', sourceUrl: 'https://sondara.example/', tags: ['Sondara', 'B2B', '排除条件', '去噪'], status: '已启用', referenceCount: 6 },
 ]
 const monthStart = (year: number, month: number) => Date.UTC(year, month, 1)
 const channelCostRows = [

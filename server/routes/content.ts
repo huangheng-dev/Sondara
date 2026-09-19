@@ -289,7 +289,7 @@ export const contentRoutes: FastifyPluginAsync = async app => {
           workspaceId: request.auth.workspaceId,
           timeoutMs: 60_000,
           messages: [
-            { role: 'system', content: '你是 B2B 外贸客户增长内容编辑。只输出可直接发送的正文，不要标题、解释、Markdown 代码块、占位符或未经证实的数据。内容需具体、克制、专业，并包含一个低压力下一步。' },
+            { role: 'system', content: '你是 B2B 客户增长内容编辑。请根据目标市场、客户背景和沟通语言生成内容。只输出可直接发送的正文，不要标题、解释、Markdown 代码块、占位符或未经证实的数据。内容需具体、克制、专业，并包含一个低压力下一步。' },
             { role: 'user', content: input.existingBody?.trim()
               ? `请润色以下${input.language}${input.contentType}，保留事实、客户和意图，让语言更自然、行动请求更直接，不要虚构数据：\n\n${input.existingBody}`
               : `生成${input.language}的${input.contentType}。目标市场：${input.targetMarket}；客户角色：${input.customerRole}；购买阶段：${input.buyingStage}；客户信号：${input.customerSignal}；信息来源：${input.sourceMethod}；发布渠道：${input.channel}。` },
