@@ -1,6 +1,6 @@
 # Sondara
 
-[简体中文](./README.md) · [English](./README.en.md)
+[项目主页](https://huangheng-dev.github.io/Sondara/) · [简体中文](./README.md) · [English](./README.en.md)
 
 [![CI](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-5b5bd6.svg)](./LICENSE)
