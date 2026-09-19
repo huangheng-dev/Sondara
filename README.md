@@ -1,8 +1,15 @@
 # Sondara
 
+[简体中文](./README.md) · [English](./README.en.md)
+
 [![CI](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/huangheng-dev/Sondara/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-5b5bd6.svg)](./LICENSE)
+
+> **Open-source, self-hosted AI B2B lead generation and CRM workspace** for customer discovery, account research, outreach, sales pipelines, and revenue attribution.
 
 Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，面向需要开发海外客户的外贸与 B2B 销售团队。可在本地单人运行，也可部署到云端供多个独立账号使用。
+
+如果 Sondara 对你有帮助，欢迎给仓库点一个 Star；英文介绍和部署入口见 [README.en.md](./README.en.md)。
 
 <p align="center">
   <img src="./docs/assets/sondara-dashboard.png" alt="Sondara 经营总览：展示客户发现、研究、触达和商机推进的完整工作流" width="100%" />
