@@ -4,7 +4,6 @@ import { App, Card, Checkbox, Flex, Form, Input, Result, Segmented, Space, Typog
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   LockKeyhole,
   Mail,
   ShieldCheck,
@@ -25,7 +24,7 @@ const pageCopy = {
   register: {
     eyebrow: '开始使用 Sondara',
     title: '创建你的工作空间',
-    description: '设置账户信息，随后完善业务资料并开始客户开发。',
+    description: '填写账户信息，创建后可继续完善企业资料。',
     submit: '创建账户',
   },
   forgot: {
@@ -120,10 +119,10 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' | 'forgot' | 're
         <Space className="auth-form-heading" orientation="vertical" size={4}><Typography.Text className="auth-eyebrow">{copy.eyebrow}</Typography.Text><Typography.Title level={1}>{copy.title}</Typography.Title><Typography.Text type="secondary">{copy.description}</Typography.Text></Space>
 
         {sent ? <Result status="success" title={mode === 'reset' ? '密码已经更新' : '重置指引已创建'} subTitle={mode === 'reset' ? '请使用新密码重新登录。' : '如果该邮箱已注册，系统会通过已配置的邮件服务发送重置链接。'} extra={<Space orientation="vertical">{resetUrl && <Link to={resetUrl}>当前为本地开发环境，直接打开重置链接<ArrowRight/></Link>}<Link to="/login">返回登录<ArrowRight/></Link></Space>}/>
-        : <Form className="auth-form ui-form" form={form} onFinish={submit} layout="vertical" initialValues={{displayName:'',email:'',password:'',confirmPassword:'',twoFactorCode:''}}>
-          {mode==='register'&&<Form.Item name="displayName" label="显示名称" required rules={[{required:true,message:'请输入显示名称'}]}><Input autoComplete="name" prefix={<UserRound/>} placeholder="你的姓名或称呼"/></Form.Item>}
-          {mode !== 'reset' && <Form.Item name="email" label="邮箱" required rules={[{required:true,type:'email',message:'请输入有效邮箱'}]}><Input autoComplete="email" type="email" prefix={<Mail/>} placeholder="name@example.com"/></Form.Item>}
-          {mode!=='forgot'&&<Form.Item name="password" label={mode === 'reset' ? '新密码' : '密码'} required rules={[{required:true,min:8,message:'密码至少 8 位'}]} extra={mode==='register'?<Typography.Text type="secondary"><Check/> 至少 8 位，建议同时包含字母和数字</Typography.Text>:undefined}><Input.Password autoComplete={mode==='login'?'current-password':'new-password'} prefix={<LockKeyhole/>} placeholder={mode==='register'||mode==='reset'?'设置至少 8 位密码':'输入登录密码'}/></Form.Item>}
+        : <Form className="auth-form ui-form" form={form} onFinish={submit} layout="vertical" noValidate initialValues={{displayName:'',email:'',password:'',confirmPassword:'',twoFactorCode:''}}>
+          {mode==='register'&&<Form.Item name="displayName" label="显示名称" required rules={[{required:true,message:'请输入显示名称'},{min:2,message:'显示名称至少 2 个字符'},{max:50,message:'显示名称最多 50 个字符'}]}><Input autoComplete="name" prefix={<UserRound/>} placeholder="你的姓名或称呼"/></Form.Item>}
+          {mode !== 'reset' && <Form.Item name="email" label="邮箱" required rules={[{required:true,message:'请输入邮箱'},{type:'email',message:'请输入有效的邮箱地址'}]}><Input autoComplete="email" type="email" prefix={<Mail/>} placeholder="name@example.com"/></Form.Item>}
+          {mode!=='forgot'&&<Form.Item name="password" label={mode === 'reset' ? '新密码' : '密码'} required rules={[{required:true,message:mode === 'reset' ? '请输入新密码' : '请输入密码'},{min:8,message:'密码至少需要 8 位'},{max:128,message:'密码最多 128 位'}]}><Input.Password autoComplete={mode==='login'?'current-password':'new-password'} prefix={<LockKeyhole/>} placeholder={mode==='register'||mode==='reset'?'设置 8–128 位密码':'输入登录密码'}/></Form.Item>}
           {mode === 'reset' && <Form.Item name="confirmPassword" label="确认新密码" dependencies={['password']} required rules={[{required:true,message:'请再次输入新密码'},{validator:(_,value)=>!value||value===form.getFieldValue('password')?Promise.resolve():Promise.reject(new Error('两次输入的新密码不一致'))}]}><Input.Password autoComplete="new-password" prefix={<LockKeyhole/>} placeholder="再次输入新密码"/></Form.Item>}
 
           {mode==='login'&&!twoFactorChallenge&&<Flex justify="space-between" style={{ marginBottom: 16 }}><Checkbox checked={remember} onChange={event=>setRemember(event.target.checked)}>保持登录</Checkbox><Link to="/forgot-password">忘记密码？</Link></Flex>}
