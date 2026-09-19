@@ -4,6 +4,12 @@
 
 Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，面向需要开发海外客户的外贸与 B2B 销售团队。可在本地单人运行，也可部署到云端供多个独立账号使用。
 
+<p align="center">
+  <img src="./docs/assets/sondara-dashboard.png" alt="Sondara 经营总览：展示客户发现、研究、触达和商机推进的完整工作流" width="100%" />
+</p>
+
+<p align="center"><sub>经营总览 · 截图使用虚构演示数据</sub></p>
+
 它围绕跨境获客场景设计：
 
 - 客户雷达根据用户设置的目标地区，扫描企业官网、Google Places、行业名录和展会名单；系统不再硬编码排除某个国家或地区；
@@ -16,6 +22,35 @@ Sondara 是一个免费开源的 **AI 跨境获客与个人增长工作区**，�
 ```text
 定义 ICP → 多来源发现海外企业 → AI 研究和评分 → 保存客户 → 内容与跟进 → 商机 → 收入归因
 ```
+
+## 产品预览
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/sondara-radar.png" alt="Sondara AI 获客页面" />
+      <br />
+      <strong>AI 获客</strong><br />
+      汇总搜索、官网、行业名录与采购信号，保留匹配分、证据置信度和来源。
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/assets/sondara-customers.png" alt="Sondara 客户库页面" />
+      <br />
+      <strong>客户工作台</strong><br />
+      统一管理企业档案、联系人、关系阶段、预估价值和下一步行动。
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <img src="./docs/assets/sondara-attribution.png" alt="Sondara 转化分析页面" />
+      <br />
+      <strong>转化分析</strong><br />
+      用六阶段链路查看发现、研究、触达、回复、商机和成交，并比较渠道转化表现。
+    </td>
+  </tr>
+</table>
+
+> 以上截图中的公司、客户、金额与业务事件均为虚构演示数据。
 
 ## 当前功能
 
