@@ -94,7 +94,9 @@ export function AppLayout() {
   const menuEntry = ({ path, label, icon: Icon }: (typeof navigation)[number]): NonNullable<MenuProps['items']>[number] => ({
     key: path,
     icon: <Icon size={18}/>,
-    label: path === '/inbox' ? <Flex justify="space-between">{label}<AntBadge count={inboxUnread} size="small"/></Flex> : label,
+    label: path === '/inbox'
+      ? <Flex className="app-menu__entry" align="center" justify="space-between" gap={10}><span>{label}</span><AntBadge className="app-menu__unread" count={inboxUnread} size="small"/></Flex>
+      : label,
   })
   const menuItems: MenuProps['items'] = [
     { type: 'group', label: '总览', children: navigation.filter(item => item.path === '/dashboard').map(menuEntry) },

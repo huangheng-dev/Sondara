@@ -223,6 +223,23 @@ a {
   margin-inline-start: 7px;
 }
 
+.app-menu__entry {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.app-menu__entry > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-menu__unread {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
 .app-menu .ant-menu-item:hover .ant-menu-item-icon,
 .app-menu .ant-menu-submenu-title:hover .ant-menu-item-icon,
 .app-menu .ant-menu-item-selected .ant-menu-item-icon,
