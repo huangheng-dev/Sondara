@@ -1,9 +1,27 @@
 {
   "name": "sondara",
-  "description": "Open-source AI customer discovery and personal growth workspace for local or multi-user cloud deployment.",
+  "description": "Open-source, self-hosted AI B2B lead generation and CRM workspace for customer discovery, outreach, sales pipelines, and revenue attribution.",
   "license": "MIT",
   "private": false,
   "version": "0.1.0",
+  "homepage": "https://github.com/huangheng-dev/Sondara#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/huangheng-dev/Sondara.git"
+  },
+  "bugs": {
+    "url": "https://github.com/huangheng-dev/Sondara/issues"
+  },
+  "keywords": [
+    "ai-crm",
+    "b2b-leads",
+    "customer-discovery",
+    "lead-generation",
+    "marketing-automation",
+    "sales-automation",
+    "sales-pipeline",
+    "self-hosted"
+  ],
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/patch-rc-util-react19.mjs",

@@ -1,0 +1,48 @@
+name: Bug report / 缺陷报告
+description: Report a reproducible problem in Sondara / 报告可复现的问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Sondara. Remove API keys, customer data, email addresses, and other private information before submitting.
+
+        感谢帮助改进 Sondara。提交前请删除 API 密钥、客户数据、邮箱地址和其他隐私信息。
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened? / 问题描述
+      description: Describe the problem and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit / 版本或提交
+      placeholder: v0.1.0 or a commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: Environment / 运行环境
+      placeholder: Windows 11, Node.js 24, Chrome 140
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / 相关日志
+      description: Paste sanitized logs or screenshots. Do not include credentials or customer data.
+      render: shell
+

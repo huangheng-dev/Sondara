@@ -1,0 +1,40 @@
+name: Feature request / 功能建议
+description: Suggest an improvement for Sondara / 提议产品改进
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve / 要解决的问题
+      description: Explain the workflow, user, and current limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution / 建议方案
+      description: Describe the result you want and how it should behave.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 考虑过的替代方案
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area / 产品模块
+      options:
+        - Customer discovery / 客户发现
+        - Customer workspace / 客户库
+        - Outreach and inbox / 触达与收件箱
+        - Sales pipeline / 销售管道
+        - Attribution / 归因分析
+        - Integrations / 集成
+        - Deployment and operations / 部署运维
+        - Other / 其他
+    validations:
+      required: true
+
