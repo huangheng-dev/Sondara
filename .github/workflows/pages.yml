@@ -38,7 +38,7 @@ jobs:
           cp docs/assets/*.png _site/assets/
           cp public/favicon.svg _site/favicon.svg
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - name: Deploy
